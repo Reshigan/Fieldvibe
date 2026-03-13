@@ -688,3 +688,63 @@ CREATE INDEX IF NOT EXISTS idx_commission_earnings_earner ON commission_earnings
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
 CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_agent_assignments ON agent_company_assignments(user_id, tenant_id);
+
+-- ==================== ADDITIONAL TABLES ====================
+
+-- Vans
+CREATE TABLE IF NOT EXISTS vans (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  registration_number TEXT DEFAULT '',
+  driver_id TEXT,
+  status TEXT DEFAULT 'active',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Beats (Sales Routes)
+CREATE TABLE IF NOT EXISTS beats (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Route Customers
+CREATE TABLE IF NOT EXISTS route_customers (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  route_id TEXT NOT NULL,
+  customer_id TEXT NOT NULL,
+  sequence_order INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Agent Locations (GPS Tracking)
+CREATE TABLE IF NOT EXISTS agent_locations (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  latitude REAL,
+  longitude REAL,
+  accuracy REAL,
+  recorded_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Surveys
+CREATE TABLE IF NOT EXISTS surveys (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  questions TEXT DEFAULT '[]',
+  status TEXT DEFAULT 'active',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_vans_tenant ON vans(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_beats_tenant ON beats(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_route_customers_route ON route_customers(route_id);
+CREATE INDEX IF NOT EXISTS idx_agent_locations_agent ON agent_locations(tenant_id, agent_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_surveys_tenant ON surveys(tenant_id);
