@@ -1,0 +1,19 @@
+<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer ring - field coverage / signal reach -->
+  <circle cx="32" cy="32" r="28" stroke="url(#fvm-grad)" stroke-width="2.5" stroke-dasharray="5 3.5" opacity="0.4"/>
+  <!-- Signal waves - real-time data pulse -->
+  <path d="M19 38C19 38 23 25 32 25C41 25 45 38 45 38" stroke="url(#fvm-grad)" stroke-width="2.8" stroke-linecap="round" fill="none"/>
+  <path d="M13 43C13 43 20 18 32 18C44 18 51 43 51 43" stroke="url(#fvm-grad)" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.45"/>
+  <!-- Central pin - GPS location marker -->
+  <circle cx="32" cy="32" r="6.5" fill="url(#fvm-grad)"/>
+  <circle cx="32" cy="32" r="2.8" fill="#0A0F1C"/>
+  <!-- Upward arrow - growth / field activity -->
+  <path d="M32 13L32 23" stroke="#00E87B" stroke-width="2.8" stroke-linecap="round"/>
+  <path d="M27 18L32 13L37 18" stroke="#00E87B" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="fvm-grad" x1="10" y1="10" x2="54" y2="54">
+      <stop offset="0%" stop-color="#00E87B"/>
+      <stop offset="100%" stop-color="#4BFFB5"/>
+    </linearGradient>
+  </defs>
+</svg>

@@ -1,0 +1,45 @@
+import api from './api'
+
+export const salesService = {
+  // Customers and Sales Reps
+  getCustomers: () => api.get('/customers'),
+  getSalesReps: () => api.get('/sales-reps'),
+  
+  // Orders - use authoritative endpoints with server-side pricing
+  getOrders: () => api.get('/orders'),
+  getOrder: (id: string) => api.get(`/orders/${id}`),
+  createOrder: (data: any) => api.post('/orders/create', data),
+  updateOrder: (id: string, data: any) => api.put(`/orders/${id}`, data),
+  transitionOrder: (id: string, new_status: string, notes?: string) => 
+    api.post(`/orders/${id}/transition`, { new_status, notes }),
+  getOrderTransitions: (id: string) => api.get(`/orders/${id}/transitions`),
+  getOrderHistory: (id: string) => api.get(`/orders/${id}/history`),
+  recalculateOrder: (id: string, items: any[]) => api.post(`/orders/${id}/recalculate`, { items }),
+  
+  // Invoices - use authoritative endpoints with server-side pricing
+  getInvoices: () => api.get('/invoices'),
+  getInvoice: (id: string) => api.get(`/invoices/${id}`),
+  createInvoice: (data: any) => api.post('/invoices/create', data),
+  transitionInvoice: (id: string, new_status: string, notes?: string) => 
+    api.post(`/invoices/${id}/transition`, { new_status, notes }),
+  getInvoiceTransitions: (id: string) => api.get(`/invoices/${id}/transitions`),
+  
+  // Payments
+  getPayments: () => api.get('/sales/payments'),
+  getPayment: (id: string) => api.get(`/sales/payments/${id}`),
+  createPayment: (data: any) => api.post('/sales/payments', data),
+  
+  // Credit Notes - use authoritative endpoints with server-side pricing
+  getCreditNotes: () => api.get('/credit-notes/list'),
+  getCreditNote: (id: string) => api.get(`/credit-notes/${id}`),
+  createCreditNote: (data: any) => api.post('/credit-notes/create', data),
+  transitionCreditNote: (id: string, new_status: string, notes?: string) => 
+    api.post(`/credit-notes/${id}/transition`, { new_status, notes }),
+  
+  // Returns - use authoritative endpoints with server-side pricing
+  getReturns: () => api.get('/sales/returns'),
+  getReturn: (id: string) => api.get(`/sales/returns/${id}`),
+  createReturn: (data: any) => api.post('/sales/returns/create', data),
+  transitionReturn: (id: string, new_status: string, notes?: string) => 
+    api.post(`/sales/returns/${id}/transition`, { new_status, notes }),
+}
