@@ -55,25 +55,25 @@ export default function OnboardingPage() {
   const progressPct = Math.round((completedCount / steps.length) * 100)
 
   if (dismissed) return null
-  if (loading) return <div className="p-6 text-center text-gray-400">Loading onboarding...</div>
+  if (loading) return <div className="p-6 text-center text-gray-500 dark:text-gray-400">Loading onboarding...</div>
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6" role="main" aria-label="Onboarding Setup">
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-2xl font-bold">Welcome to FieldVibe</h1>
-          <p className="text-gray-400 mt-1">Complete these steps to get your distribution operation running</p>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Complete these steps to get your distribution operation running</p>
         </div>
-        <button onClick={() => setDismissed(true)} className="text-gray-400 hover:text-gray-300 text-sm" aria-label="Dismiss onboarding">Skip for now</button>
+        <button onClick={() => setDismissed(true)} className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 text-sm" aria-label="Dismiss onboarding">Skip for now</button>
       </div>
 
       {/* Progress bar */}
-      <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
+      <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
         <div className="flex justify-between mb-2">
           <span className="text-sm font-medium">{completedCount} of {steps.length} completed</span>
           <span className="text-sm text-[#00E87B] font-medium">{progressPct}%</span>
         </div>
-        <div className="w-full bg-[#1a1f2e] rounded-full h-3">
+        <div className="w-full bg-gray-200 dark:bg-[#1a1f2e] rounded-full h-3">
           <div className="bg-[#00E87B] h-3 rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
         </div>
       </div>
@@ -81,9 +81,9 @@ export default function OnboardingPage() {
       {/* Steps */}
       <div className="space-y-3">
         {steps.map((step, idx) => (
-          <div key={step.id} className={`bg-[#0A0E18] border rounded-lg p-4 flex items-center justify-between ${step.completed ? 'border-green-800/50' : 'border-gray-200 dark:border-[#1a1f2e]'}`}>
+          <div key={step.id} className={`bg-white dark:bg-[#0A0E18] border rounded-lg p-4 flex items-center justify-between ${step.completed ? 'border-green-800/50' : 'border-gray-200 dark:border-[#1a1f2e]'}`}>
             <div className="flex items-center gap-4">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${step.completed ? 'bg-green-900/40 text-green-400' : 'bg-[#1a1f2e] text-gray-400'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${step.completed ? 'bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400' : 'bg-gray-100 dark:bg-[#1a1f2e] text-gray-500 dark:text-gray-400'}`}>
                 {step.completed ? (
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                 ) : (
@@ -92,7 +92,7 @@ export default function OnboardingPage() {
               </div>
               <div>
                 <div className={`font-medium ${step.completed ? 'text-gray-500 line-through' : ''}`}>{step.title}</div>
-                <div className="text-sm text-gray-400">{step.description}</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">{step.description}</div>
               </div>
             </div>
             {!step.completed && (
@@ -100,7 +100,7 @@ export default function OnboardingPage() {
                 <button onClick={() => navigate(step.route)} className="px-4 py-2 bg-[#00E87B] text-black rounded-lg text-sm font-medium hover:bg-[#00d06e]" aria-label={step.action}>
                   {step.action}
                 </button>
-                <button onClick={() => markComplete(step.id)} className="px-3 py-2 border border-gray-600 rounded-lg text-sm hover:bg-gray-800" aria-label="Mark as done">Done</button>
+                <button onClick={() => markComplete(step.id)} className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-100 dark:hover:bg-gray-800" aria-label="Mark as done">Done</button>
               </div>
             )}
           </div>
@@ -108,9 +108,9 @@ export default function OnboardingPage() {
       </div>
 
       {completedCount === steps.length && (
-        <div className="bg-green-900/20 border border-green-800 rounded-lg p-6 text-center">
-          <h2 className="text-xl font-bold text-green-400 mb-2">Setup Complete!</h2>
-          <p className="text-gray-300 mb-4">Your FieldVibe account is ready. Start managing your field operations.</p>
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-300 dark:border-green-800 rounded-lg p-6 text-center">
+          <h2 className="text-xl font-bold text-green-600 dark:text-green-400 mb-2">Setup Complete!</h2>
+          <p className="text-gray-600 dark:text-gray-300 mb-4">Your FieldVibe account is ready. Start managing your field operations.</p>
           <button onClick={() => navigate('/dashboard')} className="px-6 py-2 bg-[#00E87B] text-black rounded-lg font-medium hover:bg-[#00d06e]">Go to Dashboard</button>
         </div>
       )}

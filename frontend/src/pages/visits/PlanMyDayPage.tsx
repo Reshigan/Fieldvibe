@@ -36,7 +36,7 @@ export default function PlanMyDayPage() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl font-bold">Plan My Day</h1>
-          <p className="text-sm text-gray-400">AI-suggested route for maximum efficiency</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">AI-suggested route for maximum efficiency</p>
         </div>
         <button
           onClick={() => suggestMutation.mutate()}
@@ -49,30 +49,30 @@ export default function PlanMyDayPage() {
       </div>
 
       {!position?.latitude && (
-        <div className="bg-yellow-900/50 border border-yellow-600 rounded-lg p-3 mb-4 text-sm text-yellow-200" role="alert">
+        <div className="bg-yellow-50 dark:bg-yellow-900/50 border border-yellow-300 dark:border-yellow-600 rounded-lg p-3 mb-4 text-sm text-yellow-800 dark:text-yellow-200" role="alert">
           Enable location services to get route suggestions based on your current position.
         </div>
       )}
 
       {suggestMutation.isError && (
-        <div className="bg-red-900/50 border border-red-600 rounded-lg p-3 mb-4 text-sm text-red-200" role="alert">
+        <div className="bg-red-50 dark:bg-red-900/50 border border-red-300 dark:border-red-600 rounded-lg p-3 mb-4 text-sm text-red-800 dark:text-red-200" role="alert">
           Failed to generate route. Please try again.
         </div>
       )}
 
       {optimizedRoute.length > 0 ? (
         <div className="space-y-3">
-          <div className="text-sm text-gray-400 mb-2">
+          <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">
             {optimizedRoute.length} stops - Est. {optimizedRoute.reduce((a, s) => a + s.estimated_duration_min, 0)} minutes total
           </div>
           {optimizedRoute.map((stop, idx) => (
-            <div key={stop.customer_id} className="bg-gray-800 border border-gray-700 rounded-lg p-4 flex items-start gap-3">
+            <div key={stop.customer_id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 flex items-start gap-3">
               <div className="w-8 h-8 rounded-full bg-[#00E87B] text-black flex items-center justify-center font-bold text-sm flex-shrink-0">
                 {idx + 1}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-medium">{stop.customer_name}</div>
-                <div className="text-xs text-gray-400">{stop.address}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{stop.address}</div>
                 <div className="flex gap-3 mt-1 text-xs text-gray-500">
                   <span>Priority: {stop.priority}</span>
                   <span>Est: {stop.estimated_duration_min}min</span>

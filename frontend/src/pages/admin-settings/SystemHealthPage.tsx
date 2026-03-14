@@ -85,9 +85,9 @@ export const SystemHealthPage: React.FC = () => {
   }
 
   const getStatusBg = (status: string) => {
-    if (status === 'healthy') return 'bg-green-900/40 text-green-400'
-    if (status === 'degraded') return 'bg-yellow-900/40 text-yellow-400'
-    return 'bg-red-900/40 text-red-400'
+    if (status === 'healthy') return 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400'
+    if (status === 'degraded') return 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400'
+    return 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400'
   }
 
   return (
@@ -95,10 +95,10 @@ export const SystemHealthPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">System Health</h1>
-          <p className="mt-1 text-sm text-gray-400">Monitor services, self-healing metrics, and error trends</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Monitor services, self-healing metrics, and error trends</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={checkServices} className="px-4 py-2 border border-gray-600 rounded-lg text-sm hover:bg-gray-800" aria-label="Refresh health checks">Refresh</button>
+          <button onClick={checkServices} className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-100 dark:hover:bg-gray-800" aria-label="Refresh health checks">Refresh</button>
           <button onClick={triggerHeal} disabled={healRunning} className="px-4 py-2 bg-[#00E87B] text-black rounded-lg text-sm font-medium hover:bg-[#00d06e] disabled:opacity-50" aria-label="Run self-healing">
             {healRunning ? 'Healing...' : 'Run Self-Heal'}
           </button>
@@ -107,34 +107,34 @@ export const SystemHealthPage: React.FC = () => {
 
       {/* Overview Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
-          <div className="text-sm text-gray-400">Services</div>
+        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
+          <div className="text-sm text-gray-500 dark:text-gray-400">Services</div>
           <div className="text-2xl font-bold">{healthyCount}/{services.length}</div>
           <div className="text-xs text-green-400">healthy</div>
         </div>
-        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
-          <div className="text-sm text-gray-400">Avg Latency</div>
+        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
+          <div className="text-sm text-gray-500 dark:text-gray-400">Avg Latency</div>
           <div className="text-2xl font-bold">{Math.round(avgLatency)}<span className="text-sm ml-1">ms</span></div>
         </div>
-        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
-          <div className="text-sm text-gray-400">Error Rate</div>
+        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
+          <div className="text-sm text-gray-500 dark:text-gray-400">Error Rate</div>
           <div className={`text-2xl font-bold ${errorRate === 0 ? 'text-green-400' : errorRate < 25 ? 'text-yellow-400' : 'text-red-400'}`}>{errorRate}%</div>
         </div>
-        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
-          <div className="text-sm text-gray-400">Uptime</div>
+        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
+          <div className="text-sm text-gray-500 dark:text-gray-400">Uptime</div>
           <div className="text-2xl font-bold text-green-400">99.9%</div>
         </div>
       </div>
 
       {/* Services */}
-      <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg overflow-hidden">
+      <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-[#1a1f2e] rounded-lg overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 dark:border-[#1a1f2e]">
           <h2 className="text-lg font-medium">Services</h2>
         </div>
         {loading ? (
-          <div className="p-8 text-center text-gray-400">Checking services...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Checking services...</div>
         ) : (
-          <div className="divide-y divide-[#1a1f2e]">
+          <div className="divide-y divide-gray-200 dark:divide-[#1a1f2e]">
             {services.map((s, i) => (
               <div key={i} className="px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -142,7 +142,7 @@ export const SystemHealthPage: React.FC = () => {
                   <span className="font-medium">{s.name}</span>
                 </div>
                 <div className="flex items-center gap-4">
-                  {s.latency && <span className="text-sm text-gray-400">{s.latency}ms</span>}
+                  {s.latency && <span className="text-sm text-gray-500 dark:text-gray-400">{s.latency}ms</span>}
                   <span className={`px-2 py-1 text-xs rounded-full font-medium ${getStatusBg(s.status)}`}>{s.status}</span>
                 </div>
               </div>
@@ -152,10 +152,10 @@ export const SystemHealthPage: React.FC = () => {
       </div>
 
       {/* Self-Heal History */}
-      <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-6">
+      <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-[#1a1f2e] rounded-lg p-6">
         <h2 className="text-lg font-medium mb-4">Self-Healing History</h2>
         {healHistory.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">
+          <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             <p>No healing runs recorded yet.</p>
             <p className="text-sm mt-1">Self-healing runs automatically every 6 hours.</p>
           </div>
@@ -163,13 +163,13 @@ export const SystemHealthPage: React.FC = () => {
           <div className="space-y-3">
             {healHistory.map((h, i) => (
               <div key={i} className="border border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
-                <div className="text-sm text-gray-400 mb-2">{h.timestamp || 'Latest run'}</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">{h.timestamp || 'Latest run'}</div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 text-center">
-                  <div><div className="text-lg font-bold text-[#00E87B]">{h.orders_fixed || 0}</div><div className="text-xs text-gray-400">Orders Fixed</div></div>
-                  <div><div className="text-lg font-bold text-[#00E87B]">{h.balances_fixed || 0}</div><div className="text-xs text-gray-400">Balances Fixed</div></div>
-                  <div><div className="text-lg font-bold text-[#00E87B]">{h.stock_fixed || 0}</div><div className="text-xs text-gray-400">Stock Fixed</div></div>
-                  <div><div className="text-lg font-bold text-[#00E87B]">{h.orphans_cleaned || 0}</div><div className="text-xs text-gray-400">Orphans Cleaned</div></div>
-                  <div><div className="text-lg font-bold text-[#00E87B]">{h.commissions_fixed || 0}</div><div className="text-xs text-gray-400">Commissions Fixed</div></div>
+                  <div><div className="text-lg font-bold text-[#00E87B]">{h.orders_fixed || 0}</div><div className="text-xs text-gray-500 dark:text-gray-400">Orders Fixed</div></div>
+                  <div><div className="text-lg font-bold text-[#00E87B]">{h.balances_fixed || 0}</div><div className="text-xs text-gray-500 dark:text-gray-400">Balances Fixed</div></div>
+                  <div><div className="text-lg font-bold text-[#00E87B]">{h.stock_fixed || 0}</div><div className="text-xs text-gray-500 dark:text-gray-400">Stock Fixed</div></div>
+                  <div><div className="text-lg font-bold text-[#00E87B]">{h.orphans_cleaned || 0}</div><div className="text-xs text-gray-500 dark:text-gray-400">Orphans Cleaned</div></div>
+                  <div><div className="text-lg font-bold text-[#00E87B]">{h.commissions_fixed || 0}</div><div className="text-xs text-gray-500 dark:text-gray-400">Commissions Fixed</div></div>
                 </div>
               </div>
             ))}
@@ -178,15 +178,15 @@ export const SystemHealthPage: React.FC = () => {
       </div>
 
       {/* System Info */}
-      <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-6">
+      <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-[#1a1f2e] rounded-lg p-6">
         <h2 className="text-lg font-medium mb-4">System Information</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-          <div><span className="text-gray-400">Platform:</span> <span>Cloudflare Workers</span></div>
-          <div><span className="text-gray-400">Database:</span> <span>D1 (SQLite)</span></div>
-          <div><span className="text-gray-400">Storage:</span> <span>R2</span></div>
-          <div><span className="text-gray-400">Version:</span> <span>v3.0.0</span></div>
-          <div><span className="text-gray-400">Environment:</span> <span>Production</span></div>
-          <div><span className="text-gray-400">Region:</span> <span>Global Edge</span></div>
+          <div><span className="text-gray-500 dark:text-gray-400">Platform:</span> <span>Cloudflare Workers</span></div>
+          <div><span className="text-gray-500 dark:text-gray-400">Database:</span> <span>D1 (SQLite)</span></div>
+          <div><span className="text-gray-500 dark:text-gray-400">Storage:</span> <span>R2</span></div>
+          <div><span className="text-gray-500 dark:text-gray-400">Version:</span> <span>v3.0.0</span></div>
+          <div><span className="text-gray-500 dark:text-gray-400">Environment:</span> <span>Production</span></div>
+          <div><span className="text-gray-500 dark:text-gray-400">Region:</span> <span>Global Edge</span></div>
         </div>
       </div>
     </div>

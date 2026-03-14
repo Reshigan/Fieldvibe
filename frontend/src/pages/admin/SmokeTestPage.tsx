@@ -168,15 +168,15 @@ export default function SmokeTestPage() {
           <p className="text-gray-500 text-sm mt-1">System health, integrity checks, and performance benchmarks</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={exportResults} className="px-4 py-2 border border-gray-600 rounded-lg text-sm hover:bg-gray-800" aria-label="Export results">Export JSON</button>
+          <button onClick={exportResults} className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-100 dark:hover:bg-gray-800" aria-label="Export results">Export JSON</button>
           <button onClick={triggerHeal} disabled={healRunning} className="px-4 py-2 bg-[#00E87B] text-black rounded-lg text-sm font-medium hover:bg-[#00d06e] disabled:opacity-50" aria-label="Trigger self-healing">{healRunning ? 'Healing...' : 'Heal Now'}</button>
         </div>
       </div>
 
       {lastHealResult && (
-        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4 text-sm">
+        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4 text-sm">
           <strong className="text-[#00E87B]">Heal Result:</strong>
-          <pre className="mt-1 text-gray-300 text-xs overflow-x-auto">{JSON.stringify(lastHealResult, null, 2)}</pre>
+          <pre className="mt-1 text-gray-600 dark:text-gray-300 text-xs overflow-x-auto">{JSON.stringify(lastHealResult, null, 2)}</pre>
         </div>
       )}
 
@@ -187,9 +187,9 @@ export default function SmokeTestPage() {
           { label: 'Failed', value: apiFail, color: 'text-red-400' },
           { label: 'Integrity OK', value: intPass, color: 'text-green-400' },
         ].map((s, i) => (
-          <div key={i} className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
+          <div key={i} className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
             <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
-            <div className="text-sm text-gray-400">{s.label}</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">{s.label}</div>
           </div>
         ))}
       </div>
@@ -198,7 +198,7 @@ export default function SmokeTestPage() {
         <nav className="-mb-px flex space-x-8" role="tablist">
           {tabs.map(t => (
             <button key={t.key} onClick={() => setActiveTab(t.key)} role="tab" aria-selected={activeTab === t.key}
-              className={`py-3 px-1 border-b-2 text-sm font-medium ${activeTab === t.key ? 'border-[#00E87B] text-[#00E87B]' : 'border-transparent text-gray-400 hover:text-gray-300'}`}>
+              className={`py-3 px-1 border-b-2 text-sm font-medium ${activeTab === t.key ? 'border-[#00E87B] text-[#00E87B]' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}>
               {t.label} ({t.count})
             </button>
           ))}
@@ -207,10 +207,10 @@ export default function SmokeTestPage() {
 
       {running && (
         <div>
-          <div className="w-full bg-[#1a1f2e] rounded-full h-2">
+          <div className="w-full bg-gray-200 dark:bg-[#1a1f2e] rounded-full h-2">
             <div className="bg-[#00E87B] h-2 rounded-full transition-all" style={{ width: `${progress}%` }} />
           </div>
-          <p className="text-sm text-gray-400 mt-1">Testing... {Math.round(progress)}%</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Testing... {Math.round(progress)}%</p>
         </div>
       )}
 
@@ -219,20 +219,20 @@ export default function SmokeTestPage() {
           <button onClick={runApiChecks} disabled={running} className="px-6 py-2 bg-[#00E87B] text-black rounded-lg font-medium hover:bg-[#00d06e] disabled:opacity-50">
             {running ? 'Running...' : 'Run API Checks'}
           </button>
-          <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg overflow-hidden">
+          <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-[#1a1f2e] rounded-lg overflow-hidden">
             <table className="min-w-full" role="table">
               <thead><tr className="border-b border-gray-200 dark:border-[#1a1f2e]">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Endpoint</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Time</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Error</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Endpoint</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Time</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Error</th>
               </tr></thead>
               <tbody>
                 {apiChecks.map((c, i) => (
                   <tr key={i} className="border-b border-gray-200 dark:border-[#1a1f2e]/50">
                     <td className="px-4 py-3 text-sm font-mono">{c.name}</td>
-                    <td className="px-4 py-3"><span className={`px-2 py-1 text-xs rounded-full font-medium ${c.status === 'success' ? 'bg-green-900/40 text-green-400' : c.status === 'error' ? 'bg-red-900/40 text-red-400' : c.status === 'loading' ? 'bg-blue-900/40 text-blue-400' : 'bg-gray-800 text-gray-400'}`}>{c.status}</span></td>
-                    <td className="px-4 py-3 text-sm text-gray-400">{c.loadTime ? `${c.loadTime}ms` : '-'}</td>
+                    <td className="px-4 py-3"><span className={`px-2 py-1 text-xs rounded-full font-medium ${c.status === 'success' ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400' : c.status === 'error' ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400' : c.status === 'loading' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}>{c.status}</span></td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{c.loadTime ? `${c.loadTime}ms` : '-'}</td>
                     <td className="px-4 py-3 text-sm text-red-400">{c.error || '-'}</td>
                   </tr>
                 ))}
@@ -249,9 +249,9 @@ export default function SmokeTestPage() {
           </button>
           <div className="space-y-3">
             {integrityChecks.map((c, i) => (
-              <div key={i} className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4 flex items-center justify-between">
-                <div><div className="font-medium">{c.name}</div><div className="text-sm text-gray-400">{c.detail || 'Not yet checked'}</div></div>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${c.status === 'pass' ? 'bg-green-900/40 text-green-400' : c.status === 'fail' ? 'bg-red-900/40 text-red-400' : c.status === 'loading' ? 'bg-blue-900/40 text-blue-400' : 'bg-gray-800 text-gray-400'}`}>{c.status}</span>
+              <div key={i} className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4 flex items-center justify-between">
+                <div><div className="font-medium">{c.name}</div><div className="text-sm text-gray-500 dark:text-gray-400">{c.detail || 'Not yet checked'}</div></div>
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${c.status === 'pass' ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400' : c.status === 'fail' ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400' : c.status === 'loading' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}>{c.status}</span>
               </div>
             ))}
           </div>
@@ -265,10 +265,10 @@ export default function SmokeTestPage() {
           </button>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {perfMetrics.map((m, i) => (
-              <div key={i} className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
-                <div className="text-sm text-gray-400 mb-1">{m.name}</div>
-                <div className={`text-3xl font-bold ${m.status === 'good' ? 'text-green-400' : m.status === 'warning' ? 'text-yellow-400' : 'text-red-400'}`}>{m.value}<span className="text-sm ml-1 text-gray-400">{m.unit}</span></div>
-                <div className="mt-2 w-full bg-[#1a1f2e] rounded-full h-2">
+              <div key={i} className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
+                <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">{m.name}</div>
+                <div className={`text-3xl font-bold ${m.status === 'good' ? 'text-green-400' : m.status === 'warning' ? 'text-yellow-400' : 'text-red-400'}`}>{m.value}<span className="text-sm ml-1 text-gray-500 dark:text-gray-400">{m.unit}</span></div>
+                <div className="mt-2 w-full bg-gray-200 dark:bg-[#1a1f2e] rounded-full h-2">
                   <div className={`h-2 rounded-full ${m.status === 'good' ? 'bg-green-500' : m.status === 'warning' ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${Math.min((m.value / m.threshold) * 100, 100)}%` }} />
                 </div>
                 <div className="text-xs text-gray-500 mt-1">Threshold: {m.threshold} {m.unit}</div>
