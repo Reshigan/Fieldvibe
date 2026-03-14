@@ -7,8 +7,17 @@ import { Toaster } from 'react-hot-toast'
 import App from './App'
 import './index.css'
 
-// Apply dark class globally for dark theme
-document.documentElement.classList.add('dark')
+// Apply theme from persisted store before render to prevent flash
+try {
+  const stored = JSON.parse(localStorage.getItem('fieldvibe-theme') || '{}')
+  const theme = stored?.state?.theme || 'light'
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  const resolved = theme === 'system' ? (prefersDark ? 'dark' : 'light') : theme
+  document.documentElement.classList.toggle('dark', resolved === 'dark')
+} catch {
+  // Default to light mode if localStorage parse fails
+  document.documentElement.classList.remove('dark')
+}
 
 // Create a client
 const queryClient = new QueryClient({
