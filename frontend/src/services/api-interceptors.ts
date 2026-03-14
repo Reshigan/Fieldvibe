@@ -66,6 +66,10 @@ export function setupInterceptors() {
             originalRequest.headers.Authorization = `Bearer ${newAccessToken}`
             return apiClient(originalRequest)
           }
+          // Refresh succeeded but response lacked access_token — drain the queue and logout
+          processQueue(error, null)
+          useAuthStore.getState().logout()
+          return Promise.reject(error)
         } catch (refreshError) {
           processQueue(refreshError, null)
           useAuthStore.getState().logout()
