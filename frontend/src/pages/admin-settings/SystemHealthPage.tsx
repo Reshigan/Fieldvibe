@@ -107,28 +107,28 @@ export const SystemHealthPage: React.FC = () => {
 
       {/* Overview Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4">
+        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
           <div className="text-sm text-gray-400">Services</div>
           <div className="text-2xl font-bold">{healthyCount}/{services.length}</div>
           <div className="text-xs text-green-400">healthy</div>
         </div>
-        <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4">
+        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
           <div className="text-sm text-gray-400">Avg Latency</div>
           <div className="text-2xl font-bold">{Math.round(avgLatency)}<span className="text-sm ml-1">ms</span></div>
         </div>
-        <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4">
+        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
           <div className="text-sm text-gray-400">Error Rate</div>
           <div className={`text-2xl font-bold ${errorRate === 0 ? 'text-green-400' : errorRate < 25 ? 'text-yellow-400' : 'text-red-400'}`}>{errorRate}%</div>
         </div>
-        <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4">
+        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
           <div className="text-sm text-gray-400">Uptime</div>
           <div className="text-2xl font-bold text-green-400">99.9%</div>
         </div>
       </div>
 
       {/* Services */}
-      <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#1a1f2e]">
+      <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-[#1a1f2e]">
           <h2 className="text-lg font-medium">Services</h2>
         </div>
         {loading ? (
@@ -152,7 +152,7 @@ export const SystemHealthPage: React.FC = () => {
       </div>
 
       {/* Self-Heal History */}
-      <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-6">
+      <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-6">
         <h2 className="text-lg font-medium mb-4">Self-Healing History</h2>
         {healHistory.length === 0 ? (
           <div className="text-center py-8 text-gray-400">
@@ -162,7 +162,7 @@ export const SystemHealthPage: React.FC = () => {
         ) : (
           <div className="space-y-3">
             {healHistory.map((h, i) => (
-              <div key={i} className="border border-[#1a1f2e] rounded-lg p-4">
+              <div key={i} className="border border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
                 <div className="text-sm text-gray-400 mb-2">{h.timestamp || 'Latest run'}</div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 text-center">
                   <div><div className="text-lg font-bold text-[#00E87B]">{h.orders_fixed || 0}</div><div className="text-xs text-gray-400">Orders Fixed</div></div>
@@ -178,7 +178,7 @@ export const SystemHealthPage: React.FC = () => {
       </div>
 
       {/* System Info */}
-      <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-6">
+      <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-6">
         <h2 className="text-lg font-medium mb-4">System Information</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
           <div><span className="text-gray-400">Platform:</span> <span>Cloudflare Workers</span></div>

@@ -30,7 +30,7 @@ export default function DashboardLayout() {
   }, [sidebarOpen])
 
   return (
-    <div className="min-h-screen bg-[#06090F] text-gray-100 flex">
+    <div className="min-h-screen bg-gray-50 dark:bg-[#06090F] text-gray-900 dark:text-gray-100 flex">
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
@@ -73,12 +73,12 @@ export default function DashboardLayout() {
           </div>
         </main>
 
-        <footer className="border-t border-white/5 py-4">
+        <footer className="border-t border-gray-200 dark:border-white/5 py-4">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-col sm:flex-row items-center justify-between space-y-2 sm:space-y-0">
               <div className="flex items-center space-x-2 text-xs text-gray-500">
-                <span>A Product of</span>
-                <a href="https://www.gonxt.tech" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-[#00E87B] transition-colors font-medium">
+                                <span>A Product of</span>
+                                <a href="https://www.gonxt.tech" target="_blank" rel="noopener noreferrer" className="text-gray-500 dark:text-gray-400 hover:text-[#00E87B] transition-colors font-medium">
                   GONXT
                 </a>
               </div>
@@ -95,7 +95,7 @@ export default function DashboardLayout() {
 
       <button
         onClick={() => setHelpPanelOpen(true)}
-        className="fixed bottom-6 right-6 z-40 bg-[#00E87B] hover:bg-[#00D06E] text-[#06090F] p-3 rounded-full shadow-lg transition-all hover:scale-105"
+        className="fixed bottom-6 right-6 z-40 bg-[#00E87B] hover:bg-[#00D06E] text-[#06090F] p-3 rounded-full shadow-lg transition-all hover:scale-105 hidden lg:flex"
         title="Help & Training"
       >
         <HelpCircle className="h-5 w-5" />

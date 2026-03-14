@@ -66,28 +66,28 @@ export function HelpPanel({ module, isOpen, onClose }: HelpPanelProps) {
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-y-0 right-0 w-80 bg-[#0A0E18] border-l border-[#1a1f2e] shadow-2xl z-50 flex flex-col" role="dialog" aria-label="Help Panel">
-      <div className="flex items-center justify-between p-4 border-b border-[#1a1f2e]">
-        <h2 className="text-lg font-bold">Help</h2>
-        <button onClick={onClose} className="text-gray-400 hover:text-white" aria-label="Close help panel">
+    <div className="fixed inset-y-0 right-0 w-80 bg-white dark:bg-[#0A0E18] border-l border-gray-200 dark:border-[#1a1f2e] shadow-2xl z-50 flex flex-col" role="dialog" aria-label="Help Panel">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-[#1a1f2e]">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Help</h2>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-900 dark:hover:text-white" aria-label="Close help panel">
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {entries.map((entry, idx) => (
-          <div key={idx} className="border border-[#1a1f2e] rounded-lg">
-            <button
-              onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
-              className="w-full px-4 py-3 text-left flex justify-between items-center hover:bg-[#1a1f2e]/50"
+                    <div key={idx} className="border border-gray-200 dark:border-[#1a1f2e] rounded-lg">
+                      <button
+                        onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
+                        className="w-full px-4 py-3 text-left flex justify-between items-center hover:bg-gray-50 dark:hover:bg-[#1a1f2e]/50"
               aria-expanded={expandedIdx === idx}
             >
-              <span className="font-medium text-sm">{entry.title}</span>
+              <span className="font-medium text-sm text-gray-800 dark:text-gray-200">{entry.title}</span>
               <svg className={`w-4 h-4 transition-transform ${expandedIdx === idx ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
             {expandedIdx === idx && (
-              <div className="px-4 pb-3 text-sm text-gray-400">{entry.content}</div>
+              <div className="px-4 pb-3 text-sm text-gray-500 dark:text-gray-400">{entry.content}</div>
             )}
           </div>
         ))}

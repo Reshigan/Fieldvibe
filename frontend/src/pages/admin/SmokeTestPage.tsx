@@ -174,7 +174,7 @@ export default function SmokeTestPage() {
       </div>
 
       {lastHealResult && (
-        <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4 text-sm">
+        <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4 text-sm">
           <strong className="text-[#00E87B]">Heal Result:</strong>
           <pre className="mt-1 text-gray-300 text-xs overflow-x-auto">{JSON.stringify(lastHealResult, null, 2)}</pre>
         </div>
@@ -187,14 +187,14 @@ export default function SmokeTestPage() {
           { label: 'Failed', value: apiFail, color: 'text-red-400' },
           { label: 'Integrity OK', value: intPass, color: 'text-green-400' },
         ].map((s, i) => (
-          <div key={i} className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4">
+          <div key={i} className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
             <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
             <div className="text-sm text-gray-400">{s.label}</div>
           </div>
         ))}
       </div>
 
-      <div className="border-b border-[#1a1f2e]">
+      <div className="border-b border-gray-200 dark:border-[#1a1f2e]">
         <nav className="-mb-px flex space-x-8" role="tablist">
           {tabs.map(t => (
             <button key={t.key} onClick={() => setActiveTab(t.key)} role="tab" aria-selected={activeTab === t.key}
@@ -219,9 +219,9 @@ export default function SmokeTestPage() {
           <button onClick={runApiChecks} disabled={running} className="px-6 py-2 bg-[#00E87B] text-black rounded-lg font-medium hover:bg-[#00d06e] disabled:opacity-50">
             {running ? 'Running...' : 'Run API Checks'}
           </button>
-          <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg overflow-hidden">
+          <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg overflow-hidden">
             <table className="min-w-full" role="table">
-              <thead><tr className="border-b border-[#1a1f2e]">
+              <thead><tr className="border-b border-gray-200 dark:border-[#1a1f2e]">
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Endpoint</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Time</th>
@@ -229,7 +229,7 @@ export default function SmokeTestPage() {
               </tr></thead>
               <tbody>
                 {apiChecks.map((c, i) => (
-                  <tr key={i} className="border-b border-[#1a1f2e]/50">
+                  <tr key={i} className="border-b border-gray-200 dark:border-[#1a1f2e]/50">
                     <td className="px-4 py-3 text-sm font-mono">{c.name}</td>
                     <td className="px-4 py-3"><span className={`px-2 py-1 text-xs rounded-full font-medium ${c.status === 'success' ? 'bg-green-900/40 text-green-400' : c.status === 'error' ? 'bg-red-900/40 text-red-400' : c.status === 'loading' ? 'bg-blue-900/40 text-blue-400' : 'bg-gray-800 text-gray-400'}`}>{c.status}</span></td>
                     <td className="px-4 py-3 text-sm text-gray-400">{c.loadTime ? `${c.loadTime}ms` : '-'}</td>
@@ -249,7 +249,7 @@ export default function SmokeTestPage() {
           </button>
           <div className="space-y-3">
             {integrityChecks.map((c, i) => (
-              <div key={i} className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4 flex items-center justify-between">
+              <div key={i} className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4 flex items-center justify-between">
                 <div><div className="font-medium">{c.name}</div><div className="text-sm text-gray-400">{c.detail || 'Not yet checked'}</div></div>
                 <span className={`px-3 py-1 rounded-full text-sm font-medium ${c.status === 'pass' ? 'bg-green-900/40 text-green-400' : c.status === 'fail' ? 'bg-red-900/40 text-red-400' : c.status === 'loading' ? 'bg-blue-900/40 text-blue-400' : 'bg-gray-800 text-gray-400'}`}>{c.status}</span>
               </div>
@@ -265,7 +265,7 @@ export default function SmokeTestPage() {
           </button>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {perfMetrics.map((m, i) => (
-              <div key={i} className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4">
+              <div key={i} className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
                 <div className="text-sm text-gray-400 mb-1">{m.name}</div>
                 <div className={`text-3xl font-bold ${m.status === 'good' ? 'text-green-400' : m.status === 'warning' ? 'text-yellow-400' : 'text-red-400'}`}>{m.value}<span className="text-sm ml-1 text-gray-400">{m.unit}</span></div>
                 <div className="mt-2 w-full bg-[#1a1f2e] rounded-full h-2">

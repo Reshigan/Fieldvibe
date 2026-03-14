@@ -44,9 +44,9 @@ export default function Sidebar({ onNavigate, collapsed = false, onToggleCollaps
   }
 
   return (
-    <div className={`flex flex-col h-full bg-[#0A0E18] text-gray-300 transition-all duration-200 ${collapsed ? 'w-[60px]' : 'w-[240px]'}`}>
+    <div className={`flex flex-col h-full bg-white dark:bg-[#0A0E18] text-gray-600 dark:text-gray-300 transition-all duration-200 border-r border-gray-200 dark:border-transparent ${collapsed ? 'w-[60px]' : 'w-[240px]'}`}>
       {/* Logo */}
-      <div className="flex items-center h-16 flex-shrink-0 px-3 border-b border-white/5">
+      <div className="flex items-center h-16 flex-shrink-0 px-3 border-b border-gray-200 dark:border-white/5">
         {collapsed ? (
           <img src="/fieldvibe-icon.svg" alt="FV" className="h-8 w-8 mx-auto" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
         ) : (
@@ -70,7 +70,7 @@ export default function Sidebar({ onNavigate, collapsed = false, onToggleCollaps
                   </span>
                 </div>
               )}
-              {collapsed && <div className="border-t border-white/5 mx-2 my-1" />}
+              {collapsed && <div className="border-t border-gray-200 dark:border-white/5 mx-2 my-1" />}
 
               {/* Items */}
               {visibleItems.map((item) => {
@@ -84,11 +84,11 @@ export default function Sidebar({ onNavigate, collapsed = false, onToggleCollaps
                       {hasChildren && !collapsed ? (
                         <button
                           onClick={() => toggleExpand(item.name)}
-                          className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm font-medium transition-colors ${
-                            active
-                              ? 'bg-[#00E87B]/10 text-[#00E87B]'
-                              : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
-                          }`}
+                                                    className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                                      active
+                                                        ? 'bg-[#00E87B]/10 text-[#00E87B]'
+                                                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-900 dark:hover:text-gray-200'
+                                                    }`}
                         >
                           <item.icon className="h-[18px] w-[18px] flex-shrink-0" />
                           <span className="flex-1 text-left truncate">{item.name}</span>
@@ -103,11 +103,11 @@ export default function Sidebar({ onNavigate, collapsed = false, onToggleCollaps
                           to={item.href}
                           onClick={onNavigate}
                           title={collapsed ? item.name : undefined}
-                          className={`flex items-center gap-2 px-2 py-2 rounded-lg text-sm font-medium transition-colors ${
-                            active
-                              ? 'bg-[#00E87B]/10 text-[#00E87B]'
-                              : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
-                          } ${collapsed ? 'justify-center' : ''}`}
+                                                    className={`flex items-center gap-2 px-2 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                                      active
+                                                        ? 'bg-[#00E87B]/10 text-[#00E87B]'
+                                                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-900 dark:hover:text-gray-200'
+                                                    } ${collapsed ? 'justify-center' : ''}`}
                         >
                           <item.icon className="h-[18px] w-[18px] flex-shrink-0" />
                           {!collapsed && <span className="truncate">{item.name}</span>}
@@ -123,13 +123,13 @@ export default function Sidebar({ onNavigate, collapsed = false, onToggleCollaps
                             key={child.name}
                             to={child.href}
                             onClick={onNavigate}
-                            className={({ isActive }) =>
-                              `flex items-center pl-6 pr-2 py-1.5 rounded-md text-[13px] transition-colors ${
-                                isActive
-                                  ? 'text-[#00E87B] bg-[#00E87B]/5 font-medium'
-                                  : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
-                              }`
-                            }
+                                                        className={({ isActive }) =>
+                                                          `flex items-center pl-6 pr-2 py-1.5 rounded-md text-[13px] transition-colors ${
+                                                            isActive
+                                                              ? 'text-[#00E87B] bg-[#00E87B]/5 font-medium'
+                                                              : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
+                                                          }`
+                                                        }
                           >
                             <span className="truncate">{child.name}</span>
                           </NavLink>
@@ -148,7 +148,7 @@ export default function Sidebar({ onNavigate, collapsed = false, onToggleCollaps
       {onToggleCollapse && (
         <button
           onClick={onToggleCollapse}
-          className="hidden lg:flex items-center justify-center h-10 border-t border-white/5 text-gray-500 hover:text-gray-300 hover:bg-white/5 transition-colors"
+          className="hidden lg:flex items-center justify-center h-10 border-t border-gray-200 dark:border-white/5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {collapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
@@ -157,15 +157,15 @@ export default function Sidebar({ onNavigate, collapsed = false, onToggleCollaps
 
       {/* User info */}
       {!collapsed && (
-        <div className="flex-shrink-0 border-t border-white/5 p-3">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-[#00E87B]/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-semibold text-[#00E87B]">
-                {user?.first_name?.[0]}{user?.last_name?.[0]}
-              </span>
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-200 truncate">
+                <div className="flex-shrink-0 border-t border-gray-200 dark:border-white/5 p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-lg bg-[#00E87B]/20 flex items-center justify-center flex-shrink-0">
+                      <span className="text-xs font-semibold text-[#00E87B]">
+                        {user?.first_name?.[0]}{user?.last_name?.[0]}
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
                 {user?.first_name} {user?.last_name}
               </p>
               <div className="flex items-center gap-1.5">
@@ -179,7 +179,7 @@ export default function Sidebar({ onNavigate, collapsed = false, onToggleCollaps
         </div>
       )}
       {collapsed && (
-        <div className="flex-shrink-0 border-t border-white/5 p-2 flex justify-center">
+        <div className="flex-shrink-0 border-t border-gray-200 dark:border-white/5 p-2 flex justify-center">
           <div className="h-8 w-8 rounded-lg bg-[#00E87B]/20 flex items-center justify-center">
             <span className="text-xs font-semibold text-[#00E87B]">
               {user?.first_name?.[0]}{user?.last_name?.[0]}

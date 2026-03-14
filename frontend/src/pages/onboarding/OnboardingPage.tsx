@@ -68,7 +68,7 @@ export default function OnboardingPage() {
       </div>
 
       {/* Progress bar */}
-      <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4">
+      <div className="bg-white dark:bg-[#0A0E18] border border-gray-200 dark:border-gray-200 dark:border-[#1a1f2e] rounded-lg p-4">
         <div className="flex justify-between mb-2">
           <span className="text-sm font-medium">{completedCount} of {steps.length} completed</span>
           <span className="text-sm text-[#00E87B] font-medium">{progressPct}%</span>
@@ -81,7 +81,7 @@ export default function OnboardingPage() {
       {/* Steps */}
       <div className="space-y-3">
         {steps.map((step, idx) => (
-          <div key={step.id} className={`bg-[#0A0E18] border rounded-lg p-4 flex items-center justify-between ${step.completed ? 'border-green-800/50' : 'border-[#1a1f2e]'}`}>
+          <div key={step.id} className={`bg-[#0A0E18] border rounded-lg p-4 flex items-center justify-between ${step.completed ? 'border-green-800/50' : 'border-gray-200 dark:border-[#1a1f2e]'}`}>
             <div className="flex items-center gap-4">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${step.completed ? 'bg-green-900/40 text-green-400' : 'bg-[#1a1f2e] text-gray-400'}`}>
                 {step.completed ? (
