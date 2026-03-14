@@ -15,7 +15,7 @@ export function exportToCSV(
 ): void {
   if (data.length === 0) return
 
-  const headers = columns.map(col => `"${col.label}"`).join(',')
+  const headers = columns.map(col => `"${col.label.replace(/"/g, '""')}"`).join(',')
   const rows = data.map(row =>
     columns.map(col => {
       const value = col.format ? col.format(row[col.key], row) : row[col.key]
@@ -123,7 +123,7 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url)
 }
 
-function escapeHtml(str: string): string {
+export function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

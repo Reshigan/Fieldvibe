@@ -4,6 +4,8 @@
  * Generates professional PDF documents for invoices, orders, pick slips, credit notes, etc.
  */
 
+import { escapeHtml } from '../export'
+
 interface CompanyInfo {
   name: string
   address?: string
@@ -103,7 +105,7 @@ function generateDocumentHTML(data: DocumentData): string {
 <html>
 <head>
   <meta charset="utf-8">
-  <title>${title} ${data.number}</title>
+  <title>${title} ${escapeHtml(data.number)}</title>
   <style>
     @page { size: A4; margin: 15mm; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -152,35 +154,35 @@ function generateDocumentHTML(data: DocumentData): string {
   <div class="document">
     <div class="header">
       <div class="company-info">
-        <h1>${data.company.name}</h1>
-        ${data.company.address ? `<p>${data.company.address}</p>` : ''}
-        ${data.company.phone ? `<p>Tel: ${data.company.phone}</p>` : ''}
-        ${data.company.email ? `<p>${data.company.email}</p>` : ''}
-        ${data.company.taxId ? `<p>Tax ID: ${data.company.taxId}</p>` : ''}
+        <h1>${escapeHtml(data.company.name)}</h1>
+        ${data.company.address ? `<p>${escapeHtml(data.company.address)}</p>` : ''}
+        ${data.company.phone ? `<p>Tel: ${escapeHtml(data.company.phone)}</p>` : ''}
+        ${data.company.email ? `<p>${escapeHtml(data.company.email)}</p>` : ''}
+        ${data.company.taxId ? `<p>Tax ID: ${escapeHtml(data.company.taxId)}</p>` : ''}
       </div>
       <div class="doc-type">
         <h2>${title}</h2>
-        <div class="doc-number">${data.number}</div>
-        ${data.status ? `<div class="doc-status">${data.status.toUpperCase()}</div>` : ''}
+        <div class="doc-number">${escapeHtml(data.number)}</div>
+        ${data.status ? `<div class="doc-status">${escapeHtml(data.status.toUpperCase())}</div>` : ''}
       </div>
     </div>
 
     <div class="meta-section">
       <div class="meta-block">
         <h3>${data.type === 'pick_slip' ? 'Ship To' : 'Bill To'}</h3>
-        <p class="name">${data.customer.name}</p>
-        ${data.customer.address ? `<p>${data.customer.address}</p>` : ''}
-        ${data.customer.phone ? `<p>${data.customer.phone}</p>` : ''}
-        ${data.customer.email ? `<p>${data.customer.email}</p>` : ''}
-        ${data.customer.account_number ? `<p>Account: ${data.customer.account_number}</p>` : ''}
+        <p class="name">${escapeHtml(data.customer.name)}</p>
+        ${data.customer.address ? `<p>${escapeHtml(data.customer.address)}</p>` : ''}
+        ${data.customer.phone ? `<p>${escapeHtml(data.customer.phone)}</p>` : ''}
+        ${data.customer.email ? `<p>${escapeHtml(data.customer.email)}</p>` : ''}
+        ${data.customer.account_number ? `<p>Account: ${escapeHtml(data.customer.account_number)}</p>` : ''}
       </div>
       <div class="meta-block" style="text-align: right;">
         <h3>Document Details</h3>
         <p>Date: <strong>${formatDatePDF(data.date)}</strong></p>
         ${data.due_date ? `<p>Due: <strong>${formatDatePDF(data.due_date)}</strong></p>` : ''}
-        ${data.po_number ? `<p>PO #: <strong>${data.po_number}</strong></p>` : ''}
-        ${data.sales_rep ? `<p>Sales Rep: <strong>${data.sales_rep}</strong></p>` : ''}
-        ${data.payment_terms ? `<p>Terms: <strong>${data.payment_terms}</strong></p>` : ''}
+        ${data.po_number ? `<p>PO #: <strong>${escapeHtml(data.po_number)}</strong></p>` : ''}
+        ${data.sales_rep ? `<p>Sales Rep: <strong>${escapeHtml(data.sales_rep)}</strong></p>` : ''}
+        ${data.payment_terms ? `<p>Terms: <strong>${escapeHtml(data.payment_terms)}</strong></p>` : ''}
       </div>
     </div>
 
@@ -188,15 +190,15 @@ function generateDocumentHTML(data: DocumentData): string {
     <div class="details-grid" style="grid-template-columns: 1fr;">
       <div>
         <span class="label">Shipping Address:</span>
-        <span class="value">${data.shipping_address}</span>
+        <span class="value">${escapeHtml(data.shipping_address)}</span>
       </div>
     </div>
     ` : ''}
 
     ${data.type === 'pick_slip' && data.warehouse ? `
     <div class="warehouse-note">
-      <strong>Warehouse:</strong> ${data.warehouse} &nbsp;&nbsp;|&nbsp;&nbsp;
-      <strong>Delivery:</strong> ${data.delivery_method || 'Standard'} &nbsp;&nbsp;|&nbsp;&nbsp;
+      <strong>Warehouse:</strong> ${escapeHtml(data.warehouse)} &nbsp;&nbsp;|&nbsp;&nbsp;
+      <strong>Delivery:</strong> ${escapeHtml(data.delivery_method || 'Standard')} &nbsp;&nbsp;|&nbsp;&nbsp;
       <strong>Date:</strong> ${formatDatePDF(data.date)}
     </div>
     ` : ''}
@@ -218,8 +220,8 @@ function generateDocumentHTML(data: DocumentData): string {
         ${data.items.map((item, idx) => `
         <tr>
           <td>${idx + 1}</td>
-          ${pickSlipColumns ? `<td>${item.sku || '-'}</td>` : ''}
-          <td>${item.description}${item.sku && !pickSlipColumns ? `<br><small style="color:#9CA3AF;">SKU: ${item.sku}</small>` : ''}</td>
+          ${pickSlipColumns ? `<td>${escapeHtml(item.sku || '-')}</td>` : ''}
+          <td>${escapeHtml(item.description)}${item.sku && !pickSlipColumns ? `<br><small style="color:#9CA3AF;">SKU: ${escapeHtml(item.sku)}</small>` : ''}</td>
           <td class="text-center">${item.quantity}</td>
           ${pickSlipColumns ? '<td class="text-center"><span class="pick-box"></span></td>' : ''}
           ${showPricing ? `<td class="text-right">${formatCurrencyPDF(item.unit_price, currency)}</td>` : ''}
@@ -263,14 +265,14 @@ function generateDocumentHTML(data: DocumentData): string {
     ${data.notes ? `
     <div class="notes-section">
       <h4>Notes</h4>
-      <p>${data.notes}</p>
+      <p>${escapeHtml(data.notes)}</p>
     </div>
     ` : ''}
 
     ${data.terms ? `
     <div class="notes-section" style="margin-top: 10px;">
       <h4>Terms & Conditions</h4>
-      <p>${data.terms}</p>
+      <p>${escapeHtml(data.terms)}</p>
     </div>
     ` : ''}
 
@@ -290,7 +292,7 @@ function generateDocumentHTML(data: DocumentData): string {
     ` : ''}
 
     <div class="footer">
-      <p>${data.company.name}${data.company.website ? ` | ${data.company.website}` : ''}${data.company.email ? ` | ${data.company.email}` : ''}</p>
+      <p>${escapeHtml(data.company.name)}${data.company.website ? ` | ${escapeHtml(data.company.website)}` : ''}${data.company.email ? ` | ${escapeHtml(data.company.email)}` : ''}</p>
       <p>Generated on ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
     </div>
   </div>
