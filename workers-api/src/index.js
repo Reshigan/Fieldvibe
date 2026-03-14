@@ -5902,6 +5902,510 @@ api.get('/docs/index', (c) => {
 });
 
 
+// ==================== TRADE MARKETING: PHOTO UPLOAD + AI ANALYSIS ====================
+
+// AI Photo Analysis function (runs async via waitUntil)
+async function analyzePhotoWithAI(env, photoId, r2Key, tenantId, visitId, photoType) {
+  try {
+    const bucket = env.UPLOADS;
+    const object = await bucket.get(r2Key);
+    if (!object) return;
+    const imageBytes = new Uint8Array(await object.arrayBuffer());
+
+    let prompt = '';
+    if (photoType === 'shelf' || photoType === 'compliance') {
+      prompt = 'Analyze this retail shelf photo. List every brand visible, count the number of product facings per brand, identify shelf position (eye level, top, middle, bottom), detect any out-of-stock gaps, and estimate the share of voice percentage for each brand. Return JSON: { brands: [{name, facings, position}], total_facings, gaps_detected, dominant_brand, compliance_issues: [] }';
+    } else if (photoType === 'competitor') {
+      prompt = 'Analyze this retail photo. Identify all competitor brands, products, pricing if visible, promotional materials, and shelf positioning. Return JSON: { competitors: [{brand, product, price_visible, shelf_position}], promotional_materials: [] }';
+    } else if (photoType === 'posm') {
+      prompt = 'Analyze this point-of-sale material photo. Identify the brand, material type (poster, standee, shelf talker, cooler branding, counter display), condition (good, damaged, faded, missing), and visibility score 0-100. Return JSON: { brand, material_type, condition, visibility_score, placement_quality }';
+    } else if (photoType === 'store_front') {
+      prompt = 'Describe this store front. Identify store type, visible signage, brand presence, and estimate foot traffic level. Return JSON: { store_type, signage: [], brand_visibility: [], estimated_traffic }';
+    } else {
+      prompt = 'Describe what you see in this image. Identify any brands, products, retail elements. Return JSON.';
+    }
+
+    const aiResponse = await env.AI.run('@cf/meta/llama-3.2-11b-vision-instruct', {
+      messages: [{ role: 'user', content: [
+        { type: 'text', text: prompt },
+        { type: 'image', image: Array.from(imageBytes) }
+      ]}]
+    });
+
+    const responseText = aiResponse?.response || '';
+    let parsed = {};
+    try { parsed = JSON.parse(responseText.match(/\{[\s\S]*\}/)?.[0] || '{}'); } catch(e) {}
+
+    let sovPct = 0; let totalFacings = 0; let brandFacings = 0;
+    if (parsed.brands && Array.isArray(parsed.brands)) {
+      totalFacings = parsed.brands.reduce((s, b) => s + (b.facings || 0), 0);
+      const tenantBrands = await env.DB.prepare('SELECT name FROM brands WHERE tenant_id = ?').bind(tenantId).all();
+      const tenantBrandNames = (tenantBrands.results || []).map(b => b.name.toLowerCase());
+      brandFacings = parsed.brands.filter(b => tenantBrandNames.some(tb => b.name.toLowerCase().includes(tb))).reduce((s, b) => s + (b.facings || 0), 0);
+      sovPct = totalFacings > 0 ? Math.round((brandFacings / totalFacings) * 1000) / 10 : 0;
+    }
+
+    await env.DB.prepare(`UPDATE visit_photos SET ai_analysis_status = 'completed',
+      ai_brands_detected = ?, ai_share_of_voice = ?, ai_facing_count = ?,
+      ai_competitor_facings = ?, ai_compliance_score = ?, ai_labels = ?,
+      ai_raw_response = ?, ai_processed_at = datetime('now')
+      WHERE id = ?`).bind(
+      JSON.stringify(parsed.brands || []), sovPct, brandFacings,
+      totalFacings - brandFacings, parsed.compliance_score || null,
+      JSON.stringify(parsed), responseText, photoId).run();
+
+    if (sovPct > 0) {
+      const visit = await env.DB.prepare('SELECT customer_id, brand_id FROM visits WHERE id = ?').bind(visitId).first();
+      if (visit) {
+        const brand = await env.DB.prepare('SELECT name FROM brands WHERE id = ?').bind(visit.brand_id).first();
+        await env.DB.prepare(`INSERT INTO share_of_voice_snapshots (id, tenant_id, customer_id, visit_id, photo_id, brand_id, brand_name, total_facings, brand_facings, share_percentage, snapshot_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, date('now'))`).bind(
+          uuidv4(), tenantId, visit.customer_id, visitId, photoId, visit.brand_id || '', brand?.name || 'Unknown', totalFacings, brandFacings, sovPct).run();
+      }
+    }
+  } catch (e) {
+    console.error('AI analysis error:', e);
+    await env.DB.prepare("UPDATE visit_photos SET ai_analysis_status = 'failed', ai_raw_response = ? WHERE id = ?").bind(e.message, photoId).run();
+  }
+}
+
+// Photo Upload
+api.post('/visit-photos/upload', async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const userId = c.get('userId');
+    const formData = await c.req.formData();
+    const photo = formData.get('photo');
+    const thumbnail = formData.get('thumbnail');
+    const visitId = formData.get('visit_id');
+    const photoType = formData.get('photo_type') || 'general';
+    const latitude = formData.get('latitude');
+    const longitude = formData.get('longitude');
+
+    if (!photo || !visitId) return c.json({ success: false, message: 'photo and visit_id required' }, 400);
+
+    const bucket = c.env.UPLOADS;
+    const id = uuidv4();
+    const photoKey = `photos/${tenantId}/${visitId}/${id}.jpg`;
+    const thumbKey = `thumbnails/${tenantId}/${visitId}/${id}_thumb.jpg`;
+
+    await bucket.put(photoKey, photo.stream(), { httpMetadata: { contentType: 'image/jpeg' } });
+    if (thumbnail) await bucket.put(thumbKey, thumbnail.stream(), { httpMetadata: { contentType: 'image/jpeg' } });
+
+    await db.prepare(`INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, thumbnail_r2_key,
+      original_size_bytes, compressed_size_bytes, gps_latitude, gps_longitude, captured_at, uploaded_by, ai_analysis_status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, 'pending')`).bind(
+      id, tenantId, visitId, photoType, photoKey, thumbnail ? thumbKey : null,
+      parseInt(formData.get('original_size') || '0'), photo.size,
+      latitude ? parseFloat(latitude) : null, longitude ? parseFloat(longitude) : null, userId
+    ).run();
+
+    c.executionCtx.waitUntil(analyzePhotoWithAI(c.env, id, photoKey, tenantId, visitId, photoType));
+
+    return c.json({ success: true, data: { id, r2_key: photoKey, thumbnail_key: thumbKey } }, 201);
+  } catch (e) { console.error('Photo upload error:', e); return c.json({ success: false, message: 'Upload failed' }, 500); }
+});
+
+// Get visit photos
+api.get('/visit-photos', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { visit_id, photo_type, ai_status, page = 1, limit = 50 } = c.req.query();
+  let where = 'WHERE tenant_id = ?';
+  const params = [tenantId];
+  if (visit_id) { where += ' AND visit_id = ?'; params.push(visit_id); }
+  if (photo_type) { where += ' AND photo_type = ?'; params.push(photo_type); }
+  if (ai_status) { where += ' AND ai_analysis_status = ?'; params.push(ai_status); }
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const photos = await db.prepare(`SELECT * FROM visit_photos ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(...params, parseInt(limit), offset).all();
+  const countR = await db.prepare(`SELECT COUNT(*) as total FROM visit_photos ${where}`).bind(...params).first();
+  return c.json({ success: true, data: { photos: photos.results || [], pagination: { total: countR?.total || 0, page: parseInt(page), limit: parseInt(limit) } } });
+});
+
+// Get single photo
+api.get('/visit-photos/:id', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { id } = c.req.param();
+  const photo = await db.prepare('SELECT * FROM visit_photos WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!photo) return c.json({ success: false, message: 'Photo not found' }, 404);
+  return c.json({ success: true, data: photo });
+});
+
+// Re-trigger AI analysis
+api.post('/visit-photos/:id/reanalyze', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { id } = c.req.param();
+  const photo = await db.prepare('SELECT * FROM visit_photos WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!photo) return c.json({ success: false, message: 'Photo not found' }, 404);
+  await db.prepare("UPDATE visit_photos SET ai_analysis_status = 'processing' WHERE id = ?").bind(id).run();
+  c.executionCtx.waitUntil(analyzePhotoWithAI(c.env, id, photo.r2_key, tenantId, photo.visit_id, photo.photo_type));
+  return c.json({ success: true, message: 'Re-analysis triggered' });
+});
+
+// ==================== SHARE OF VOICE REPORTING ====================
+
+api.get('/insights/share-of-voice', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { brand_id, period } = c.req.query();
+  const days = period === 'week' ? 7 : period === 'month' ? 30 : period === 'quarter' ? 90 : 30;
+
+  const [summary, trend, byCustomer, byBrand] = await Promise.all([
+    db.prepare(`SELECT ROUND(AVG(share_percentage), 1) as avg_sov, COUNT(*) as measurements, MAX(share_percentage) as max_sov, MIN(share_percentage) as min_sov FROM share_of_voice_snapshots WHERE tenant_id = ? AND snapshot_date >= date('now', '-' || ? || ' days')${brand_id ? ' AND brand_id = ?' : ''}`).bind(...[tenantId, days, ...(brand_id ? [brand_id] : [])]).first(),
+    db.prepare(`SELECT snapshot_date as date, ROUND(AVG(share_percentage), 1) as sov FROM share_of_voice_snapshots WHERE tenant_id = ? AND snapshot_date >= date('now', '-' || ? || ' days') GROUP BY snapshot_date ORDER BY snapshot_date`).bind(tenantId, days).all(),
+    db.prepare(`SELECT c.name as customer, ROUND(AVG(s.share_percentage), 1) as sov, COUNT(*) as visits FROM share_of_voice_snapshots s JOIN customers c ON s.customer_id = c.id WHERE s.tenant_id = ? AND s.snapshot_date >= date('now', '-' || ? || ' days') GROUP BY s.customer_id ORDER BY sov DESC LIMIT 50`).bind(tenantId, days).all(),
+    db.prepare(`SELECT s.brand_name, ROUND(AVG(s.share_percentage), 1) as sov, SUM(s.brand_facings) as total_facings FROM share_of_voice_snapshots s WHERE s.tenant_id = ? AND s.snapshot_date >= date('now', '-' || ? || ' days') GROUP BY s.brand_name ORDER BY total_facings DESC LIMIT 50`).bind(tenantId, days).all(),
+  ]);
+  return c.json({ success: true, data: { summary, trend: trend.results, by_customer: byCustomer.results, by_brand: byBrand.results } });
+});
+
+// ==================== SURVEY TEMPLATES ====================
+
+api.get('/survey-templates', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { survey_type, trigger_type, is_active } = c.req.query();
+  let where = 'WHERE tenant_id = ?';
+  const params = [tenantId];
+  if (survey_type) { where += ' AND survey_type = ?'; params.push(survey_type); }
+  if (trigger_type) { where += ' AND trigger_type = ?'; params.push(trigger_type); }
+  if (is_active !== undefined) { where += ' AND is_active = ?'; params.push(parseInt(is_active)); }
+  const templates = await db.prepare(`SELECT * FROM survey_templates ${where} ORDER BY created_at DESC LIMIT 200`).bind(...params).all();
+  return c.json({ success: true, data: templates.results || [] });
+});
+
+api.post('/survey-templates', requireRole('admin', 'manager'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const id = uuidv4();
+  await db.prepare(`INSERT INTO survey_templates (id, tenant_id, name, description, survey_type, trigger_type, brand_id, customer_type_filter, questions, scoring_enabled, max_score, passing_score, photo_required, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+    id, tenantId, body.name, body.description || null, body.survey_type || 'visit', body.trigger_type || 'manual',
+    body.brand_id || null, body.customer_type_filter || null, JSON.stringify(body.questions || []),
+    body.scoring_enabled ? 1 : 0, body.max_score || 100, body.passing_score || 70, body.photo_required || 0, 1, userId
+  ).run();
+  return c.json({ success: true, data: { id }, message: 'Survey template created' }, 201);
+});
+
+api.get('/survey-templates/:id', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { id } = c.req.param();
+  const template = await db.prepare('SELECT * FROM survey_templates WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!template) return c.json({ success: false, message: 'Template not found' }, 404);
+  return c.json({ success: true, data: template });
+});
+
+api.put('/survey-templates/:id', requireRole('admin', 'manager'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { id } = c.req.param();
+  const body = await c.req.json();
+  await db.prepare(`UPDATE survey_templates SET name = COALESCE(?, name), description = COALESCE(?, description),
+    survey_type = COALESCE(?, survey_type), trigger_type = COALESCE(?, trigger_type), brand_id = ?,
+    questions = COALESCE(?, questions), scoring_enabled = COALESCE(?, scoring_enabled),
+    max_score = COALESCE(?, max_score), passing_score = COALESCE(?, passing_score),
+    photo_required = COALESCE(?, photo_required), is_active = COALESCE(?, is_active),
+    updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`).bind(
+    body.name || null, body.description || null, body.survey_type || null, body.trigger_type || null,
+    body.brand_id || null, body.questions ? JSON.stringify(body.questions) : null,
+    body.scoring_enabled !== undefined ? (body.scoring_enabled ? 1 : 0) : null,
+    body.max_score || null, body.passing_score || null, body.photo_required || null,
+    body.is_active !== undefined ? (body.is_active ? 1 : 0) : null, id, tenantId
+  ).run();
+  return c.json({ success: true, message: 'Template updated' });
+});
+
+// ==================== ACTIVATION LIFECYCLE ====================
+
+api.post('/activations/:id/start', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const { id } = c.req.param();
+  const body = await c.req.json();
+  const activation = await db.prepare('SELECT * FROM activations WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!activation) return c.json({ success: false, message: 'Activation not found' }, 404);
+  await db.prepare(`UPDATE activations SET status = 'in_progress', actual_start = datetime('now'),
+    start_latitude = ?, start_longitude = ?, updated_at = datetime('now') WHERE id = ?`).bind(
+    body.latitude || null, body.longitude || null, id).run();
+  const tasks = await db.prepare('SELECT * FROM activation_tasks WHERE activation_id = ? ORDER BY sequence_order').bind(id).all();
+  return c.json({ success: true, data: { activation_id: id, status: 'in_progress', tasks: tasks.results || [] } });
+});
+
+api.post('/activations/:id/tasks/:taskId/complete', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const { id, taskId } = c.req.param();
+  const body = await c.req.json();
+  await db.prepare(`UPDATE activation_tasks SET status = 'completed', completed_at = datetime('now'),
+    completed_by = ?, photo_ids = ?, quantity_value = ?, notes = ? WHERE id = ? AND activation_id = ?`).bind(
+    userId, body.photo_ids ? JSON.stringify(body.photo_ids) : null,
+    body.quantity || null, body.notes || null, taskId, id).run();
+  return c.json({ success: true, message: 'Task completed' });
+});
+
+api.post('/activations/:id/submit', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { id } = c.req.param();
+  const pendingTasks = await db.prepare("SELECT COUNT(*) as count FROM activation_tasks WHERE activation_id = ? AND status != 'completed'").bind(id).first();
+  if (pendingTasks?.count > 0) {
+    return c.json({ success: false, message: `${pendingTasks.count} task(s) still pending` }, 400);
+  }
+  await db.prepare(`UPDATE activations SET status = 'submitted', actual_end = datetime('now'), updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`).bind(id, tenantId).run();
+  return c.json({ success: true, message: 'Activation submitted' });
+});
+
+api.get('/activations/:id/summary', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { id } = c.req.param();
+  const [activation, tasks, photos] = await Promise.all([
+    db.prepare('SELECT a.*, c.name as customer_name, camp.name as campaign_name FROM activations a LEFT JOIN customers c ON a.customer_id = c.id LEFT JOIN campaigns camp ON a.campaign_id = camp.id WHERE a.id = ? AND a.tenant_id = ?').bind(id, tenantId).first(),
+    db.prepare('SELECT * FROM activation_tasks WHERE activation_id = ? ORDER BY sequence_order').bind(id).all(),
+    db.prepare('SELECT vp.* FROM visit_photos vp WHERE vp.visit_id IN (SELECT visit_id FROM activations WHERE id = ?) AND vp.tenant_id = ? ORDER BY vp.created_at DESC LIMIT 100').bind(id, tenantId).all(),
+  ]);
+  if (!activation) return c.json({ success: false, message: 'Activation not found' }, 404);
+  const completedTasks = (tasks.results || []).filter(t => t.status === 'completed').length;
+  const totalTasks = (tasks.results || []).length;
+  const avgCompliance = photos.results?.reduce((s, p) => s + (p.ai_compliance_score || 0), 0) / (photos.results?.length || 1);
+  return c.json({ success: true, data: { ...activation, tasks: tasks.results || [], photos: photos.results || [], completion_rate: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0, avg_compliance_score: Math.round(avgCompliance * 10) / 10 } });
+});
+
+api.post('/activations/:id/approve', requireRole('admin', 'manager'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const { id } = c.req.param();
+  await db.prepare(`UPDATE activations SET status = 'approved', updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`).bind(id, tenantId).run();
+  const activation = await db.prepare('SELECT agent_id, campaign_id FROM activations WHERE id = ?').bind(id).first();
+  if (activation?.agent_id) {
+    await db.prepare(`INSERT INTO commission_earnings (id, tenant_id, earner_id, source_type, source_id, rate, base_amount, amount, status, created_at) VALUES (?, ?, ?, 'activation', ?, 1.0, 0, 0, 'pending', datetime('now'))`).bind(
+      uuidv4(), tenantId, activation.agent_id, id).run();
+  }
+  return c.json({ success: true, message: 'Activation approved' });
+});
+
+// ==================== POSM MATERIALS ====================
+
+api.get('/posm-materials', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { brand_id, material_type, page = 1, limit = 50 } = c.req.query();
+  let where = 'WHERE tenant_id = ?';
+  const params = [tenantId];
+  if (brand_id) { where += ' AND brand_id = ?'; params.push(brand_id); }
+  if (material_type) { where += ' AND material_type = ?'; params.push(material_type); }
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const materials = await db.prepare(`SELECT pm.*, b.name as brand_name FROM posm_materials pm LEFT JOIN brands b ON pm.brand_id = b.id ${where} ORDER BY pm.created_at DESC LIMIT ? OFFSET ?`).bind(...params, parseInt(limit), offset).all();
+  return c.json({ success: true, data: materials.results || [] });
+});
+
+api.post('/posm-materials', requireRole('admin', 'manager'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const body = await c.req.json();
+  const id = uuidv4();
+  await db.prepare(`INSERT INTO posm_materials (id, tenant_id, name, material_type, brand_id, description, quantity_available, unit_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+    id, tenantId, body.name, body.material_type, body.brand_id || null, body.description || null, body.quantity_available || 0, body.unit_cost || 0).run();
+  return c.json({ success: true, data: { id }, message: 'POSM material created' }, 201);
+});
+
+api.put('/posm-materials/:id', requireRole('admin', 'manager'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { id } = c.req.param();
+  const body = await c.req.json();
+  await db.prepare(`UPDATE posm_materials SET name = COALESCE(?, name), material_type = COALESCE(?, material_type),
+    brand_id = ?, description = COALESCE(?, description), quantity_available = COALESCE(?, quantity_available),
+    unit_cost = COALESCE(?, unit_cost), status = COALESCE(?, status) WHERE id = ? AND tenant_id = ?`).bind(
+    body.name || null, body.material_type || null, body.brand_id || null, body.description || null,
+    body.quantity_available || null, body.unit_cost || null, body.status || null, id, tenantId).run();
+  return c.json({ success: true, message: 'POSM material updated' });
+});
+
+// POSM Installations
+api.get('/posm-installations', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { customer_id, material_id, status } = c.req.query();
+  let where = 'WHERE pi.tenant_id = ?';
+  const params = [tenantId];
+  if (customer_id) { where += ' AND pi.customer_id = ?'; params.push(customer_id); }
+  if (material_id) { where += ' AND pi.material_id = ?'; params.push(material_id); }
+  if (status) { where += ' AND pi.status = ?'; params.push(status); }
+  const installations = await db.prepare(`SELECT pi.*, pm.name as material_name, pm.material_type, c.name as customer_name FROM posm_installations pi LEFT JOIN posm_materials pm ON pi.material_id = pm.id LEFT JOIN customers c ON pi.customer_id = c.id ${where} ORDER BY pi.installed_at DESC LIMIT 200`).bind(...params).all();
+  return c.json({ success: true, data: installations.results || [] });
+});
+
+api.post('/posm-installations', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const id = uuidv4();
+  await db.prepare(`INSERT INTO posm_installations (id, tenant_id, material_id, customer_id, visit_id, photo_id, installed_by, condition, gps_latitude, gps_longitude, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+    id, tenantId, body.material_id, body.customer_id, body.visit_id || null, body.photo_id || null,
+    userId, body.condition || 'good', body.latitude || null, body.longitude || null, body.notes || null).run();
+  return c.json({ success: true, data: { id }, message: 'POSM installation recorded' }, 201);
+});
+
+// POSM Audits
+api.get('/posm-audits', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { installation_id } = c.req.query();
+  let where = 'WHERE pa.tenant_id = ?';
+  const params = [tenantId];
+  if (installation_id) { where += ' AND pa.installation_id = ?'; params.push(installation_id); }
+  const audits = await db.prepare(`SELECT pa.*, pi.customer_id, c.name as customer_name, pm.name as material_name FROM posm_audits pa LEFT JOIN posm_installations pi ON pa.installation_id = pi.id LEFT JOIN customers c ON pi.customer_id = c.id LEFT JOIN posm_materials pm ON pi.material_id = pm.id ${where} ORDER BY pa.created_at DESC LIMIT 200`).bind(...params).all();
+  return c.json({ success: true, data: audits.results || [] });
+});
+
+api.post('/posm-audits', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const id = uuidv4();
+  await db.prepare(`INSERT INTO posm_audits (id, tenant_id, installation_id, audited_by, visit_id, photo_id, condition, visibility_score, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+    id, tenantId, body.installation_id, userId, body.visit_id || null, body.photo_id || null,
+    body.condition, body.visibility_score || null, body.notes || null).run();
+  if (body.photo_id && body.condition) {
+    await db.prepare(`UPDATE posm_installations SET condition = ?, status = ? WHERE id = ? AND tenant_id = ?`).bind(
+      body.condition, body.condition === 'missing' ? 'removed' : 'active', body.installation_id, tenantId).run();
+  }
+  return c.json({ success: true, data: { id }, message: 'POSM audit recorded' }, 201);
+});
+
+// POSM Dashboard summary
+api.get('/posm-materials/dashboard', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const [totalMaterials, byCondition, needsReplacement] = await Promise.all([
+    db.prepare("SELECT COUNT(*) as total, SUM(quantity_available) as total_qty FROM posm_materials WHERE tenant_id = ? AND status = 'active'").bind(tenantId).first(),
+    db.prepare("SELECT pi.condition, COUNT(*) as count FROM posm_installations pi WHERE pi.tenant_id = ? AND pi.status = 'active' GROUP BY pi.condition").bind(tenantId).all(),
+    db.prepare("SELECT pi.id, pm.name as material_name, c.name as customer_name, pi.condition FROM posm_installations pi JOIN posm_materials pm ON pi.material_id = pm.id JOIN customers c ON pi.customer_id = c.id WHERE pi.tenant_id = ? AND pi.condition IN ('damaged', 'faded', 'missing') AND pi.status = 'active' LIMIT 50").bind(tenantId).all(),
+  ]);
+  return c.json({ success: true, data: { total_materials: totalMaterials?.total || 0, total_quantity: totalMaterials?.total_qty || 0, by_condition: byCondition.results || [], needs_replacement: needsReplacement.results || [] } });
+});
+
+// ==================== BRAND OWNER PORTAL ====================
+
+api.get('/brand-owner/dashboard', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const role = c.get('role');
+  const userId = c.get('userId');
+  let brandFilter = '';
+  let brandId = c.req.query('brand_id') || '';
+  if (role === 'brand_owner') {
+    const user = await db.prepare('SELECT brand_owner_brand_id FROM users WHERE id = ?').bind(userId).first();
+    brandId = user?.brand_owner_brand_id || brandId;
+  }
+  if (!brandId) return c.json({ success: false, message: 'brand_id required' }, 400);
+
+  const [stores, avgSov, compliance, photoCount, sovTrend, storeRankings] = await Promise.all([
+    db.prepare(`SELECT COUNT(DISTINCT s.customer_id) as total FROM share_of_voice_snapshots s WHERE s.tenant_id = ? AND s.brand_id = ?`).bind(tenantId, brandId).first(),
+    db.prepare(`SELECT ROUND(AVG(share_percentage), 1) as avg_sov FROM share_of_voice_snapshots WHERE tenant_id = ? AND brand_id = ? AND snapshot_date >= date('now', '-30 days')`).bind(tenantId, brandId).first(),
+    db.prepare(`SELECT ROUND(AVG(ai_compliance_score), 1) as avg_score FROM visit_photos WHERE tenant_id = ? AND ai_compliance_score IS NOT NULL AND created_at >= date('now', '-30 days')`).bind(tenantId).first(),
+    db.prepare(`SELECT COUNT(*) as count FROM visit_photos WHERE tenant_id = ? AND created_at >= date('now', '-30 days')`).bind(tenantId).first(),
+    db.prepare(`SELECT snapshot_date as date, ROUND(AVG(share_percentage), 1) as sov FROM share_of_voice_snapshots WHERE tenant_id = ? AND brand_id = ? AND snapshot_date >= date('now', '-90 days') GROUP BY snapshot_date ORDER BY snapshot_date`).bind(tenantId, brandId).all(),
+    db.prepare(`SELECT c.name as store_name, c.latitude, c.longitude, ROUND(AVG(s.share_percentage), 1) as sov, COUNT(*) as measurements FROM share_of_voice_snapshots s JOIN customers c ON s.customer_id = c.id WHERE s.tenant_id = ? AND s.brand_id = ? AND s.snapshot_date >= date('now', '-30 days') GROUP BY s.customer_id ORDER BY sov DESC LIMIT 100`).bind(tenantId, brandId).all(),
+  ]);
+  return c.json({ success: true, data: {
+    kpi: { total_stores: stores?.total || 0, avg_sov: avgSov?.avg_sov || 0, compliance_score: compliance?.avg_score || 0, photo_count: photoCount?.count || 0 },
+    sov_trend: sovTrend.results || [], store_rankings: storeRankings.results || []
+  }});
+});
+
+api.get('/brand-owner/reports', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const brandId = c.req.query('brand_id');
+  if (!brandId) return c.json({ success: false, message: 'brand_id required' }, 400);
+
+  const [weeklyPerf, complianceCard, competitors] = await Promise.all([
+    db.prepare(`SELECT strftime('%W', snapshot_date) as week, ROUND(AVG(share_percentage), 1) as avg_sov, COUNT(DISTINCT customer_id) as stores_visited, SUM(brand_facings) as total_facings FROM share_of_voice_snapshots WHERE tenant_id = ? AND brand_id = ? AND snapshot_date >= date('now', '-90 days') GROUP BY week ORDER BY week DESC LIMIT 12`).bind(tenantId, brandId).all(),
+    db.prepare(`SELECT CASE WHEN AVG(share_percentage) >= 50 THEN 'meeting_target' ELSE 'below_target' END as status, COUNT(DISTINCT customer_id) as store_count FROM share_of_voice_snapshots WHERE tenant_id = ? AND brand_id = ? AND snapshot_date >= date('now', '-30 days') GROUP BY status`).bind(tenantId, brandId).all(),
+    db.prepare(`SELECT brand_name, ROUND(AVG(share_percentage), 1) as avg_sov, SUM(total_facings - brand_facings) as competitor_facings FROM share_of_voice_snapshots WHERE tenant_id = ? AND brand_id != ? AND snapshot_date >= date('now', '-30 days') GROUP BY brand_name ORDER BY competitor_facings DESC LIMIT 20`).bind(tenantId, brandId).all(),
+  ]);
+  return c.json({ success: true, data: { weekly_performance: weeklyPerf.results || [], compliance_scorecard: complianceCard.results || [], competitors: competitors.results || [] } });
+});
+
+// ==================== COMPETITOR INTELLIGENCE ====================
+
+api.get('/insights/competitors', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { period } = c.req.query();
+  const days = period === 'week' ? 7 : period === 'month' ? 30 : period === 'quarter' ? 90 : 30;
+
+  const [topBrands, pricingTrends, recentSightings, geoData] = await Promise.all([
+    db.prepare(`SELECT competitor_brand, COUNT(*) as sighting_count, ROUND(AVG(observed_price), 2) as avg_price, ROUND(AVG(facing_count), 1) as avg_facings FROM competitor_sightings WHERE tenant_id = ? AND sighting_date >= date('now', '-' || ? || ' days') GROUP BY competitor_brand ORDER BY sighting_count DESC LIMIT 10`).bind(tenantId, days).all(),
+    db.prepare(`SELECT competitor_brand, strftime('%W', sighting_date) as week, ROUND(AVG(observed_price), 2) as avg_price FROM competitor_sightings WHERE tenant_id = ? AND sighting_date >= date('now', '-' || ? || ' days') AND observed_price > 0 GROUP BY competitor_brand, week ORDER BY week`).bind(tenantId, days).all(),
+    db.prepare(`SELECT cs.*, c.name as customer_name FROM competitor_sightings cs LEFT JOIN customers c ON cs.customer_id = c.id WHERE cs.tenant_id = ? ORDER BY cs.sighting_date DESC LIMIT 20`).bind(tenantId).all(),
+    db.prepare(`SELECT gps_latitude, gps_longitude, competitor_brand, COUNT(*) as count FROM competitor_sightings WHERE tenant_id = ? AND gps_latitude IS NOT NULL AND sighting_date >= date('now', '-' || ? || ' days') GROUP BY ROUND(gps_latitude, 2), ROUND(gps_longitude, 2), competitor_brand`).bind(tenantId, days).all(),
+  ]);
+  return c.json({ success: true, data: { top_brands: topBrands.results || [], pricing_trends: pricingTrends.results || [], recent_sightings: recentSightings.results || [], geo_data: geoData.results || [] } });
+});
+
+// Enhance competitor sightings to accept photo_id
+api.post('/competitor-sightings-enhanced', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const id = uuidv4();
+  await db.prepare(`INSERT INTO competitor_sightings (id, tenant_id, visit_id, customer_id, agent_id, competitor_brand, competitor_product, activity_type, observed_price, shelf_position, facing_count, photos, impact_assessment, notes, gps_latitude, gps_longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+    id, tenantId, body.visit_id || null, body.customer_id || null, userId,
+    body.competitor_brand, body.competitor_product || null, body.activity_type || 'shelf_presence',
+    body.observed_price || null, body.shelf_position || null, body.facing_count || null,
+    body.photo_id ? JSON.stringify([body.photo_id]) : null,
+    body.impact_assessment || null, body.notes || null, body.latitude || null, body.longitude || null
+  ).run();
+  return c.json({ success: true, data: { id }, message: 'Competitor sighting recorded' }, 201);
+});
+
+// ==================== ENHANCED VISIT CHECKOUT (mandatory survey/photo validation) ====================
+
+api.post('/visits/:id/checkout-enhanced', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { id } = c.req.param();
+  const body = await c.req.json();
+
+  // Check mandatory surveys completed
+  const pendingSurveys = await db.prepare(`
+    SELECT st.name FROM survey_templates st
+    WHERE st.tenant_id = ? AND st.is_active = 1 AND st.trigger_type LIKE 'mandatory%'
+    AND NOT EXISTS (SELECT 1 FROM visit_responses vr WHERE vr.visit_id = ? AND vr.survey_template_id = st.id)
+  `).bind(tenantId, id).all();
+
+  if (pendingSurveys.results?.length > 0) {
+    return c.json({ success: false, message: 'Complete mandatory surveys before checkout',
+      pending_surveys: pendingSurveys.results.map(s => s.name) }, 400);
+  }
+
+  // Check mandatory photos
+  const photoCount = await db.prepare('SELECT COUNT(*) as count FROM visit_photos WHERE visit_id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  const minPhotos = await db.prepare("SELECT MIN(photo_required) as min_photos FROM survey_templates WHERE tenant_id = ? AND trigger_type LIKE 'mandatory%' AND photo_required > 0").bind(tenantId).first();
+  if (minPhotos?.min_photos > 0 && (photoCount?.count || 0) < minPhotos.min_photos) {
+    return c.json({ success: false, message: `At least ${minPhotos.min_photos} photo(s) required` }, 400);
+  }
+
+  // Perform checkout
+  await db.prepare(`UPDATE visits SET status = 'completed', check_out_time = datetime('now'), outcome = ?, notes = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`).bind(
+    body.outcome || 'completed', body.notes || null, id, tenantId).run();
+
+  return c.json({ success: true, message: 'Visit checked out successfully' });
+});
+
 // ==================== MOUNT AND EXPORT ====================
 app.route('/api', api);
 
