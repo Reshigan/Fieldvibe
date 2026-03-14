@@ -466,6 +466,7 @@ function App() {
             <Route path="login" element={<LoginPage />} />
             <Route path="forgot-password" element={<ForgotPasswordPage />} />
             <Route path="reset-password" element={<ResetPasswordPage />} />
+            <Route path="mobile-login" element={<MobileLoginPage />} />
             <Route index element={<Navigate to="login" replace />} />
           </Route>
 
@@ -889,8 +890,8 @@ function App() {
             <Route path="field-operations/brand-activation" element={<BrandActivationFormPage />} />
             <Route path="commissions/calculations/:id" element={<CalculationDetail />} />
             <Route path="commissions/calculations/:id/log" element={<CalculationLog />} />
-            <Route path="van-sales/cash-reconciliation/:id/variance" element={<CashVariance />} />
-            <Route path="van-sales/cash-reconciliation/:id/collections/:collId" element={<CollectionDetail />} />
+            <Route path="van-sales/cash-reconciliation/:sessionId/variance" element={<CashVariance />} />
+            <Route path="van-sales/cash-reconciliation/:sessionId/collections/:collectionId" element={<CollectionDetail />} />
             <Route path="inventory/stock-counts/:id/lines/:lineId/approval" element={<CountLineApproval />} />
             <Route path="inventory/stock-counts/:id/lines/:lineId" element={<CountLineDetail />} />
             <Route path="inventory/stock-counts/:id/lines/:lineId/edit" element={<CountLineEdit />} />
@@ -903,7 +904,7 @@ function App() {
             <Route path="orders/:id/deliveries/:deliveryId/pod" element={<DeliveryPOD />} />
             <Route path="orders/:id/deliveries/:deliveryId/stops/:stopId" element={<DeliveryStopDetail />} />
             <Route path="orders/:id/deliveries/:deliveryId/stops" element={<DeliveryStops />} />
-            <Route path="van-sales/cash-reconciliation/:id/deposits/:depId" element={<DepositDetail />} />
+            <Route path="van-sales/cash-reconciliation/:sessionId/deposits/:depositId" element={<DepositDetail />} />
             <Route path="commissions/exceptions/:id" element={<ExceptionDetail />} />
             <Route path="field-operations/visits/:id/board-placement" element={<FOBoardPlacementDetail />} />
             <Route path="field-operations/visits/:id/product-distribution" element={<FOProductDistributionDetail />} />
@@ -919,7 +920,6 @@ function App() {
             <Route path="finance/invoices/:id/status-history" element={<InvoiceStatusHistory />} />
             <Route path="inventory/lots/:id" element={<LotDetail />} />
             <Route path="inventory/lots" element={<LotTracking />} />
-            <Route path="auth/mobile-login" element={<MobileLoginPage />} />
             <Route path="inventory/stock-ledger/movements/:id" element={<MovementDetail />} />
             <Route path="orders/:id/items/:itemId" element={<OrderItemDetail />} />
             <Route path="orders/:id/items/:itemId/edit" element={<OrderItemEdit />} />
@@ -945,11 +945,11 @@ function App() {
             <Route path="orders/:id/return-items/:itemId" element={<ReturnItemDetail />} />
             <Route path="orders/:id/return-items/:itemId/edit" element={<ReturnItemEdit />} />
             <Route path="orders/:id/return-items" element={<ReturnItemList />} />
-            <Route path="van-sales/routes/:id/stops/:stopId" element={<RouteStopDetail />} />
-            <Route path="van-sales/routes/:id/stops/:stopId/edit" element={<RouteStopEdit />} />
-            <Route path="van-sales/routes/:id/stops/exceptions" element={<RouteStopExceptions />} />
-            <Route path="van-sales/routes/:id/stops" element={<RouteStopList />} />
-            <Route path="van-sales/routes/:id/stops/performance" element={<RouteStopPerformance />} />
+            <Route path="van-sales/routes/:routeId/stops/:stopId" element={<RouteStopDetail />} />
+            <Route path="van-sales/routes/:routeId/stops/:stopId/edit" element={<RouteStopEdit />} />
+            <Route path="van-sales/routes/:routeId/stops/exceptions" element={<RouteStopExceptions />} />
+            <Route path="van-sales/routes/:routeId/stops" element={<RouteStopList />} />
+            <Route path="van-sales/routes/:routeId/stops/performance" element={<RouteStopPerformance />} />
             <Route path="commissions/rules/:id/conditions" element={<RuleConditionDetail />} />
             <Route path="field-operations/sku-checker" element={<SKUAvailabilityCheckerPage />} />
             <Route path="inventory/serials/:id" element={<SerialDetail />} />
@@ -970,11 +970,11 @@ function App() {
             <Route path="inventory/transfers/:id/items/:itemId/edit" element={<TransferItemEdit />} />
             <Route path="inventory/transfers/:id/items" element={<TransferItemList />} />
             <Route path="inventory/transfers/:id/tracking" element={<TransferItemTracking />} />
-            <Route path="van-sales/van-loads/:id/items/:itemId" element={<VanLoadItemDetail />} />
-            <Route path="van-sales/van-loads/:id/items/:itemId/edit" element={<VanLoadItemEdit />} />
-            <Route path="van-sales/van-loads/:id/items" element={<VanLoadItemList />} />
-            <Route path="van-sales/van-loads/:id/reconciliation" element={<VanLoadReconciliation />} />
-            <Route path="van-sales/van-loads/:id/variance" element={<VanLoadVariance />} />
+            <Route path="van-sales/van-loads/:loadId/items/:itemId" element={<VanLoadItemDetail />} />
+            <Route path="van-sales/van-loads/:loadId/items/:itemId/edit" element={<VanLoadItemEdit />} />
+            <Route path="van-sales/van-loads/:loadId/items" element={<VanLoadItemList />} />
+            <Route path="van-sales/van-loads/:loadId/reconciliation" element={<VanLoadReconciliation />} />
+            <Route path="van-sales/van-loads/:loadId/variance" element={<VanLoadVariance />} />
             <Route path="inventory/stock-counts/:id/variance" element={<VarianceResolution />} />
             <Route path="field-operations/visit-workflow" element={<VisitWorkflowPage />} />
             <Route path="field-operations/visits/list" element={<VisitsList />} />
