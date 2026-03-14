@@ -32,6 +32,7 @@ export const formatDate = (
 
   const { format = 'medium', includeTime = false, locale = 'en-GB' } = options
   
+  if (date == null) return '—'
   const dateObj = typeof date === 'string' ? new Date(date) : date
   
   if (isNaN(dateObj.getTime())) {
@@ -82,7 +83,9 @@ export const formatDateTime = (date: string | Date): string => {
 
 // Format relative time (e.g., "2 hours ago")
 export const formatRelativeTime = (date: string | Date): string => {
+  if (date == null) return '—'
   const dateObj = typeof date === 'string' ? new Date(date) : date
+  if (isNaN(dateObj.getTime())) return '—'
   const now = new Date()
   const diffInSeconds = Math.floor((now.getTime() - dateObj.getTime()) / 1000)
   

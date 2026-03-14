@@ -375,53 +375,214 @@
   }
 }
 
-/* Dark mode overrides */
+/* ===== GLOBAL DARK MODE OVERRIDES ===== */
+/* Applied via .dark class on <html> element */
 .dark {
   color-scheme: dark;
 }
 
+.dark body {
+  background: #06090F;
+  color: #C8D4E8;
+}
+
+/* Override MUI components globally */
+.dark .MuiPaper-root,
+.dark .MuiCard-root {
+  background: #0A0E18 !important;
+  color: #C8D4E8 !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+.dark .MuiTableHead-root {
+  background: #141A2B !important;
+}
+
+.dark .MuiTableCell-root {
+  color: #94A3C0 !important;
+  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+.dark .MuiTableCell-head {
+  color: #6B7FA0 !important;
+  font-size: 11px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  font-weight: 700 !important;
+}
+
+.dark .MuiButton-root {
+  color: #C8D4E8 !important;
+}
+
+.dark .MuiButton-containedPrimary {
+  background: #00E87B !important;
+  color: #06090F !important;
+}
+
+.dark .MuiInputBase-root,
+.dark .MuiOutlinedInput-root {
+  background: #1A2238 !important;
+  color: #C8D4E8 !important;
+  border-color: rgba(255,255,255,0.10) !important;
+}
+
+.dark .MuiInputLabel-root {
+  color: #6B7FA0 !important;
+}
+
+.dark .MuiSelect-root {
+  background: #1A2238 !important;
+  color: #C8D4E8 !important;
+}
+
+.dark .MuiCircularProgress-root {
+  color: #00E87B !important;
+}
+
+.dark .MuiAlert-root {
+  background: #141A2B !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+.dark .MuiChip-root {
+  background: rgba(0,232,123,0.1) !important;
+  color: #00E87B !important;
+}
+
+.dark .MuiTypography-root {
+  color: inherit !important;
+}
+
+.dark .MuiLinearProgress-root {
+  background: #1A2238 !important;
+}
+
+.dark .MuiLinearProgress-bar {
+  background: #00E87B !important;
+}
+
+.dark .MuiDataGrid-root {
+  background: #0A0E18 !important;
+  border-color: rgba(255,255,255,0.06) !important;
+}
+
+.dark .MuiDataGrid-row:hover {
+  background: #0E1320 !important;
+}
+
+.dark .MuiDataGrid-columnHeaders {
+  background: #141A2B !important;
+}
+
+/* Override all remaining light Tailwind backgrounds */
 .dark .bg-white {
-  background-color: #1A1F2E;
+  background-color: #0A0E18 !important;
+}
+
+.dark .bg-gray-50,
+.dark .bg-gray-100 {
+  background-color: #0E1320 !important;
+}
+
+.dark .bg-gray-200 {
+  background-color: #141A2B !important;
 }
 
 .dark .bg-surface-secondary {
-  background-color: #0A0F1C;
+  background-color: #0A0F1C !important;
 }
 
-.dark .border-gray-100 {
-  border-color: #1A1F2E;
+/* Override light borders */
+.dark .border-gray-100,
+.dark .border-gray-200,
+.dark .border-gray-300 {
+  border-color: rgba(255,255,255,0.06) !important;
 }
 
-.dark .border-gray-200 {
-  border-color: #1A1F2E;
+/* Override light text colors */
+.dark .text-gray-900,
+.dark .text-gray-800 {
+  color: #EEF2FA !important;
 }
 
-.dark .text-gray-900 {
-  color: #F3F4F6;
-}
-
-.dark .text-gray-700 {
-  color: #D1D5DB;
-}
-
+.dark .text-gray-700,
 .dark .text-gray-600 {
-  color: #9CA3AF;
+  color: #C8D4E8 !important;
 }
 
 .dark .text-gray-500 {
-  color: #6B7280;
+  color: #94A3C0 !important;
 }
 
-.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) {
-  border-color: #1A1F2E;
+/* text-gray-400 override handled via component-level dark styles to avoid circular @apply */
+
+/* Override light dividers */
+.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(255,255,255,0.06) !important;
 }
 
+/* Override light shadows */
+.dark .shadow-card,
+.dark .shadow-md,
+.dark .shadow-lg {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+}
+
+/* Override light hover backgrounds */
 .dark .hover\:bg-gray-50:hover {
-  background-color: #141929;
+  background-color: #0E1320 !important;
 }
 
 .dark .hover\:bg-gray-100:hover {
-  background-color: #1A1F2E;
+  background-color: #141A2B !important;
+}
+
+/* Recharts dark theme */
+.dark .recharts-cartesian-grid line {
+  stroke: rgba(255,255,255,0.05) !important;
+}
+
+.dark .recharts-text {
+  fill: #6B7FA0 !important;
+}
+
+.dark .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: #141A2B !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+}
+
+/* Mobile touch targets */
+@media (max-width: 768px) {
+  .form-input,
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="search"],
+  select,
+  textarea,
+  .MuiInputBase-root,
+  .MuiOutlinedInput-root {
+    min-height: 44px !important;
+    font-size: 16px !important; /* Prevents iOS zoom */
+  }
+
+  button,
+  .btn,
+  .btn-primary,
+  .btn-outline,
+  [role="button"] {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+
+  /* DataTable as card list on mobile */
+  .data-table-mobile-cards .overflow-x-auto table {
+    display: none;
+  }
 }
 
 /* High contrast mode support */

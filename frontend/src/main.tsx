@@ -7,6 +7,9 @@ import { Toaster } from 'react-hot-toast'
 import App from './App'
 import './index.css'
 
+// Apply dark class globally for dark theme
+document.documentElement.classList.add('dark')
+
 // Create a client
 const queryClient = new QueryClient({
   defaultOptions: {

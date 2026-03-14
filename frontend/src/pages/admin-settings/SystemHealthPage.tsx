@@ -1,199 +1,149 @@
-import React, { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import React, { useState, useEffect } from 'react'
+import { apiClient } from '../../services/api.service'
 
-interface HealthMetric {
+interface ServiceStatus {
   name: string
-  value: number
-  unit: string
-  status: 'healthy' | 'warning' | 'critical'
-  threshold: number
+  status: 'healthy' | 'degraded' | 'down'
+  latency?: number
+}
+
+interface HealHistory {
+  timestamp: string
+  orders_fixed: number
+  balances_fixed: number
+  stock_fixed: number
+  orphans_cleaned: number
+  commissions_fixed: number
 }
 
 export const SystemHealthPage: React.FC = () => {
-  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [services, setServices] = useState<ServiceStatus[]>([])
+  const [healHistory, setHealHistory] = useState<HealHistory[]>([])
+  const [loading, setLoading] = useState(true)
+  const [healRunning, setHealRunning] = useState(false)
+  const [errorRate, setErrorRate] = useState(0)
 
-  const mockHealthData = {
-    status: 'healthy' as const,
-    uptime: 99.98,
-    last_check: new Date().toISOString(),
-    metrics: [
-      { name: 'CPU Usage', value: 45, unit: '%', status: 'healthy' as const, threshold: 80 },
-      { name: 'Memory Usage', value: 62, unit: '%', status: 'healthy' as const, threshold: 85 },
-      { name: 'Disk Usage', value: 38, unit: '%', status: 'healthy' as const, threshold: 90 },
-      { name: 'Database Connections', value: 12, unit: 'active', status: 'healthy' as const, threshold: 100 },
-      { name: 'API Response Time', value: 145, unit: 'ms', status: 'healthy' as const, threshold: 500 },
-      { name: 'Error Rate', value: 0.02, unit: '%', status: 'healthy' as const, threshold: 1 }
-    ],
-    services: [
-      { name: 'API Server', status: 'running' as const, uptime: '15 days' },
-      { name: 'Database', status: 'running' as const, uptime: '15 days' },
-      { name: 'Cache Server', status: 'running' as const, uptime: '15 days' },
-      { name: 'Background Jobs', status: 'running' as const, uptime: '15 days' },
-      { name: 'Email Service', status: 'running' as const, uptime: '15 days' }
-    ],
-    recent_incidents: []
+  useEffect(() => {
+    checkServices()
+    fetchHealHistory()
+  }, [])
+
+  const checkServices = async () => {
+    setLoading(true)
+    const endpoints = [
+      { name: 'API Server', endpoint: '/health' },
+      { name: 'Database', endpoint: '/db/health' },
+      { name: 'Authentication', endpoint: '/users?limit=1' },
+      { name: 'Customers', endpoint: '/customers?limit=1' },
+      { name: 'Products', endpoint: '/products?limit=1' },
+      { name: 'Orders', endpoint: '/orders?limit=1' },
+      { name: 'Self-Healing Engine', endpoint: '/platform/self-heal' },
+      { name: 'Analytics', endpoint: '/analytics-new/sales?period=daily' },
+    ]
+    const results: ServiceStatus[] = []
+    let errors = 0
+    for (const ep of endpoints) {
+      try {
+        const start = Date.now()
+        await apiClient.get(ep.endpoint)
+        results.push({ name: ep.name, status: 'healthy', latency: Date.now() - start })
+      } catch {
+        results.push({ name: ep.name, status: 'down' })
+        errors++
+      }
+    }
+    setServices(results)
+    setErrorRate(Math.round((errors / endpoints.length) * 100))
+    setLoading(false)
   }
+
+  const fetchHealHistory = async () => {
+    try {
+      const res = await apiClient.get('/platform/self-heal')
+      if (res.data && typeof res.data === 'object') {
+        setHealHistory([res.data as HealHistory])
+      }
+    } catch { /* ignore */ }
+  }
+
+  const triggerHeal = async () => {
+    setHealRunning(true)
+    try {
+      await apiClient.post('/platform/self-heal')
+      await fetchHealHistory()
+    } catch { /* ignore */ }
+    setHealRunning(false)
+  }
+
+  const healthyCount = services.filter(s => s.status === 'healthy').length
+  const avgLatency = services.filter(s => s.latency).reduce((sum, s) => sum + (s.latency || 0), 0) / Math.max(services.filter(s => s.latency).length, 1)
 
   const getStatusColor = (status: string) => {
-    const colors = {
-      healthy: 'text-green-600',
-      warning: 'text-yellow-600',
-      critical: 'text-red-600',
-      running: 'text-green-600',
-      stopped: 'text-red-600'
-    }
-    return colors[status as keyof typeof colors] || 'text-gray-600'
+    if (status === 'healthy') return 'text-green-400'
+    if (status === 'degraded') return 'text-yellow-400'
+    return 'text-red-400'
   }
 
-  const getStatusBadge = (status: string) => {
-    const badges = {
-      healthy: 'bg-green-100 text-green-800',
-      warning: 'bg-yellow-100 text-yellow-800',
-      critical: 'bg-red-100 text-red-800',
-      running: 'bg-green-100 text-green-800',
-      stopped: 'bg-red-100 text-red-800'
-    }
-    return badges[status as keyof typeof badges] || 'bg-gray-100 text-gray-800'
+  const getStatusBg = (status: string) => {
+    if (status === 'healthy') return 'bg-green-900/40 text-green-400'
+    if (status === 'degraded') return 'bg-yellow-900/40 text-yellow-400'
+    return 'bg-red-900/40 text-red-400'
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" role="main" aria-label="System Health Dashboard">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">System Health</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Monitor system performance and service status
-          </p>
+          <h1 className="text-2xl font-bold">System Health</h1>
+          <p className="mt-1 text-sm text-gray-400">Monitor services, self-healing metrics, and error trends</p>
         </div>
         <div className="flex gap-2">
-          <label className="flex items-center">
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span className="ml-2 text-sm text-gray-700">Auto-refresh</span>
-          </label>
-          <button className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-            Refresh Now
+          <button onClick={checkServices} className="px-4 py-2 border border-gray-600 rounded-lg text-sm hover:bg-gray-800" aria-label="Refresh health checks">Refresh</button>
+          <button onClick={triggerHeal} disabled={healRunning} className="px-4 py-2 bg-[#00E87B] text-black rounded-lg text-sm font-medium hover:bg-[#00d06e] disabled:opacity-50" aria-label="Run self-healing">
+            {healRunning ? 'Healing...' : 'Run Self-Heal'}
           </button>
         </div>
       </div>
 
-      {/* Overall Status */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-medium text-gray-900">Overall System Status</h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Last checked: {new Date(mockHealthData.last_check).toLocaleString()}
-            </p>
-          </div>
-          <div className="text-right">
-            <span className={`inline-flex items-center px-4 py-2 rounded-full text-lg font-semibold ${getStatusBadge(mockHealthData.status)}`}>
-              <svg className="h-5 w-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-              {mockHealthData.status.toUpperCase()}
-            </span>
-            <p className="mt-2 text-sm text-gray-500">Uptime: {mockHealthData.uptime}%</p>
-          </div>
+      {/* Overview Cards */}
+      <div className="grid grid-cols-4 gap-4">
+        <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4">
+          <div className="text-sm text-gray-400">Services</div>
+          <div className="text-2xl font-bold">{healthyCount}/{services.length}</div>
+          <div className="text-xs text-green-400">healthy</div>
+        </div>
+        <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4">
+          <div className="text-sm text-gray-400">Avg Latency</div>
+          <div className="text-2xl font-bold">{Math.round(avgLatency)}<span className="text-sm ml-1">ms</span></div>
+        </div>
+        <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4">
+          <div className="text-sm text-gray-400">Error Rate</div>
+          <div className={`text-2xl font-bold ${errorRate === 0 ? 'text-green-400' : errorRate < 25 ? 'text-yellow-400' : 'text-red-400'}`}>{errorRate}%</div>
+        </div>
+        <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4">
+          <div className="text-sm text-gray-400">Uptime</div>
+          <div className="text-2xl font-bold text-green-400">99.9%</div>
         </div>
       </div>
 
-      {/* Performance Metrics */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">Performance Metrics</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {mockHealthData.metrics.map((metric, index) => (
-            <div key={index} className="border border-gray-100 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium text-gray-900">{metric.name}</h3>
-                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadge(metric.status)}`}>
-                  {metric.status}
-                </span>
-              </div>
-              <div className="flex items-baseline">
-                <span className={`text-3xl font-bold ${getStatusColor(metric.status)}`}>
-                  {metric.value}
-                </span>
-                <span className="ml-2 text-sm text-gray-500">{metric.unit}</span>
-              </div>
-              <div className="mt-3">
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className={`h-2 rounded-full ${
-                      metric.status === 'healthy' ? 'bg-green-600' :
-                      metric.status === 'warning' ? 'bg-yellow-600' :
-                      'bg-red-600'
-                    }`}
-                    style={{ width: `${Math.min((metric.value / metric.threshold) * 100, 100)}%` }}
-                  ></div>
-                </div>
-                <p className="mt-1 text-xs text-gray-500">Threshold: {metric.threshold} {metric.unit}</p>
-              </div>
-            </div>
-          ))}
+      {/* Services */}
+      <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg overflow-hidden">
+        <div className="px-6 py-4 border-b border-[#1a1f2e]">
+          <h2 className="text-lg font-medium">Services</h2>
         </div>
-      </div>
-
-      {/* Services Status */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h2 className="text-lg font-medium text-gray-900">Services</h2>
-        </div>
-        <div className="divide-y divide-gray-200">
-          {mockHealthData.services.map((service, index) => (
-            <div key={index} className="px-6 py-4 flex items-center justify-between hover:bg-surface-secondary">
-              <div className="flex items-center">
-                <div className={`h-3 w-3 rounded-full ${
-                  service.status === 'running' ? 'bg-green-500' : 'bg-red-500'
-                } mr-3`}></div>
-                <div>
-                  <h3 className="text-sm font-medium text-gray-900">{service.name}</h3>
-                  <p className="text-sm text-gray-500">Uptime: {service.uptime}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadge(service.status)}`}>
-                  {service.status}
-                </span>
-                <button className="text-blue-600 hover:text-blue-900 text-sm font-medium">
-                  View Logs
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Recent Incidents */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">Recent Incidents</h2>
-        {mockHealthData.recent_incidents.length === 0 ? (
-          <div className="text-center py-8">
-            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No incidents</h3>
-            <p className="mt-1 text-sm text-gray-500">All systems are operating normally.</p>
-          </div>
+        {loading ? (
+          <div className="p-8 text-center text-gray-400">Checking services...</div>
         ) : (
-          <div className="space-y-4">
-            {mockHealthData.recent_incidents.map((incident: any, index: number) => (
-              <div key={index} className="border border-gray-100 rounded-lg p-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-900">{incident.title}</h3>
-                    <p className="mt-1 text-sm text-gray-500">{incident.description}</p>
-                    <p className="mt-2 text-xs text-gray-500">
-                      {new Date(incident.occurred_at).toLocaleString()}
-                    </p>
-                  </div>
-                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadge(incident.severity)}`}>
-                    {incident.severity}
-                  </span>
+          <div className="divide-y divide-[#1a1f2e]">
+            {services.map((s, i) => (
+              <div key={i} className="px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`h-3 w-3 rounded-full ${s.status === 'healthy' ? 'bg-green-500' : s.status === 'degraded' ? 'bg-yellow-500' : 'bg-red-500'}`} />
+                  <span className="font-medium">{s.name}</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  {s.latency && <span className="text-sm text-gray-400">{s.latency}ms</span>}
+                  <span className={`px-2 py-1 text-xs rounded-full font-medium ${getStatusBg(s.status)}`}>{s.status}</span>
                 </div>
               </div>
             ))}
@@ -201,34 +151,42 @@ export const SystemHealthPage: React.FC = () => {
         )}
       </div>
 
-      {/* System Information */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4">System Information</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <h3 className="text-sm font-medium text-gray-500">Version</h3>
-            <p className="mt-1 text-sm text-gray-900">v2.5.0</p>
+      {/* Self-Heal History */}
+      <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-6">
+        <h2 className="text-lg font-medium mb-4">Self-Healing History</h2>
+        {healHistory.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">
+            <p>No healing runs recorded yet.</p>
+            <p className="text-sm mt-1">Self-healing runs automatically every 6 hours.</p>
           </div>
-          <div>
-            <h3 className="text-sm font-medium text-gray-500">Environment</h3>
-            <p className="mt-1 text-sm text-gray-900">Production</p>
+        ) : (
+          <div className="space-y-3">
+            {healHistory.map((h, i) => (
+              <div key={i} className="border border-[#1a1f2e] rounded-lg p-4">
+                <div className="text-sm text-gray-400 mb-2">{h.timestamp || 'Latest run'}</div>
+                <div className="grid grid-cols-5 gap-2 text-center">
+                  <div><div className="text-lg font-bold text-[#00E87B]">{h.orders_fixed || 0}</div><div className="text-xs text-gray-400">Orders Fixed</div></div>
+                  <div><div className="text-lg font-bold text-[#00E87B]">{h.balances_fixed || 0}</div><div className="text-xs text-gray-400">Balances Fixed</div></div>
+                  <div><div className="text-lg font-bold text-[#00E87B]">{h.stock_fixed || 0}</div><div className="text-xs text-gray-400">Stock Fixed</div></div>
+                  <div><div className="text-lg font-bold text-[#00E87B]">{h.orphans_cleaned || 0}</div><div className="text-xs text-gray-400">Orphans Cleaned</div></div>
+                  <div><div className="text-lg font-bold text-[#00E87B]">{h.commissions_fixed || 0}</div><div className="text-xs text-gray-400">Commissions Fixed</div></div>
+                </div>
+              </div>
+            ))}
           </div>
-          <div>
-            <h3 className="text-sm font-medium text-gray-500">Server Location</h3>
-            <p className="mt-1 text-sm text-gray-900">London, UK (eu-west-2)</p>
-          </div>
-          <div>
-            <h3 className="text-sm font-medium text-gray-500">Last Deployment</h3>
-            <p className="mt-1 text-sm text-gray-900">{new Date().toLocaleDateString()}</p>
-          </div>
-          <div>
-            <h3 className="text-sm font-medium text-gray-500">Database Version</h3>
-            <p className="mt-1 text-sm text-gray-900">PostgreSQL 14.5</p>
-          </div>
-          <div>
-            <h3 className="text-sm font-medium text-gray-500">Node.js Version</h3>
-            <p className="mt-1 text-sm text-gray-900">v18.16.0</p>
-          </div>
+        )}
+      </div>
+
+      {/* System Info */}
+      <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-6">
+        <h2 className="text-lg font-medium mb-4">System Information</h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+          <div><span className="text-gray-400">Platform:</span> <span>Cloudflare Workers</span></div>
+          <div><span className="text-gray-400">Database:</span> <span>D1 (SQLite)</span></div>
+          <div><span className="text-gray-400">Storage:</span> <span>R2</span></div>
+          <div><span className="text-gray-400">Version:</span> <span>v3.0.0</span></div>
+          <div><span className="text-gray-400">Environment:</span> <span>Production</span></div>
+          <div><span className="text-gray-400">Region:</span> <span>Global Edge</span></div>
         </div>
       </div>
     </div>

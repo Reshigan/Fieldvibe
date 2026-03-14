@@ -1,11 +1,11 @@
 {
-  "name": "SalesSync - Enterprise Field Force Platform",
-  "short_name": "SalesSync",
-  "description": "Advanced field force management platform with real-time analytics and mobile support",
+    "name": "FieldVibe - Field Operations Intelligence",
+    "short_name": "FieldVibe",
+    "description": "Field operations intelligence platform with real-time tracking, route optimization, and sales analytics",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#3b82f6",
+    "background_color": "#0A0F1C",
+    "theme_color": "#00E87B",
   "orientation": "portrait-primary",
   "scope": "/",
   "icons": [

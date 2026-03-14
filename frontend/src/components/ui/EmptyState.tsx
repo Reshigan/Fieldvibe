@@ -1,46 +1,30 @@
 import React from 'react'
-import { LucideIcon } from 'lucide-react'
 
 interface EmptyStateProps {
-  icon?: LucideIcon
+  icon?: React.ReactNode
   title: string
-  description?: string
+  description: string
   action?: {
     label: string
     onClick: () => void
   }
-  className?: string
 }
 
-const EmptyState: React.FC<EmptyStateProps> = ({
-  icon: Icon,
-  title,
-  description,
-  action,
-  className = ''
-}) => {
+export function EmptyState({ icon, title, description, action }: EmptyStateProps) {
   return (
-    <div className={`flex flex-col items-center justify-center py-12 px-4 ${className}`}>
-      {Icon && (
-        <div className="flex items-center justify-center w-16 h-16 mb-4 bg-gray-100 rounded-full">
-          <Icon className="w-8 h-8 text-gray-400" />
-        </div>
+    <div className="flex flex-col items-center justify-center py-16 px-4 text-center" role="status">
+      {icon || (
+        <svg className="w-16 h-16 text-gray-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+        </svg>
       )}
-      
-      <h3 className="text-lg font-semibold text-gray-900 mb-2">
-        {title}
-      </h3>
-      
-      {description && (
-        <p className="text-sm text-gray-600 text-center max-w-md mb-6">
-          {description}
-        </p>
-      )}
-      
+      <h3 className="text-lg font-medium text-gray-300 mb-1">{title}</h3>
+      <p className="text-sm text-gray-500 max-w-sm mb-4">{description}</p>
       {action && (
         <button
           onClick={action.onClick}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          className="px-4 py-2 bg-[#00E87B] text-black rounded-lg text-sm font-medium hover:bg-[#00d06e] focus:outline-none focus:ring-2 focus:ring-[#00E87B] focus:ring-offset-2 focus:ring-offset-[#06090F]"
+          aria-label={action.label}
         >
           {action.label}
         </button>
@@ -48,5 +32,3 @@ const EmptyState: React.FC<EmptyStateProps> = ({
     </div>
   )
 }
-
-export default EmptyState
