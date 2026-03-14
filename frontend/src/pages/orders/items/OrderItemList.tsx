@@ -37,7 +37,7 @@ export default function OrderItemList() {
       </div>
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
+        <div className="overflow-x-auto"><table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-surface-secondary">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
@@ -99,7 +99,7 @@ export default function OrderItemList() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       </div>
     </div>
   )

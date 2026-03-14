@@ -487,3 +487,228 @@ VALUES
   ('audit-003', 'default-tenant-001', 'super-admin-001', 'CREATE', 'user', 'agent-002', '{"name":"Sipho Dlamini"}', datetime('now')),
   ('audit-004', 'default-tenant-001', 'agent-001', 'CREATE', 'sales_order', 'so-001', '{"total":2875.00}', '2026-03-01 09:15:00'),
   ('audit-005', 'default-tenant-001', 'agent-003', 'CREATE', 'sales_order', 'so-004', '{"total":5780.00}', '2026-03-02 08:30:00');
+
+-- ==================== RETURNS ====================
+INSERT OR IGNORE INTO returns (id, tenant_id, original_order_id, return_number, return_type, status, total_credit_amount, restock_fee, net_credit_amount, reason, approved_by, created_by, created_at)
+VALUES
+  ('ret-001', 'default-tenant-001', 'so-003', 'RET-001', 'PARTIAL', 'APPROVED', 162.50, 16.25, 146.25, 'Damaged packaging on delivery', 'manager-001', 'agent-002', '2026-03-05 10:00:00'),
+  ('ret-002', 'default-tenant-001', 'so-011', 'RET-002', 'FULL', 'APPROVED', 1035.00, 0, 1035.00, 'Wrong products delivered', 'manager-001', 'agent-002', '2026-03-06 14:00:00'),
+  ('ret-003', 'default-tenant-001', 'so-015', 'RET-003', 'PARTIAL', 'PENDING', 500.00, 50.00, 450.00, 'Customer changed mind on some items', NULL, 'agent-001', '2026-03-08 11:00:00'),
+  ('ret-004', 'default-tenant-001', 'so-007', 'RET-004', 'FULL', 'APPROVED', 402.50, 0, 402.50, 'Expired products found', 'manager-002', 'agent-004', '2026-03-09 09:00:00'),
+  ('ret-005', 'default-tenant-001', 'so-018', 'RET-005', 'PARTIAL', 'REJECTED', 300.00, 30.00, 270.00, 'Products not defective upon inspection', 'manager-001', 'agent-003', '2026-03-10 15:00:00');
+
+INSERT OR IGNORE INTO return_items (id, return_id, product_id, quantity, condition, unit_price, line_credit, original_order_item_id)
+VALUES
+  ('ri-001', 'ret-001', 'prod-012', 5, 'damaged', 25.00, 125.00, 'soi-005'),
+  ('ri-002', 'ret-001', 'prod-009', 2, 'good', 18.75, 37.50, NULL),
+  ('ri-003', 'ret-002', 'prod-001', 30, 'good', 15.00, 450.00, NULL),
+  ('ri-004', 'ret-002', 'prod-009', 20, 'good', 18.00, 360.00, NULL),
+  ('ri-005', 'ret-002', 'prod-012', 9, 'good', 25.00, 225.00, NULL),
+  ('ri-006', 'ret-003', 'prod-001', 20, 'good', 15.00, 300.00, NULL),
+  ('ri-007', 'ret-003', 'prod-002', 8, 'good', 25.00, 200.00, NULL),
+  ('ri-008', 'ret-004', 'prod-001', 15, 'expired', 15.00, 225.00, NULL),
+  ('ri-009', 'ret-004', 'prod-012', 7, 'expired', 25.00, 175.00, NULL),
+  ('ri-010', 'ret-005', 'prod-009', 10, 'good', 18.00, 180.00, NULL),
+  ('ri-011', 'ret-005', 'prod-012', 4, 'good', 25.00, 100.00, NULL);
+
+-- ==================== CREDIT NOTES ====================
+INSERT OR IGNORE INTO credit_notes (id, tenant_id, return_id, customer_id, credit_number, amount, status, applied_to_orders, created_at)
+VALUES
+  ('cn-001', 'default-tenant-001', 'ret-001', 'cust-005', 'CN-001', 146.25, 'APPLIED', '["so-012"]', '2026-03-05 11:00:00'),
+  ('cn-002', 'default-tenant-001', 'ret-002', 'cust-008', 'CN-002', 1035.00, 'ISSUED', NULL, '2026-03-06 15:00:00'),
+  ('cn-003', 'default-tenant-001', 'ret-004', 'cust-018', 'CN-003', 402.50, 'APPLIED', '["so-024"]', '2026-03-09 10:00:00'),
+  ('cn-004', 'default-tenant-001', NULL, 'cust-011', 'CN-004', 500.00, 'ISSUED', NULL, '2026-03-10 09:00:00'),
+  ('cn-005', 'default-tenant-001', NULL, 'cust-001', 'CN-005', 250.00, 'VOIDED', NULL, '2026-03-07 14:00:00');
+
+-- ==================== STOCK MOVEMENTS ====================
+INSERT OR IGNORE INTO stock_movements (id, tenant_id, warehouse_id, product_id, movement_type, quantity, reference_type, reference_id, notes, created_by, created_at)
+VALUES
+  ('sm-001', 'default-tenant-001', 'wh-001', 'prod-001', 'INBOUND', 500, 'purchase_order', 'po-001', 'PO receipt', 'super-admin-001', '2026-03-01 08:00:00'),
+  ('sm-002', 'default-tenant-001', 'wh-001', 'prod-002', 'INBOUND', 200, 'purchase_order', 'po-001', 'PO receipt', 'super-admin-001', '2026-03-01 08:00:00'),
+  ('sm-003', 'default-tenant-001', 'wh-001', 'prod-009', 'INBOUND', 400, 'purchase_order', 'po-002', 'PO receipt', 'super-admin-001', '2026-03-02 08:00:00'),
+  ('sm-004', 'default-tenant-001', 'wh-001', 'prod-001', 'OUTBOUND', 200, 'van_load', 'vsl-001', 'Van Alpha load', 'agent-001', '2026-03-10 06:00:00'),
+  ('sm-005', 'default-tenant-001', 'wh-001', 'prod-009', 'OUTBOUND', 150, 'van_load', 'vsl-001', 'Van Alpha load', 'agent-001', '2026-03-10 06:00:00'),
+  ('sm-006', 'default-tenant-001', 'wh-001', 'prod-012', 'OUTBOUND', 100, 'van_load', 'vsl-001', 'Van Alpha load', 'agent-001', '2026-03-10 06:00:00'),
+  ('sm-007', 'default-tenant-001', 'wh-001', 'prod-001', 'OUTBOUND', 150, 'van_load', 'vsl-002', 'Van Beta load', 'agent-002', '2026-03-10 06:15:00'),
+  ('sm-008', 'default-tenant-001', 'wh-001', 'prod-005', 'OUTBOUND', 80, 'van_load', 'vsl-002', 'Van Beta load', 'agent-002', '2026-03-10 06:15:00'),
+  ('sm-009', 'default-tenant-001', 'wh-001', 'prod-001', 'RETURN', 20, 'return', 'ret-001', 'Return from Kwik Save', 'agent-002', '2026-03-05 10:30:00'),
+  ('sm-010', 'default-tenant-001', 'wh-001', 'prod-012', 'RETURN', 5, 'return', 'ret-001', 'Return damaged stock', 'agent-002', '2026-03-05 10:30:00'),
+  ('sm-011', 'default-tenant-001', 'wh-001', 'prod-017', 'ADJUSTMENT', -5, 'stock_adjustment', 'sa-001', 'Damaged in warehouse', 'super-admin-001', '2026-03-03 09:00:00'),
+  ('sm-012', 'default-tenant-001', 'wh-002', 'prod-001', 'TRANSFER_IN', 200, 'transfer', NULL, 'Transfer from main warehouse', 'super-admin-001', '2026-03-04 10:00:00'),
+  ('sm-013', 'default-tenant-001', 'wh-001', 'prod-001', 'TRANSFER_OUT', 200, 'transfer', NULL, 'Transfer to Sandton DC', 'super-admin-001', '2026-03-04 10:00:00'),
+  ('sm-014', 'default-tenant-001', 'wh-003', 'prod-001', 'INBOUND', 300, 'purchase_order', 'po-003', 'Cape Town restock', 'super-admin-001', '2026-03-05 08:00:00'),
+  ('sm-015', 'default-tenant-001', 'wh-001', 'prod-012', 'INBOUND', 600, 'purchase_order', 'po-002', 'PO receipt', 'super-admin-001', '2026-03-02 08:00:00');
+
+-- ==================== STOCK ADJUSTMENTS ====================
+INSERT OR IGNORE INTO stock_adjustments (id, tenant_id, warehouse_id, product_id, adjustment_type, quantity, reason, reference_type, reference_id, created_by, created_at)
+VALUES
+  ('sa-001', 'default-tenant-001', 'wh-001', 'prod-017', 'DECREASE', 5, 'Damaged in warehouse - forklift accident', 'DAMAGE', NULL, 'super-admin-001', '2026-03-03 09:00:00'),
+  ('sa-002', 'default-tenant-001', 'wh-001', 'prod-014', 'DECREASE', 10, 'Expired stock removed', 'EXPIRY', NULL, 'super-admin-001', '2026-03-05 10:00:00'),
+  ('sa-003', 'default-tenant-001', 'wh-001', 'prod-007', 'INCREASE', 20, 'Found miscounted during audit', 'RECOUNT', NULL, 'auditor-001', '2026-03-07 14:00:00'),
+  ('sa-004', 'default-tenant-001', 'wh-002', 'prod-009', 'DECREASE', 3, 'Samples given for marketing event', 'PROMO_SAMPLE', NULL, 'manager-001', '2026-03-08 11:00:00'),
+  ('sa-005', 'default-tenant-001', 'wh-001', 'prod-004', 'INCREASE', 50, 'Supplier credit - additional stock received', 'SUPPLIER_CREDIT', NULL, 'super-admin-001', '2026-03-09 08:00:00'),
+  ('sa-006', 'default-tenant-001', 'wh-003', 'prod-005', 'DECREASE', 8, 'Theft reported and investigated', 'THEFT', NULL, 'manager-001', '2026-03-10 16:00:00');
+
+-- ==================== PURCHASE ORDERS ====================
+INSERT OR IGNORE INTO purchase_orders (id, tenant_id, po_number, supplier_name, warehouse_id, total_amount, status, received_at, created_by, created_at)
+VALUES
+  ('po-001', 'default-tenant-001', 'PO-001', 'SA Beverages Ltd', 'wh-001', 12500.00, 'received', '2026-03-01 10:00:00', 'super-admin-001', '2026-02-25 09:00:00'),
+  ('po-002', 'default-tenant-001', 'PO-002', 'Snack Masters SA', 'wh-001', 8400.00, 'received', '2026-03-02 10:00:00', 'super-admin-001', '2026-02-26 09:00:00'),
+  ('po-003', 'default-tenant-001', 'PO-003', 'SA Beverages Ltd', 'wh-003', 4500.00, 'received', '2026-03-05 10:00:00', 'super-admin-001', '2026-03-01 09:00:00'),
+  ('po-004', 'default-tenant-001', 'PO-004', 'Dairy Fresh Suppliers', 'wh-001', 15200.00, 'partial', NULL, 'super-admin-001', '2026-03-08 09:00:00'),
+  ('po-005', 'default-tenant-001', 'PO-005', 'Confectionery World', 'wh-001', 9800.00, 'pending', NULL, 'manager-001', '2026-03-10 09:00:00'),
+  ('po-006', 'default-tenant-001', 'PO-006', 'SA Beverages Ltd', 'wh-002', 6200.00, 'draft', NULL, 'super-admin-001', '2026-03-12 09:00:00');
+
+INSERT OR IGNORE INTO purchase_order_items (id, purchase_order_id, product_id, quantity_ordered, quantity_received, unit_cost, line_total)
+VALUES
+  ('poi-001', 'po-001', 'prod-001', 500, 500, 8.50, 4250.00),
+  ('poi-002', 'po-001', 'prod-002', 200, 200, 14.50, 2900.00),
+  ('poi-003', 'po-001', 'prod-003', 300, 300, 6.00, 1800.00),
+  ('poi-004', 'po-001', 'prod-004', 200, 200, 12.00, 2400.00),
+  ('poi-005', 'po-001', 'prod-021', 50, 50, 22.00, 1100.00),
+  ('poi-006', 'po-002', 'prod-009', 400, 400, 10.00, 4000.00),
+  ('poi-007', 'po-002', 'prod-012', 600, 600, 14.00, 8400.00),
+  ('poi-008', 'po-003', 'prod-001', 300, 300, 8.50, 2550.00),
+  ('poi-009', 'po-003', 'prod-005', 100, 100, 12.00, 1200.00),
+  ('poi-010', 'po-003', 'prod-022', 50, 50, 15.00, 750.00),
+  ('poi-011', 'po-004', 'prod-005', 400, 200, 12.00, 4800.00),
+  ('poi-012', 'po-004', 'prod-006', 300, 150, 13.00, 3900.00),
+  ('poi-013', 'po-004', 'prod-007', 200, 100, 10.00, 2000.00),
+  ('poi-014', 'po-004', 'prod-008', 100, 50, 38.00, 3800.00),
+  ('poi-015', 'po-004', 'prod-023', 20, 0, 32.00, 640.00),
+  ('poi-016', 'po-005', 'prod-012', 300, 0, 14.00, 4200.00),
+  ('poi-017', 'po-005', 'prod-013', 200, 0, 11.00, 2200.00),
+  ('poi-018', 'po-005', 'prod-014', 300, 0, 6.00, 1800.00),
+  ('poi-019', 'po-005', 'prod-025', 100, 0, 16.00, 1600.00);
+
+-- ==================== COMMISSION PAYOUTS ====================
+INSERT OR IGNORE INTO commission_payouts (id, tenant_id, earner_id, period_start, period_end, total_amount, status, approved_by, approved_at, paid_at, payment_reference, created_at)
+VALUES
+  ('cp-001', 'default-tenant-001', 'agent-001', '2026-02-01', '2026-02-28', 1250.00, 'PAID', 'manager-001', '2026-03-02 10:00:00', '2026-03-05 08:00:00', 'EFT-PAY-001', '2026-03-01 08:00:00'),
+  ('cp-002', 'default-tenant-001', 'agent-002', '2026-02-01', '2026-02-28', 850.00, 'PAID', 'manager-001', '2026-03-02 10:00:00', '2026-03-05 08:00:00', 'EFT-PAY-002', '2026-03-01 08:00:00'),
+  ('cp-003', 'default-tenant-001', 'agent-003', '2026-02-01', '2026-02-28', 1100.00, 'PAID', 'manager-002', '2026-03-02 11:00:00', '2026-03-05 08:00:00', 'EFT-PAY-003', '2026-03-01 08:00:00'),
+  ('cp-004', 'default-tenant-001', 'agent-004', '2026-02-01', '2026-02-28', 780.00, 'PAID', 'manager-002', '2026-03-02 11:00:00', '2026-03-05 08:00:00', 'EFT-PAY-004', '2026-03-01 08:00:00'),
+  ('cp-005', 'default-tenant-001', 'agent-005', '2026-02-01', '2026-02-28', 950.00, 'PAID', 'manager-001', '2026-03-02 10:00:00', '2026-03-05 08:00:00', 'EFT-PAY-005', '2026-03-01 08:00:00'),
+  ('cp-006', 'default-tenant-001', 'agent-001', '2026-03-01', '2026-03-31', 1913.00, 'APPROVED', 'manager-001', '2026-03-12 10:00:00', NULL, NULL, '2026-03-12 08:00:00'),
+  ('cp-007', 'default-tenant-001', 'agent-002', '2026-03-01', '2026-03-31', 47.38, 'PENDING', NULL, NULL, NULL, NULL, '2026-03-12 08:00:00'),
+  ('cp-008', 'default-tenant-001', 'agent-003', '2026-03-01', '2026-03-31', 477.25, 'PENDING', NULL, NULL, NULL, NULL, '2026-03-12 08:00:00'),
+  ('cp-009', 'default-tenant-001', 'agent-005', '2026-03-01', '2026-03-31', 597.00, 'APPROVED', 'manager-001', '2026-03-12 10:00:00', NULL, NULL, '2026-03-12 08:00:00'),
+  ('cp-010', 'default-tenant-001', 'manager-001', '2026-03-01', '2026-03-31', 290.63, 'PENDING', NULL, NULL, NULL, NULL, '2026-03-12 08:00:00');
+
+-- ==================== GOALS ====================
+INSERT OR IGNORE INTO goals (id, tenant_id, title, description, goal_type, target_value, current_value, start_date, end_date, status, created_by, created_at)
+VALUES
+  ('goal-001', 'default-tenant-001', 'March Sales Target', 'Achieve R150,000 in total sales for March', 'revenue', 150000, 98500, '2026-03-01', '2026-03-31', 'active', 'super-admin-001', '2026-03-01 08:00:00'),
+  ('goal-002', 'default-tenant-001', 'Customer Visits - 200', 'Complete 200 customer visits in March', 'visits', 200, 148, '2026-03-01', '2026-03-31', 'active', 'manager-001', '2026-03-01 08:00:00'),
+  ('goal-003', 'default-tenant-001', 'New Customer Acquisition', 'Onboard 10 new customers in March', 'customers', 10, 6, '2026-03-01', '2026-03-31', 'active', 'super-admin-001', '2026-03-01 08:00:00'),
+  ('goal-004', 'default-tenant-001', 'Spaza Penetration Drive', 'Visit 50 spaza shops for distribution expansion', 'visits', 50, 32, '2026-03-01', '2026-04-30', 'active', 'manager-002', '2026-03-01 08:00:00'),
+  ('goal-005', 'default-tenant-001', 'February Sales Target', 'Achieve R120,000 in total sales for February', 'revenue', 120000, 125800, '2026-02-01', '2026-02-28', 'completed', 'super-admin-001', '2026-02-01 08:00:00');
+
+INSERT OR IGNORE INTO goal_assignments (id, goal_id, user_id, target_value, current_value)
+VALUES
+  ('ga-001', 'goal-001', 'agent-001', 35000, 28500),
+  ('ga-002', 'goal-001', 'agent-002', 20000, 14200),
+  ('ga-003', 'goal-001', 'agent-003', 35000, 22800),
+  ('ga-004', 'goal-001', 'agent-004', 25000, 16500),
+  ('ga-005', 'goal-001', 'agent-005', 35000, 26500),
+  ('ga-006', 'goal-002', 'agent-001', 45, 38),
+  ('ga-007', 'goal-002', 'agent-002', 40, 32),
+  ('ga-008', 'goal-002', 'agent-003', 40, 28),
+  ('ga-009', 'goal-002', 'agent-004', 40, 30),
+  ('ga-010', 'goal-002', 'agent-005', 35, 20);
+
+-- ==================== CAMPAIGN ASSIGNMENTS ====================
+INSERT OR IGNORE INTO campaign_assignments (id, campaign_id, user_id, territory_notes, assigned_at)
+VALUES
+  ('ca-001', 'camp-001', 'agent-001', 'Cover JHB CBD and Braamfontein areas', datetime('now')),
+  ('ca-002', 'camp-001', 'agent-002', 'Cover Yeoville, Berea, Troyeville', datetime('now')),
+  ('ca-003', 'camp-001', 'agent-004', 'Cover Soweto areas', datetime('now')),
+  ('ca-004', 'camp-002', 'agent-003', 'Cover Sandton premium stores', datetime('now')),
+  ('ca-005', 'camp-002', 'agent-005', 'Cover Cape Town stores', datetime('now')),
+  ('ca-006', 'camp-003', 'agent-004', 'Soweto spaza shops', datetime('now')),
+  ('ca-007', 'camp-003', 'agent-002', 'Alexandra and East Rand spazas', datetime('now'));
+
+-- ==================== ACTIVATIONS ====================
+INSERT OR IGNORE INTO activations (id, tenant_id, campaign_id, name, location_description, customer_id, agent_id, scheduled_start, scheduled_end, actual_start, actual_end, start_latitude, start_longitude, status, created_at)
+VALUES
+  ('act-001', 'default-tenant-001', 'camp-001', 'Summer Tasting - Shoprite Braamfontein', 'Shoprite Braamfontein entrance', 'cust-001', 'agent-001', '2026-03-08 09:00:00', '2026-03-08 15:00:00', '2026-03-08 09:05:00', '2026-03-08 14:55:00', -26.1950, 28.0334, 'completed', '2026-03-01 08:00:00'),
+  ('act-002', 'default-tenant-001', 'camp-001', 'Summer Tasting - Pick n Pay Newtown', 'Pick n Pay Newtown front', 'cust-002', 'agent-001', '2026-03-09 09:00:00', '2026-03-09 15:00:00', '2026-03-09 09:10:00', '2026-03-09 14:50:00', -26.2010, 28.0310, 'completed', '2026-03-01 08:00:00'),
+  ('act-003', 'default-tenant-001', 'camp-002', 'Product Launch - Woolworths Sandton', 'Woolworths Sandton City main aisle', 'cust-011', 'agent-003', '2026-03-15 10:00:00', '2026-03-15 16:00:00', NULL, NULL, -26.1075, 28.0520, 'scheduled', '2026-03-05 08:00:00'),
+  ('act-004', 'default-tenant-001', 'camp-001', 'Summer Tasting - Maponya Mall', 'Shoprite Soweto entrance', 'cust-016', 'agent-004', '2026-03-10 09:00:00', '2026-03-10 15:00:00', '2026-03-10 09:00:00', NULL, -26.2680, 27.8960, 'in_progress', '2026-03-01 08:00:00'),
+  ('act-005', 'default-tenant-001', 'camp-003', 'Spaza Distribution Push - Zola', 'Township General Zola area', 'cust-020', 'agent-004', '2026-03-12 08:00:00', '2026-03-12 14:00:00', NULL, NULL, -26.2450, 27.8650, 'scheduled', '2026-03-08 08:00:00');
+
+-- ==================== TRADE PROMOTION ENROLLMENTS ====================
+INSERT OR IGNORE INTO trade_promotion_enrollments (id, tenant_id, promotion_id, customer_id, status, enrolled_by, enrolled_at, baseline_volume, target_volume, actual_volume)
+VALUES
+  ('tpe-001', 'default-tenant-001', 'tp-001', 'cust-001', 'ENROLLED', 'agent-001', '2026-03-02 09:00:00', 100, 200, 160),
+  ('tpe-002', 'default-tenant-001', 'tp-001', 'cust-002', 'ENROLLED', 'agent-001', '2026-03-02 10:00:00', 80, 150, 95),
+  ('tpe-003', 'default-tenant-001', 'tp-001', 'cust-011', 'ENROLLED', 'agent-003', '2026-03-03 09:00:00', 120, 250, 180),
+  ('tpe-004', 'default-tenant-001', 'tp-002', 'cust-016', 'ENROLLED', 'agent-004', '2026-03-03 10:00:00', 50, 100, 65),
+  ('tpe-005', 'default-tenant-001', 'tp-002', 'cust-022', 'ENROLLED', 'agent-005', '2026-03-04 09:00:00', 90, 180, 120),
+  ('tpe-006', 'default-tenant-001', 'tp-003', 'cust-005', 'ENROLLED', 'agent-002', '2026-03-15 09:00:00', 30, 60, 0),
+  ('tpe-007', 'default-tenant-001', 'tp-003', 'cust-006', 'ENROLLED', 'agent-002', '2026-03-15 10:00:00', 25, 50, 0),
+  ('tpe-008', 'default-tenant-001', 'tp-001', 'cust-027', 'COMPLETED', 'agent-001', '2026-03-01 09:00:00', 300, 500, 520);
+
+-- ==================== TRADE PROMOTION CLAIMS ====================
+INSERT OR IGNORE INTO trade_promotion_claims (id, tenant_id, promotion_id, customer_id, enrollment_id, claim_type, amount, status, evidence, approved_by, approved_at, period_start, period_end, created_at)
+VALUES
+  ('tpc-001', 'default-tenant-001', 'tp-001', 'cust-001', 'tpe-001', 'VOLUME_REBATE', 145.00, 'APPROVED', '{"invoices":["SO-001","SO-031"],"total_qty":160}', 'manager-001', '2026-03-10 10:00:00', '2026-03-01', '2026-03-10', '2026-03-10 09:00:00'),
+  ('tpc-002', 'default-tenant-001', 'tp-001', 'cust-002', 'tpe-002', 'VOLUME_REBATE', 86.00, 'APPROVED', '{"invoices":["SO-002"],"total_qty":95}', 'manager-001', '2026-03-10 10:00:00', '2026-03-01', '2026-03-10', '2026-03-10 09:30:00'),
+  ('tpc-003', 'default-tenant-001', 'tp-001', 'cust-011', 'tpe-003', 'VOLUME_REBATE', 163.00, 'PENDING', '{"invoices":["SO-004"],"total_qty":180}', NULL, NULL, '2026-03-01', '2026-03-10', '2026-03-11 09:00:00'),
+  ('tpc-004', 'default-tenant-001', 'tp-002', 'cust-016', 'tpe-004', 'DISCOUNT_CLAIM', 97.50, 'APPROVED', '{"invoices":["SO-006"],"total_qty":65}', 'manager-002', '2026-03-11 10:00:00', '2026-03-01', '2026-03-10', '2026-03-11 09:30:00'),
+  ('tpc-005', 'default-tenant-001', 'tp-001', 'cust-027', 'tpe-008', 'VOLUME_REBATE', 472.00, 'PAID', '{"invoices":["SO-010","SO-026"],"total_qty":520}', 'super-admin-001', '2026-03-09 14:00:00', '2026-03-01', '2026-03-09', '2026-03-09 12:00:00');
+
+-- ==================== ROLES ====================
+INSERT OR IGNORE INTO roles (id, tenant_id, name, description, is_system, created_at)
+VALUES
+  ('role-001', 'default-tenant-001', 'Super Administrator', 'Full system access', 1, datetime('now')),
+  ('role-002', 'default-tenant-001', 'Regional Manager', 'Manage regions and teams', 1, datetime('now')),
+  ('role-003', 'default-tenant-001', 'Sales Agent', 'Field sales operations', 1, datetime('now')),
+  ('role-004', 'default-tenant-001', 'Van Sales Agent', 'Van-based sales and deliveries', 0, datetime('now')),
+  ('role-005', 'default-tenant-001', 'Warehouse Manager', 'Inventory and warehouse operations', 0, datetime('now')),
+  ('role-006', 'default-tenant-001', 'Finance Officer', 'Financial operations and reporting', 0, datetime('now')),
+  ('role-007', 'default-tenant-001', 'Auditor', 'Compliance and audit access', 1, datetime('now'));
+
+-- ==================== VISIT RESPONSES (survey answers) ====================
+INSERT OR IGNORE INTO visit_responses (id, tenant_id, visit_id, questionnaire_id, answers, created_at)
+VALUES
+  ('vr-r-001', 'default-tenant-001', 'vis-001', 'quest-001', '{"q1":true,"q2":4,"q3":false,"q4":"Good stock levels, shelf well organized"}', '2026-03-10 09:30:00'),
+  ('vr-r-002', 'default-tenant-001', 'vis-002', 'quest-001', '{"q1":true,"q2":3,"q3":true,"q4":"Competitor visible in aisle 3"}', '2026-03-10 10:40:00'),
+  ('vr-r-003', 'default-tenant-001', 'vis-005', 'quest-001', '{"q1":true,"q2":2,"q3":false,"q4":"Low stock on beverages"}', '2026-03-10 09:20:00'),
+  ('vr-r-004', 'default-tenant-001', 'vis-009', 'quest-001', '{"q1":true,"q2":5,"q3":true,"q4":"Premium display in place"}', '2026-03-10 09:15:00'),
+  ('vr-r-005', 'default-tenant-001', 'vis-012', 'quest-001', '{"q1":true,"q2":4,"q3":false,"q4":"Restocked all shelves"}', '2026-03-10 09:40:00'),
+  ('vr-r-006', 'default-tenant-001', 'vis-007', 'quest-002', '{"q1":true,"q2":true,"q3":false,"q4":60}', '2026-03-10 11:10:00'),
+  ('vr-r-007', 'default-tenant-001', 'vis-011', 'quest-002', '{"q1":true,"q2":true,"q3":true,"q4":80}', '2026-03-10 11:20:00');
+
+-- ==================== AGENT LOCATIONS (real-time tracking) ====================
+INSERT OR IGNORE INTO agent_locations (id, tenant_id, user_id, latitude, longitude, accuracy, created_at)
+VALUES
+  ('al-001', 'default-tenant-001', 'agent-001', -26.1950, 28.0334, 10.5, '2026-03-12 09:00:00'),
+  ('al-002', 'default-tenant-001', 'agent-002', -26.1790, 28.0650, 8.2, '2026-03-12 09:05:00'),
+  ('al-003', 'default-tenant-001', 'agent-003', -26.1075, 28.0520, 12.0, '2026-03-12 09:10:00'),
+  ('al-004', 'default-tenant-001', 'agent-004', -26.2680, 27.8960, 6.5, '2026-03-12 09:15:00'),
+  ('al-005', 'default-tenant-001', 'agent-005', -33.9060, 18.4210, 9.0, '2026-03-12 09:20:00');
+
+-- ==================== ROUTE PLANS ====================
+INSERT OR IGNORE INTO route_plans (id, tenant_id, agent_id, plan_date, status, created_at)
+VALUES
+  ('rp-001', 'default-tenant-001', 'agent-001', '2026-03-12', 'active', '2026-03-12 06:00:00'),
+  ('rp-002', 'default-tenant-001', 'agent-002', '2026-03-12', 'active', '2026-03-12 06:00:00'),
+  ('rp-003', 'default-tenant-001', 'agent-003', '2026-03-12', 'active', '2026-03-12 06:00:00'),
+  ('rp-004', 'default-tenant-001', 'agent-004', '2026-03-12', 'active', '2026-03-12 06:00:00'),
+  ('rp-005', 'default-tenant-001', 'agent-005', '2026-03-12', 'active', '2026-03-12 06:00:00');
+
+INSERT OR IGNORE INTO route_plan_stops (id, route_plan_id, customer_id, sequence_order, estimated_arrival, status, created_at)
+VALUES
+  ('rps-001', 'rp-001', 'cust-027', 1, '2026-03-12 08:30:00', 'in_progress', '2026-03-12 06:00:00'),
+  ('rps-002', 'rp-001', 'cust-001', 2, '2026-03-12 10:00:00', 'pending', '2026-03-12 06:00:00'),
+  ('rps-003', 'rp-001', 'cust-002', 3, '2026-03-12 11:30:00', 'pending', '2026-03-12 06:00:00'),
+  ('rps-004', 'rp-001', 'cust-044', 4, '2026-03-12 13:00:00', 'pending', '2026-03-12 06:00:00'),
+  ('rps-005', 'rp-002', 'cust-010', 1, '2026-03-12 09:00:00', 'pending', '2026-03-12 06:00:00'),
+  ('rps-006', 'rp-002', 'cust-035', 2, '2026-03-12 10:30:00', 'pending', '2026-03-12 06:00:00'),
+  ('rps-007', 'rp-002', 'cust-038', 3, '2026-03-12 12:00:00', 'pending', '2026-03-12 06:00:00'),
+  ('rps-008', 'rp-003', 'cust-014', 1, '2026-03-12 09:00:00', 'pending', '2026-03-12 06:00:00'),
+  ('rps-009', 'rp-003', 'cust-031', 2, '2026-03-12 10:30:00', 'pending', '2026-03-12 06:00:00'),
+  ('rps-010', 'rp-004', 'cust-045', 1, '2026-03-12 09:00:00', 'pending', '2026-03-12 06:00:00'),
+  ('rps-011', 'rp-004', 'cust-032', 2, '2026-03-12 10:00:00', 'pending', '2026-03-12 06:00:00'),
+  ('rps-012', 'rp-005', 'cust-037', 1, '2026-03-12 09:00:00', 'pending', '2026-03-12 06:00:00');

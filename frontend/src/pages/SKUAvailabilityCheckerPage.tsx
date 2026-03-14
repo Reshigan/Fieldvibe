@@ -236,7 +236,7 @@ const SKUAvailabilityCheckerPage: React.FC = () => {
           {/* Product Condition */}
           <div className="bg-white rounded-lg shadow p-6">
             <label className="block text-sm font-medium text-gray-700 mb-3">Product Condition</label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {[
                 { value: 'excellent', label: '⭐ Excellent' },
                 { value: 'good', label: '👍 Good' },

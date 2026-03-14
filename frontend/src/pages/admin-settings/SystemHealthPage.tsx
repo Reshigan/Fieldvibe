@@ -92,7 +92,7 @@ export const SystemHealthPage: React.FC = () => {
 
   return (
     <div className="space-y-6" role="main" aria-label="System Health Dashboard">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">System Health</h1>
           <p className="mt-1 text-sm text-gray-400">Monitor services, self-healing metrics, and error trends</p>
@@ -106,7 +106,7 @@ export const SystemHealthPage: React.FC = () => {
       </div>
 
       {/* Overview Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-[#0A0E18] border border-[#1a1f2e] rounded-lg p-4">
           <div className="text-sm text-gray-400">Services</div>
           <div className="text-2xl font-bold">{healthyCount}/{services.length}</div>
@@ -164,7 +164,7 @@ export const SystemHealthPage: React.FC = () => {
             {healHistory.map((h, i) => (
               <div key={i} className="border border-[#1a1f2e] rounded-lg p-4">
                 <div className="text-sm text-gray-400 mb-2">{h.timestamp || 'Latest run'}</div>
-                <div className="grid grid-cols-5 gap-2 text-center">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 text-center">
                   <div><div className="text-lg font-bold text-[#00E87B]">{h.orders_fixed || 0}</div><div className="text-xs text-gray-400">Orders Fixed</div></div>
                   <div><div className="text-lg font-bold text-[#00E87B]">{h.balances_fixed || 0}</div><div className="text-xs text-gray-400">Balances Fixed</div></div>
                   <div><div className="text-lg font-bold text-[#00E87B]">{h.stock_fixed || 0}</div><div className="text-xs text-gray-400">Stock Fixed</div></div>

@@ -94,7 +94,7 @@ export default function CashVariance() {
             }`}>
               Cash {isShort ? 'Shortage' : 'Overage'} Detected
             </h2>
-            <div className="grid grid-cols-3 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
               <div>
                 <p className={`font-medium ${isShort ? 'text-red-700' : 'text-yellow-700'}`}>
                   Expected Cash

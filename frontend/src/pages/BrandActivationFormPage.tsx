@@ -485,7 +485,7 @@ const BrandActivationFormPage: React.FC = () => {
                 Take Photo ({formData.photos?.length || 0})
               </button>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {formData.photos?.map((photo, index) => (
                   <div key={index} className="relative">
                     <div className="w-full h-32 bg-gray-200 rounded-lg flex items-center justify-center text-xs text-gray-600">

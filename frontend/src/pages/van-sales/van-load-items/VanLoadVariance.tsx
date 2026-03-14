@@ -73,7 +73,7 @@ export default function VanLoadVariance() {
           <AlertTriangle className="h-6 w-6 text-yellow-600 mt-0.5" />
           <div className="flex-1">
             <h2 className="text-lg font-semibold text-yellow-900 mb-2">Variance Detected</h2>
-            <div className="grid grid-cols-3 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
               <div>
                 <p className="text-yellow-700 font-medium">Expected Remaining</p>
                 <p className="text-2xl font-bold text-yellow-900">{item.expected_remaining}</p>

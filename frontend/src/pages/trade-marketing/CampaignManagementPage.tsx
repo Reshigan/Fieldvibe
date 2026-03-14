@@ -36,7 +36,7 @@ export default function CampaignManagementPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div><h1 className="text-2xl font-bold text-gray-900">Campaign Management</h1><p className="text-sm text-gray-600 mt-1">Manage trade marketing campaigns ({total} total)</p></div>
         <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"><Plus className="h-4 w-4" /><span>Create Campaign</span></button>
       </div>

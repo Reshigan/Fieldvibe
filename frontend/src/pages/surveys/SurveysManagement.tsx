@@ -334,7 +334,7 @@ export default function SurveysManagement() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Survey Management</h1>
           <p className="text-gray-600">Create, manage, and analyze customer surveys</p>

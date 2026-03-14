@@ -115,7 +115,7 @@ export default function BatchAllocation() {
         <div className="px-6 py-4 border-b border-gray-100">
           <h2 className="text-lg font-semibold text-gray-900">Allocation Details</h2>
         </div>
-        <table className="min-w-full divide-y divide-gray-200">
+        <div className="overflow-x-auto"><table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-surface-secondary">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order</th>
@@ -167,7 +167,7 @@ export default function BatchAllocation() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       </div>
     </div>
   )

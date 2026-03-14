@@ -52,7 +52,7 @@ const POSLibraryPage: React.FC = () => {
       {editing !== null && (
         <div className="bg-white p-6 rounded-lg shadow-lg mb-6">
           <h2 className="text-xl font-semibold mb-4">{editing ? 'Edit Material' : 'New Material'}</h2>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <input placeholder="Material Name" value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} className="px-4 py-2 border rounded" />
             <select value={form.type || ''} onChange={e => setForm({...form, type: e.target.value})} className="px-4 py-2 border rounded">
               <option value="">Type</option>
@@ -75,7 +75,7 @@ const POSLibraryPage: React.FC = () => {
       )}
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full">
+        <div className="overflow-x-auto"><table className="w-full">
           <thead className="bg-gray-100">
             <tr>
               <th className="px-4 py-3 text-left">Name</th>
@@ -103,7 +103,7 @@ const POSLibraryPage: React.FC = () => {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       </div>
     </div>
   );

@@ -123,7 +123,7 @@ const VisitWorkflowPage: React.FC = () => {
           </div>
           
           {/* Progress Bar */}
-          <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
             <div className="bg-blue-50 p-2 rounded">
               <div className="text-2xl font-bold text-blue-600">{activities.boards}</div>
               <div className="text-xs text-gray-600">Boards</div>

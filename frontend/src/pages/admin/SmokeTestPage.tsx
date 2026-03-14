@@ -180,7 +180,7 @@ export default function SmokeTestPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: 'API Endpoints', value: apiChecks.length, color: '' },
           { label: 'Passed', value: apiPass, color: 'text-green-400' },

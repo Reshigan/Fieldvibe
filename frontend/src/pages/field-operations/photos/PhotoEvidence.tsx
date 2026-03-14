@@ -151,7 +151,7 @@ export default function PhotoEvidence() {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4 mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
                   <div className="flex items-center gap-2">
                     {item.gps_match ? (
                       <CheckCircle className="h-5 w-5 text-green-600" />

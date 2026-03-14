@@ -146,7 +146,7 @@ export default function BatchMovementHistory() {
                             </span>
                             <span className="text-sm text-gray-600">{movement.reference}</span>
                           </div>
-                          <div className="grid grid-cols-3 gap-4 mb-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-2">
                             <div>
                               <p className="text-xs text-gray-500">Before</p>
                               <p className="text-sm font-medium text-gray-900">{movement.quantity_before}</p>

@@ -198,7 +198,7 @@ export default function AdminPage() {
               <span className="text-sm">All systems operational</span>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-6 text-right">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-right">
             <div>
               <p className="text-sm opacity-75">Uptime</p>
               <p className="text-xl font-bold">{systemHealth.uptime}</p>

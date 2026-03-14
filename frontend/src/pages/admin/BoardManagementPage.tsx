@@ -73,7 +73,7 @@ const BoardManagementPage: React.FC = () => {
       )}
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full">
+        <div className="overflow-x-auto"><table className="w-full">
           <thead className="bg-gray-100">
             <tr>
               <th className="px-4 py-3 text-left">Name</th>
@@ -99,7 +99,7 @@ const BoardManagementPage: React.FC = () => {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       </div>
     </div>
   );
