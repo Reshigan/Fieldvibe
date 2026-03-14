@@ -54,7 +54,7 @@ export const navigation: NavigationItem[] = [
       { name: 'Van Sales', href: '/insights/van-sales', permission: null, description: 'Van sales performance' },
       { name: 'Field Ops', href: '/insights/field-ops', permission: null, description: 'Field operations analytics' },
       { name: 'Stock', href: '/insights/stock', permission: null, description: 'Inventory insights' },
-      { name: 'Trade Promos', href: '/insights/trade-promos', permission: null, description: 'Trade promotion ROI' },
+      { name: 'Trade Promos', href: '/insights/trade-promotions', permission: null, description: 'Trade promotion ROI' },
       { name: 'Commissions', href: '/insights/commissions', permission: null, description: 'Commission analytics' },
       { name: 'Goals', href: '/insights/goals', permission: null, description: 'Goal tracking' },
       { name: 'Anomalies', href: '/insights/anomalies', permission: null, description: 'Anomaly detection' },

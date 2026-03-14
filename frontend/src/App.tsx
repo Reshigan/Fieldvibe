@@ -541,6 +541,9 @@ function App() {
             <Route path="inventory/transfers/create" element={<Suspense fallback={<PageSkeleton />}><TransferCreate /></Suspense>} />
             <Route path="inventory/transfers/:id" element={<Suspense fallback={<PageSkeleton />}><TransferDetail /></Suspense>} />
             
+            <Route path="inventory/stock-levels" element={<Navigate to="/inventory/management" replace />} />
+            <Route path="inventory/movements" element={<Navigate to="/inventory/management" replace />} />
+            <Route path="inventory/warehouses" element={<Navigate to="/inventory" replace />} />
             <Route path="inventory-management/*" element={<Navigate to="/inventory" replace />} />
 
             {/* Promotions Routes */}
@@ -581,6 +584,7 @@ function App() {
             <Route path="customers/:id/payments" element={<Suspense fallback={<PageSkeleton />}><CustomerPayments /></Suspense>} />
             <Route path="customers/:id/surveys" element={<Suspense fallback={<PageSkeleton />}><CustomerSurveys /></Suspense>} />
             <Route path="customers/:id/kyc" element={<Suspense fallback={<PageSkeleton />}><CustomerKYC /></Suspense>} />
+            <Route path="customers/credit" element={<Navigate to="/customers" replace />} />
             <Route path="orders" element={<Suspense fallback={<PageSkeleton />}><OrdersPage /></Suspense>} />
             <Route path="orders/dashboard" element={<Suspense fallback={<PageSkeleton />}><OrderDashboard /></Suspense>} />
             <Route path="orders/create" element={<Suspense fallback={<PageSkeleton />}><OrderCreatePage /></Suspense>} />
@@ -621,6 +625,7 @@ function App() {
 
             {/* Sales Routes */}
             <Route path="sales" element={<Suspense fallback={<PageSkeleton />}><SalesDashboard /></Suspense>} />
+            <Route path="sales/dashboard" element={<Suspense fallback={<PageSkeleton />}><SalesDashboard /></Suspense>} />
             <Route path="sales/orders" element={<Suspense fallback={<PageSkeleton />}><SalesOrdersList /></Suspense>} />
             <Route path="sales/orders/create" element={<Suspense fallback={<PageSkeleton />}><SalesOrderCreate /></Suspense>} />
             <Route path="sales/orders/:id" element={<Suspense fallback={<PageSkeleton />}><SalesOrderDetail /></Suspense>} />
@@ -659,6 +664,7 @@ function App() {
 
             {/* Finance Routes */}
             <Route path="finance" element={<Suspense fallback={<PageSkeleton />}><FinanceDashboard /></Suspense>} />
+            <Route path="finance/dashboard" element={<Suspense fallback={<PageSkeleton />}><FinanceDashboard /></Suspense>} />
             <Route path="finance/invoices" element={<Suspense fallback={<PageSkeleton />}><InvoiceManagementPage /></Suspense>} />
             <Route path="finance/invoices/create" element={<Suspense fallback={<PageSkeleton />}><FinanceInvoiceCreate /></Suspense>} />
             <Route path="finance/invoices/:id" element={<Suspense fallback={<PageSkeleton />}><FinanceInvoiceDetail /></Suspense>} />
