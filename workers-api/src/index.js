@@ -7,6 +7,14 @@ import { validate, loginSchema, registerSchema, createUserSchema, updateUserSche
 
 const app = new Hono();
 
+// ==================== GLOBAL ERROR HANDLER (BUG-001) ====================
+// Catches all unhandled exceptions in any route handler, preventing raw 500
+// errors and stack trace leaks to the client.
+app.onError((err, c) => {
+  console.error('Unhandled error:', err);
+  return c.json({ success: false, message: 'Internal server error' }, 500);
+});
+
 // ==================== SECTION 7: SECURITY HEADERS ====================
 app.use('*', async (c, next) => {
   await next();
@@ -1761,7 +1769,9 @@ api.get('/dashboard/revenue-trends', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const { period = '30' } = c.req.query();
-  const data = await db.prepare("SELECT date(created_at) as date, COALESCE(SUM(total_amount), 0) as revenue, COUNT(*) as orders FROM sales_orders WHERE tenant_id = ? AND created_at >= date('now', '-' || ? || ' days') GROUP BY date(created_at) ORDER BY date").bind(tenantId, period).all();
+  // BUG-002: Validate period as integer to prevent SQL injection
+  const periodDays = String(Math.max(1, Math.min(365, parseInt(period, 10) || 30)));
+  const data = await db.prepare("SELECT date(created_at) as date, COALESCE(SUM(total_amount), 0) as revenue, COUNT(*) as orders FROM sales_orders WHERE tenant_id = ? AND created_at >= date('now', '-' || ? || ' days') GROUP BY date(created_at) ORDER BY date").bind(tenantId, periodDays).all();
   return c.json(data.results || []);
 });
 
@@ -2454,10 +2464,12 @@ api.get('/analytics/visits', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const { start_date, end_date, period = '30' } = c.req.query();
+  // BUG-002: Validate period as integer to prevent SQL injection
+  const periodDays = String(Math.max(1, Math.min(365, parseInt(period, 10) || 30)));
   let where = 'WHERE tenant_id = ?';
   const params = [tenantId];
   if (start_date && end_date) { where += ' AND visit_date >= ? AND visit_date <= ?'; params.push(start_date, end_date); }
-  else { where += " AND visit_date >= date('now', '-' || ? || ' days')"; params.push(period); }
+  else { where += " AND visit_date >= date('now', '-' || ? || ' days')"; params.push(periodDays); }
   const data = await db.prepare("SELECT visit_date as date, COUNT(*) as total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed, SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending FROM visits " + where + " GROUP BY visit_date ORDER BY visit_date").bind(...params).all();
   return c.json(data.results || []);
 });
@@ -2536,7 +2548,9 @@ api.get('/analytics/sales', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const { period = '30' } = c.req.query();
-  const data = await db.prepare("SELECT date(created_at) as date, COUNT(*) as orders, COALESCE(SUM(total_amount), 0) as revenue FROM sales_orders WHERE tenant_id = ? AND created_at >= date('now', '-' || ? || ' days') GROUP BY date(created_at) ORDER BY date").bind(tenantId, period).all();
+  // BUG-002: Validate period as integer to prevent SQL injection
+  const periodDays = String(Math.max(1, Math.min(365, parseInt(period, 10) || 30)));
+  const data = await db.prepare("SELECT date(created_at) as date, COUNT(*) as orders, COALESCE(SUM(total_amount), 0) as revenue FROM sales_orders WHERE tenant_id = ? AND created_at >= date('now', '-' || ? || ' days') GROUP BY date(created_at) ORDER BY date").bind(tenantId, periodDays).all();
   return c.json(data.results || []);
 });
 
@@ -4338,8 +4352,10 @@ api.get('/reports/agent-performance', async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const { period = '30' } = c.req.query();
+  // BUG-002: Validate period as integer to prevent SQL injection
+  const periodDays = String(Math.max(1, Math.min(365, parseInt(period, 10) || 30)));
 
-  const agents = await db.prepare("SELECT u.id, u.first_name || ' ' || u.last_name as name, u.role, (SELECT COUNT(*) FROM visits WHERE agent_id = u.id AND tenant_id = ? AND created_at >= datetime('now', '-' || ? || ' days')) as visit_count, (SELECT COUNT(*) FROM sales_orders WHERE agent_id = u.id AND tenant_id = ? AND created_at >= datetime('now', '-' || ? || ' days')) as order_count, (SELECT COALESCE(SUM(total_amount), 0) FROM sales_orders WHERE agent_id = u.id AND tenant_id = ? AND created_at >= datetime('now', '-' || ? || ' days')) as revenue, (SELECT COALESCE(SUM(amount), 0) FROM commission_earnings WHERE earner_id = u.id AND tenant_id = ?) as total_commission FROM users u WHERE u.tenant_id = ? AND u.role IN ('agent', 'team_lead') AND u.is_active = 1 ORDER BY revenue DESC").bind(tenantId, period, tenantId, period, tenantId, period, tenantId, tenantId).all();
+  const agents = await db.prepare("SELECT u.id, u.first_name || ' ' || u.last_name as name, u.role, (SELECT COUNT(*) FROM visits WHERE agent_id = u.id AND tenant_id = ? AND created_at >= datetime('now', '-' || ? || ' days')) as visit_count, (SELECT COUNT(*) FROM sales_orders WHERE agent_id = u.id AND tenant_id = ? AND created_at >= datetime('now', '-' || ? || ' days')) as order_count, (SELECT COALESCE(SUM(total_amount), 0) FROM sales_orders WHERE agent_id = u.id AND tenant_id = ? AND created_at >= datetime('now', '-' || ? || ' days')) as revenue, (SELECT COALESCE(SUM(amount), 0) FROM commission_earnings WHERE earner_id = u.id AND tenant_id = ?) as total_commission FROM users u WHERE u.tenant_id = ? AND u.role IN ('agent', 'team_lead') AND u.is_active = 1 ORDER BY revenue DESC").bind(tenantId, periodDays, tenantId, periodDays, tenantId, periodDays, tenantId, tenantId).all();
 
   return c.json({ success: true, data: agents.results || [] });
 });
@@ -5081,9 +5097,12 @@ api.get('/insights/sales', async (c) => {
   const role = c.get('role');
   const userId = c.get('userId');
   const { period = '30' } = c.req.query();
+  // BUG-002: Sanitize period to prevent SQL injection — validate as integer, clamp to safe range
+  const periodDays = Math.max(1, Math.min(365, parseInt(period, 10) || 30));
+  const periodModifier = `-${periodDays} days`;
 
   let agentFilter = '';
-  const params = [tenantId];
+  const params = [tenantId, periodModifier];
   if (role === 'agent') { agentFilter = ' AND so.agent_id = ?'; params.push(userId); }
   else if (role === 'team_lead' || role === 'manager') {
     const team = await db.prepare('SELECT id FROM users WHERE manager_id = ? AND tenant_id = ?').bind(userId, tenantId).all();
@@ -5096,12 +5115,12 @@ api.get('/insights/sales', async (c) => {
   }
 
   const [summary, byAgent, byProduct, byCustomer, dailyTrend, paymentMethods] = await Promise.all([
-    db.prepare(`SELECT COUNT(*) as orders, COALESCE(SUM(total_amount), 0) as revenue, COALESCE(AVG(total_amount), 0) as avg_order, COALESCE(SUM(discount_amount), 0) as total_discount FROM sales_orders so WHERE so.tenant_id = ? AND so.status != 'CANCELLED' AND so.created_at >= datetime('now', '-${period} days')${agentFilter}`).bind(...params).first(),
-    db.prepare(`SELECT u.first_name || ' ' || u.last_name as agent, COUNT(*) as orders, COALESCE(SUM(so.total_amount), 0) as revenue FROM sales_orders so JOIN users u ON so.agent_id = u.id WHERE so.tenant_id = ? AND so.status != 'CANCELLED' AND so.created_at >= datetime('now', '-${period} days')${agentFilter} GROUP BY so.agent_id ORDER BY revenue DESC`).bind(...params).all(),
-    db.prepare(`SELECT p.name, SUM(soi.quantity) as qty_sold, SUM(soi.line_total) as revenue FROM sales_order_items soi JOIN products p ON soi.product_id = p.id JOIN sales_orders so ON soi.sales_order_id = so.id WHERE so.tenant_id = ? AND so.status != 'CANCELLED' AND so.created_at >= datetime('now', '-${period} days')${agentFilter} GROUP BY p.name ORDER BY revenue DESC LIMIT 20`).bind(...params).all(),
-    db.prepare(`SELECT c.name, COUNT(*) as orders, COALESCE(SUM(so.total_amount), 0) as revenue FROM sales_orders so JOIN customers c ON so.customer_id = c.id WHERE so.tenant_id = ? AND so.status != 'CANCELLED' AND so.created_at >= datetime('now', '-${period} days')${agentFilter} GROUP BY c.name ORDER BY revenue DESC LIMIT 20`).bind(...params).all(),
-    db.prepare(`SELECT DATE(so.created_at) as day, COUNT(*) as orders, COALESCE(SUM(so.total_amount), 0) as revenue FROM sales_orders so WHERE so.tenant_id = ? AND so.status != 'CANCELLED' AND so.created_at >= datetime('now', '-${period} days')${agentFilter} GROUP BY day ORDER BY day`).bind(...params).all(),
-    db.prepare(`SELECT so.payment_method, COUNT(*) as count, COALESCE(SUM(so.total_amount), 0) as amount FROM sales_orders so WHERE so.tenant_id = ? AND so.status != 'CANCELLED' AND so.created_at >= datetime('now', '-${period} days')${agentFilter} GROUP BY so.payment_method`).bind(...params).all(),
+    db.prepare(`SELECT COUNT(*) as orders, COALESCE(SUM(total_amount), 0) as revenue, COALESCE(AVG(total_amount), 0) as avg_order, COALESCE(SUM(discount_amount), 0) as total_discount FROM sales_orders so WHERE so.tenant_id = ? AND so.status != 'CANCELLED' AND so.created_at >= datetime('now', ?)${agentFilter}`).bind(...params).first(),
+    db.prepare(`SELECT u.first_name || ' ' || u.last_name as agent, COUNT(*) as orders, COALESCE(SUM(so.total_amount), 0) as revenue FROM sales_orders so JOIN users u ON so.agent_id = u.id WHERE so.tenant_id = ? AND so.status != 'CANCELLED' AND so.created_at >= datetime('now', ?)${agentFilter} GROUP BY so.agent_id ORDER BY revenue DESC`).bind(...params).all(),
+    db.prepare(`SELECT p.name, SUM(soi.quantity) as qty_sold, SUM(soi.line_total) as revenue FROM sales_order_items soi JOIN products p ON soi.product_id = p.id JOIN sales_orders so ON soi.sales_order_id = so.id WHERE so.tenant_id = ? AND so.status != 'CANCELLED' AND so.created_at >= datetime('now', ?)${agentFilter} GROUP BY p.name ORDER BY revenue DESC LIMIT 20`).bind(...params).all(),
+    db.prepare(`SELECT c.name, COUNT(*) as orders, COALESCE(SUM(so.total_amount), 0) as revenue FROM sales_orders so JOIN customers c ON so.customer_id = c.id WHERE so.tenant_id = ? AND so.status != 'CANCELLED' AND so.created_at >= datetime('now', ?)${agentFilter} GROUP BY c.name ORDER BY revenue DESC LIMIT 20`).bind(...params).all(),
+    db.prepare(`SELECT DATE(so.created_at) as day, COUNT(*) as orders, COALESCE(SUM(so.total_amount), 0) as revenue FROM sales_orders so WHERE so.tenant_id = ? AND so.status != 'CANCELLED' AND so.created_at >= datetime('now', ?)${agentFilter} GROUP BY day ORDER BY day`).bind(...params).all(),
+    db.prepare(`SELECT so.payment_method, COUNT(*) as count, COALESCE(SUM(so.total_amount), 0) as amount FROM sales_orders so WHERE so.tenant_id = ? AND so.status != 'CANCELLED' AND so.created_at >= datetime('now', ?)${agentFilter} GROUP BY so.payment_method`).bind(...params).all(),
   ]);
 
   return c.json({ success: true, data: {
