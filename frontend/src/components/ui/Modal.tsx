@@ -57,12 +57,13 @@ export const Modal: React.FC<ModalProps> = ({
       onClick={closeOnOverlayClick ? onClose : undefined}
     >
       {/* Overlay */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
       {/* Modal */}
       <div
         className={cn(
           'relative bg-white dark:bg-night-50 rounded-lg shadow-xl w-full',
+          'max-sm:!max-w-full max-sm:!mx-0 max-sm:!rounded-none max-sm:!min-h-screen max-sm:!flex max-sm:!flex-col',
           sizeClasses[size],
           className
         )}

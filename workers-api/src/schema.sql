@@ -1183,6 +1183,57 @@ CREATE TABLE IF NOT EXISTS seed_runs (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ==================== EMAIL QUEUE ====================
+
+CREATE TABLE IF NOT EXISTS email_queue (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  recipients TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  html_body TEXT NOT NULL,
+  text_body TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  retry_count INTEGER DEFAULT 0,
+  max_retries INTEGER DEFAULT 3,
+  sent_at TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_queue_status ON email_queue(status, retry_count);
+
+-- ==================== PASSWORD RESET TOKENS ====================
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  used INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_token ON password_reset_tokens(token);
+
+-- ==================== INVITE TOKENS ====================
+
+CREATE TABLE IF NOT EXISTS invite_tokens (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  name TEXT,
+  role TEXT DEFAULT 'agent',
+  token TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  used INTEGER DEFAULT 0,
+  created_by TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_invite_token ON invite_tokens(token);
+
 -- ==================== ADDITIONAL INDEXES ====================
 CREATE INDEX IF NOT EXISTS idx_price_lists_tenant ON price_lists(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_price_list_items_list ON price_list_items(price_list_id, product_id);

@@ -599,8 +599,11 @@ api.post('/visits', async (c) => {
       const dLon = (lng - customer.longitude) * Math.PI / 180;
       const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(customer.latitude * Math.PI / 180) * Math.cos(lat * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
       const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      if (dist > 0.5) {
-        anomalies.push({ type: 'GPS_SPOOFING', severity: dist > 2 ? 'high' : 'medium', details: `Visit GPS is ${dist.toFixed(2)}km from customer location` });
+      // Use configurable geofence radius (default 200m = 0.2km)
+      const gfSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = ? AND key = 'geofence_radius_meters'").bind(tenantId).first();
+      const gfRadiusKm = (gfSetting ? parseInt(gfSetting.value) : 200) / 1000;
+      if (dist > gfRadiusKm) {
+        anomalies.push({ type: 'GPS_SPOOFING', severity: dist > 2 ? 'high' : 'medium', details: `Visit GPS is ${dist.toFixed(2)}km from customer location (radius: ${(gfRadiusKm * 1000).toFixed(0)}m)` });
       }
     }
 
@@ -866,7 +869,7 @@ api.post('/sales-orders', async (c) => {
       await db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price, discount_percent, line_total) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(itemId, id, item.product_id, item.quantity || 0, item.unit_price || 0, item.discount_percent || 0, lineTotal).run();
     }
   }
-  // Auto-trigger commission calculation
+  // Auto-trigger commission calculation + manager override
   try {
     const rules = await db.prepare("SELECT * FROM commission_rules WHERE tenant_id = ? AND source_type = 'sales_order' AND is_active = 1").bind(tenantId).all();
     for (const rule of (rules.results || [])) {
@@ -874,6 +877,13 @@ api.post('/sales-orders', async (c) => {
       if (commAmount > 0) {
         const ceId = uuidv4();
         await db.prepare("INSERT INTO commission_earnings (id, tenant_id, earner_id, source_type, source_id, rule_id, rate, base_amount, amount, status, created_at) VALUES (?, ?, ?, 'sales_order', ?, ?, ?, ?, ?, 'pending', datetime('now'))").bind(ceId, tenantId, body.agent_id || userId, id, rule.id, rule.rate, totalAmount, commAmount).run();
+        // Manager override commission
+        const agent = await db.prepare('SELECT manager_id FROM users WHERE id = ?').bind(body.agent_id || userId).first();
+        if (agent && agent.manager_id && rule.manager_override_rate) {
+          const mgrAmount = totalAmount * (rule.manager_override_rate / 100);
+          const mgrId = uuidv4();
+          await db.prepare("INSERT INTO commission_earnings (id, tenant_id, earner_id, source_type, source_id, rule_id, rate, base_amount, amount, status, created_at) VALUES (?, ?, ?, 'sales_order_override', ?, ?, ?, ?, ?, 'pending', datetime('now'))").bind(mgrId, tenantId, agent.manager_id, id, rule.id, rule.manager_override_rate, totalAmount, mgrAmount).run();
+        }
       }
     }
   } catch(e) { console.error('Commission calc error:', e); }
@@ -5882,6 +5892,144 @@ api.get('/docs/index', (c) => {
 });
 
 
+// ==================== PASSWORD RESET ====================
+app.post('/api/auth/forgot-password', rateLimiter(3, 3600000), async (c) => {
+  try {
+    const db = c.env.DB;
+    const { email } = await c.req.json();
+    if (!email) return c.json({ success: false, message: 'Email required' }, 400);
+    const user = await db.prepare('SELECT id, tenant_id, first_name FROM users WHERE email = ? AND is_active = 1').bind(email).first();
+    if (!user) return c.json({ success: true, message: 'If that email exists, a reset link has been sent' });
+    const token = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 3600000).toISOString();
+    await db.prepare('INSERT INTO password_reset_tokens (id, user_id, token, expires_at) VALUES (?, ?, ?, ?)').bind(crypto.randomUUID(), user.id, token, expiresAt).run();
+    // Queue email
+    await db.prepare("INSERT INTO email_queue (id, tenant_id, recipients, subject, html_body, status) VALUES (?, ?, ?, ?, ?, 'pending')").bind(crypto.randomUUID(), user.tenant_id, email, 'FieldVibe Password Reset', `<p>Hi ${user.first_name},</p><p>Click to reset: <a href="https://fieldvibe.vantax.co.za/reset-password?token=${token}">Reset Password</a></p><p>Expires in 1 hour.</p>`).run();
+    return c.json({ success: true, message: 'If that email exists, a reset link has been sent' });
+  } catch (e) { console.error('Forgot password error:', e); return c.json({ success: false, message: 'Error processing request' }, 500); }
+});
+
+app.post('/api/auth/reset-password', rateLimiter(5, 900000), async (c) => {
+  try {
+    const db = c.env.DB;
+    const { token, password } = await c.req.json();
+    if (!token || !password) return c.json({ success: false, message: 'Token and password required' }, 400);
+    if (password.length < 8) return c.json({ success: false, message: 'Password must be at least 8 characters' }, 400);
+    const resetToken = await db.prepare("SELECT * FROM password_reset_tokens WHERE token = ? AND used = 0 AND expires_at > datetime('now')").bind(token).first();
+    if (!resetToken) return c.json({ success: false, message: 'Invalid or expired token' }, 400);
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await db.batch([
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(hashedPassword, resetToken.user_id),
+      db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?').bind(resetToken.id)
+    ]);
+    return c.json({ success: true, message: 'Password reset successfully' });
+  } catch (e) { console.error('Reset password error:', e); return c.json({ success: false, message: 'Error processing request' }, 500); }
+});
+
+// ==================== USER INVITATIONS ====================
+api.post('/iam/invite', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const userRole = c.get('userRole');
+  if (!['admin', 'super_admin', 'manager'].includes(userRole)) return c.json({ success: false, message: 'Not authorized to invite users' }, 403);
+  const { email, name, role } = await c.req.json();
+  if (!email) return c.json({ success: false, message: 'Email required' }, 400);
+  const existing = await db.prepare('SELECT id FROM users WHERE email = ? AND tenant_id = ?').bind(email, tenantId).first();
+  if (existing) return c.json({ success: false, message: 'User already exists in this tenant' }, 400);
+  const inviteId = crypto.randomUUID();
+  const newUserId = crypto.randomUUID();
+  const token = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + 7 * 86400000).toISOString();
+  const firstName = (name || email.split('@')[0]).split(' ')[0];
+  const lastName = (name || '').split(' ').slice(1).join(' ') || '';
+  await db.batch([
+    db.prepare("INSERT INTO users (id, tenant_id, email, first_name, last_name, role, status, is_active, password_hash) VALUES (?, ?, ?, ?, ?, ?, 'invited', 0, '')").bind(newUserId, tenantId, email, firstName, lastName, role || 'agent'),
+    db.prepare('INSERT INTO invite_tokens (id, tenant_id, email, name, role, token, expires_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(inviteId, tenantId, email, name || firstName, role || 'agent', token, expiresAt, userId),
+    db.prepare("INSERT INTO email_queue (id, tenant_id, recipients, subject, html_body, status) VALUES (?, ?, ?, ?, ?, 'pending')").bind(crypto.randomUUID(), tenantId, email, 'You are invited to FieldVibe', `<p>Hi ${firstName},</p><p>You have been invited to join FieldVibe. Click to accept: <a href="https://fieldvibe.vantax.co.za/accept-invite?token=${token}">Accept Invitation</a></p><p>This invitation expires in 7 days.</p>`)
+  ]);
+  return c.json({ success: true, data: { id: inviteId, email, token }, message: 'Invitation sent' }, 201);
+});
+
+app.post('/api/auth/accept-invite', async (c) => {
+  try {
+    const db = c.env.DB;
+    const { token, password } = await c.req.json();
+    if (!token || !password) return c.json({ success: false, message: 'Token and password required' }, 400);
+    if (password.length < 8) return c.json({ success: false, message: 'Password must be at least 8 characters' }, 400);
+    const invite = await db.prepare("SELECT * FROM invite_tokens WHERE token = ? AND used = 0 AND expires_at > datetime('now')").bind(token).first();
+    if (!invite) return c.json({ success: false, message: 'Invalid or expired invitation' }, 400);
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await db.batch([
+      db.prepare("UPDATE users SET password_hash = ?, status = 'active', is_active = 1 WHERE email = ? AND tenant_id = ?").bind(hashedPassword, invite.email, invite.tenant_id),
+      db.prepare('UPDATE invite_tokens SET used = 1 WHERE id = ?').bind(invite.id)
+    ]);
+    return c.json({ success: true, message: 'Account activated. You can now log in.' });
+  } catch (e) { console.error('Accept invite error:', e); return c.json({ success: false, message: 'Error processing invitation' }, 500); }
+});
+
+// ==================== VISIT CHECKOUT + DURATION ====================
+api.post('/visits/:id/checkout', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { id } = c.req.param();
+  const visit = await db.prepare('SELECT * FROM visits WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!visit) return c.json({ success: false, message: 'Visit not found' }, 404);
+  if (visit.checkout_timestamp) return c.json({ success: false, message: 'Already checked out' }, 400);
+  const now = new Date().toISOString();
+  const checkinTime = new Date(visit.check_in_time || visit.created_at).getTime();
+  const durationMinutes = Math.round((Date.now() - checkinTime) / 60000);
+  // Check min duration anomaly
+  const minDuration = await db.prepare("SELECT value FROM settings WHERE tenant_id = ? AND key = 'min_visit_duration_minutes'").bind(tenantId).first();
+  const minMins = minDuration ? parseInt(minDuration.value) || 5 : 5;
+  const batch = [
+    db.prepare("UPDATE visits SET checkout_timestamp = ?, visit_duration_minutes = ?, status = 'completed', updated_at = datetime('now') WHERE id = ?").bind(now, durationMinutes, id)
+  ];
+  if (durationMinutes < minMins) {
+    batch.push(db.prepare("INSERT INTO anomaly_flags (id, tenant_id, agent_id, anomaly_type, severity, description, visit_id, created_at) VALUES (?, ?, ?, 'short_visit', 'medium', ?, ?, datetime('now'))").bind(crypto.randomUUID(), tenantId, visit.agent_id, `Visit duration ${durationMinutes}min < minimum ${minMins}min`, id));
+  }
+  await db.batch(batch);
+  return c.json({ success: true, data: { id, checkout_timestamp: now, visit_duration_minutes: durationMinutes }, message: 'Checked out' });
+});
+
+// ==================== GEOFENCE CONFIGURABLE RADIUS ====================
+api.get('/settings/geofence', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const setting = await db.prepare("SELECT value FROM settings WHERE tenant_id = ? AND key = 'geofence_radius_meters'").bind(tenantId).first();
+  return c.json({ success: true, data: { geofence_radius_meters: setting ? parseInt(setting.value) : 200 } });
+});
+
+api.put('/settings/geofence', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { geofence_radius_meters } = await c.req.json();
+  const radius = Math.max(50, Math.min(1000, parseInt(geofence_radius_meters) || 200));
+  await db.prepare("INSERT INTO settings (id, tenant_id, key, value, category) VALUES (?, ?, 'geofence_radius_meters', ?, 'field_ops') ON CONFLICT(id) DO UPDATE SET value = ?, updated_at = datetime('now')").bind(`${tenantId}_geofence`, tenantId, String(radius), String(radius)).run();
+  return c.json({ success: true, data: { geofence_radius_meters: radius }, message: 'Geofence radius updated' });
+});
+
+// ==================== DENOMINATION CASH RECONCILIATION ====================
+api.post('/van-sales/reconciliations/denominations', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const denominations = {
+    R200: body.R200 || 0, R100: body.R100 || 0, R50: body.R50 || 0,
+    R20: body.R20 || 0, R10: body.R10 || 0, R5: body.R5 || 0,
+    R2: body.R2 || 0, R1: body.R1 || 0, coins: body.coins || 0
+  };
+  const totalActual = denominations.R200 * 200 + denominations.R100 * 100 + denominations.R50 * 50 + denominations.R20 * 20 + denominations.R10 * 10 + denominations.R5 * 5 + denominations.R2 * 2 + denominations.R1 * 1 + denominations.coins;
+  // Get expected from van cash payments
+  const expected = await db.prepare("SELECT COALESCE(SUM(so.total_amount), 0) as total FROM sales_orders so WHERE so.van_stock_load_id = ? AND so.payment_method = 'cash' AND so.tenant_id = ?").bind(body.van_stock_load_id, tenantId).first();
+  const totalExpected = expected ? expected.total : 0;
+  const variance = totalActual - totalExpected;
+  const id = crypto.randomUUID();
+  await db.prepare("INSERT INTO van_reconciliations (id, tenant_id, van_stock_load_id, agent_id, total_expected, total_actual, variance, cash_breakdown, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))").bind(id, tenantId, body.van_stock_load_id, userId, totalExpected, totalActual, variance, JSON.stringify(denominations), Math.abs(variance) < 0.01 ? 'balanced' : 'discrepancy').run();
+  return c.json({ success: true, data: { id, total_expected: totalExpected, total_actual: totalActual, variance, denominations, status: Math.abs(variance) < 0.01 ? 'balanced' : 'discrepancy' }, message: 'Cash reconciliation recorded' }, 201);
+});
+
 // ==================== MOUNT AND EXPORT ====================
 app.route('/api', api);
 
@@ -5889,6 +6037,40 @@ app.route('/api', api);
 app.all('*', (c) => c.json({ success: false, message: 'Not found' }, 404));
 
 // ==================== SECTION 9: SCHEDULED JOBS ====================
+async function processEmailQueue(db, env) {
+  try {
+    const pending = await db.prepare("SELECT * FROM email_queue WHERE status = 'pending' AND retry_count < max_retries ORDER BY created_at ASC LIMIT 10").all();
+    for (const email of (pending.results || [])) {
+      try {
+        // If MS Graph configured, send via Graph API; otherwise mark as sent (placeholder)
+        if (env.MS_GRAPH_CLIENT_ID && env.MS_GRAPH_CLIENT_SECRET && env.MS_GRAPH_TENANT_ID) {
+          const tokenRes = await fetch(`https://login.microsoftonline.com/${env.MS_GRAPH_TENANT_ID}/oauth2/v2.0/token`, {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `client_id=${env.MS_GRAPH_CLIENT_ID}&client_secret=${env.MS_GRAPH_CLIENT_SECRET}&scope=https://graph.microsoft.com/.default&grant_type=client_credentials`
+          });
+          const tokenData = await tokenRes.json();
+          if (tokenData.access_token) {
+            const sendRes = await fetch('https://graph.microsoft.com/v1.0/users/' + (env.MS_GRAPH_SENDER || 'noreply@fieldvibe.com') + '/sendMail', {
+              method: 'POST', headers: { 'Authorization': `Bearer ${tokenData.access_token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: { subject: email.subject, body: { contentType: 'HTML', content: email.html_body }, toRecipients: email.recipients.split(',').map(e => ({ emailAddress: { address: e.trim() } })) } })
+            });
+            if (sendRes.ok || sendRes.status === 202) {
+              await db.prepare("UPDATE email_queue SET status = 'sent', sent_at = datetime('now') WHERE id = ?").bind(email.id).run();
+            } else {
+              throw new Error(`Graph API error: ${sendRes.status}`);
+            }
+          }
+        } else {
+          // No email provider configured - mark as sent (dev mode)
+          await db.prepare("UPDATE email_queue SET status = 'sent', sent_at = datetime('now') WHERE id = ?").bind(email.id).run();
+        }
+      } catch (sendErr) {
+        await db.prepare("UPDATE email_queue SET retry_count = retry_count + 1, error = ? WHERE id = ?").bind(String(sendErr), email.id).run();
+      }
+    }
+  } catch (e) { console.error('processEmailQueue error:', e); }
+}
+
 async function checkOverdueInvoices(db) {
   try {
     await db.prepare("UPDATE sales_orders SET payment_status = 'overdue' WHERE payment_status = 'pending' AND due_date < datetime('now') AND due_date IS NOT NULL").run();
@@ -5932,6 +6114,8 @@ export default {
     const hour = new Date().getUTCHours();
     const day = new Date().getUTCDay();
     const date = new Date().getUTCDate();
+    // Process email queue every run
+    await processEmailQueue(env.DB, env);
     if (hour === 4) await checkOverdueInvoices(env.DB);
     if (hour === 6) await checkLowStock(env.DB);
     if (hour === 16) await checkStaleVanLoads(env.DB);
