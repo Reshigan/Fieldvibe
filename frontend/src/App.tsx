@@ -320,6 +320,10 @@ import StockInsights from './pages/insights/StockInsights'
 import CommissionInsights from './pages/insights/CommissionInsights'
 import GoalsInsights from './pages/insights/GoalsInsights'
 import AnomalyInsights from './pages/insights/AnomalyInsights'
+import ShareOfVoiceInsights from './pages/insights/ShareOfVoiceInsights'
+import CompetitorInsights from './pages/insights/CompetitorInsights'
+import BrandOwnerDashboard from './pages/brand-owner/BrandOwnerDashboard'
+import BrandOwnerReports from './pages/brand-owner/BrandOwnerReports'
 
 // Components
 import LoadingSpinner from './components/ui/LoadingSpinner'
@@ -870,6 +874,10 @@ function App() {
             <Route path="insights/commissions" element={<CommissionInsights />} />
             <Route path="insights/goals" element={<GoalsInsights />} />
             <Route path="insights/anomalies" element={<AnomalyInsights />} />
+            <Route path="insights/share-of-voice" element={<ShareOfVoiceInsights />} />
+            <Route path="insights/competitors" element={<CompetitorInsights />} />
+            <Route path="brand-owner/dashboard" element={<BrandOwnerDashboard />} />
+            <Route path="brand-owner/reports" element={<BrandOwnerReports />} />
 
 
             {/* BUG-007: Previously unrouted drill-down pages */}
