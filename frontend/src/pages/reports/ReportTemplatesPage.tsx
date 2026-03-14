@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { FileText, Play, Star } from 'lucide-react';
+import { apiClient } from '../../services/api.service';
+import toast from 'react-hot-toast';
 
 interface Template { id: number; name: string; description: string; category: string; popular: boolean; }
 
@@ -17,19 +19,15 @@ const ReportTemplatesPage: React.FC = () => {
 
   const runTemplate = async (templateId: number) => {
     try {
-      const res = await fetch(`/api/reports/templates/${templateId}/run`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `report-${templateId}-${Date.now()}.xlsx`;
-        a.click();
-      }
-    } catch (err) { console.error(err); }
+      const res = await apiClient.post(`/reports/templates/${templateId}/run`, {}, { responseType: 'blob' });
+      const blob = new Blob([res.data]);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `report-${templateId}-${Date.now()}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) { toast.error('Failed to generate report'); }
   };
 
   return (
