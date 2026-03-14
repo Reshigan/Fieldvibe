@@ -6056,17 +6056,19 @@ api.get('/analytics/usage', requireRole('admin', 'super_admin'), async (c) => {
 // ==================== SELF-HEALING SYSTEM ====================
 async function healOrderTotals(db) {
   const mismatches = await db.prepare(`
-    SELECT so.id, so.total_amount, SUM(soi.quantity * soi.unit_price) as correct_total
+    SELECT so.id, so.total_amount, so.tax_amount, so.discount_amount,
+      SUM(soi.quantity * soi.unit_price * (1 - COALESCE(soi.discount_percent, 0) / 100.0)) as subtotal
     FROM sales_orders so
     JOIN sales_order_items soi ON so.id = soi.sales_order_id
     GROUP BY so.id
-    HAVING ABS(so.total_amount - correct_total) > 0.01
+    HAVING ABS(so.total_amount - (subtotal + COALESCE(so.tax_amount, 0) - COALESCE(so.discount_amount, 0))) > 0.01
   `).all();
   let healed = 0;
   for (const m of (mismatches.results || [])) {
+    const correctTotal = m.subtotal + (m.tax_amount || 0) - (m.discount_amount || 0);
     await db.batch([
-      db.prepare('UPDATE sales_orders SET total_amount = ? WHERE id = ?').bind(m.correct_total, m.id),
-      db.prepare("INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, old_values, new_values) VALUES (?, (SELECT tenant_id FROM sales_orders WHERE id = ?), 'system', 'SELF_HEAL', 'sales_order', ?, ?, ?)").bind(crypto.randomUUID(), m.id, m.id, JSON.stringify({ total_amount: m.total_amount }), JSON.stringify({ total_amount: m.correct_total, reason: 'order_total_mismatch' })),
+      db.prepare('UPDATE sales_orders SET total_amount = ? WHERE id = ?').bind(correctTotal, m.id),
+      db.prepare("INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, old_values, new_values) VALUES (?, (SELECT tenant_id FROM sales_orders WHERE id = ?), 'system', 'SELF_HEAL', 'sales_order', ?, ?, ?)").bind(crypto.randomUUID(), m.id, m.id, JSON.stringify({ total_amount: m.total_amount }), JSON.stringify({ total_amount: correctTotal, reason: 'order_total_mismatch' })),
     ]);
     healed++;
   }
@@ -6136,7 +6138,7 @@ async function healCommissions(db) {
   for (const m of (missing.results || [])) {
     const rule = await db.prepare("SELECT * FROM commission_rules WHERE tenant_id = ? AND source_type IN ('SALE','sales_order') AND is_active = 1 ORDER BY rate DESC LIMIT 1").bind(m.tenant_id).first();
     if (rule && m.total_amount >= (rule.min_threshold || 0)) {
-      const amount = m.total_amount * rule.rate;
+      const amount = m.total_amount * (rule.rate / 100);
       const capped = rule.max_cap ? Math.min(amount, rule.max_cap) : amount;
       await db.prepare("INSERT INTO commission_earnings (id, tenant_id, earner_id, source_type, source_id, rule_id, rate, base_amount, amount, status) VALUES (?, ?, ?, 'sales_order', ?, ?, ?, ?, ?, 'pending')").bind(crypto.randomUUID(), m.tenant_id, m.agent_id, m.id, rule.id, rule.rate, m.total_amount, capped).run();
       healed++;
