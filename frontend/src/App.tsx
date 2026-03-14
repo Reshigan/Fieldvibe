@@ -394,8 +394,8 @@ function App() {
     <ErrorBoundary>
       <div className="min-h-screen bg-[#06090F]">
         <Routes>
-          {/* Marketing Landing Page */}
-          <Route path="/" element={<LandingPage />} />
+          {/* Marketing Landing Page - show landing for unauthenticated, redirect to dashboard for authenticated */}
+          <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />} />
 
           {/* Public Routes */}
           <Route path="/auth/*" element={
@@ -932,8 +932,7 @@ function App() {
             <Route path="van-sales/cash-reconciliation/:id/deposits/:depId" element={<Suspense fallback={<PageSkeleton />}><CashSessionDepositDetail /></Suspense>} />
             <Route path="van-sales/cash-reconciliation/:id/variance" element={<Suspense fallback={<PageSkeleton />}><CashVariance /></Suspense>} />
 
-            {/* Default redirect */}
-            <Route index element={<Navigate to="dashboard" replace />} />
+            {/* Note: index route removed to avoid conflicting with path="/" LandingPage route */}
           </Route>
 
           {/* Fallback route */}
