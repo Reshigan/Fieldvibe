@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { tradeMarketingService } from '../services/tradeMarketing.service';
+import toast from 'react-hot-toast'
 
 const ShelfAnalyticsFormPage: React.FC = () => {
   const location = useLocation();
@@ -47,7 +48,7 @@ const ShelfAnalyticsFormPage: React.FC = () => {
   const captureShelfPhoto = () => {
     const photoUrl = `https://storage.example.com/shelf/${Date.now()}.jpg`;
     setFormData({ ...formData, shelfPhoto: photoUrl });
-    alert('📸 Shelf photo captured! (Simulated)');
+    toast('📸 Shelf photo captured! (Simulated)')
   };
 
   const addCompetitor = () => {
@@ -65,7 +66,7 @@ const ShelfAnalyticsFormPage: React.FC = () => {
     e.preventDefault();
     
     if (!formData.shelfPhoto) {
-      alert('Please capture shelf photo');
+      toast.error('Please capture shelf photo')
       return;
     }
 
@@ -85,11 +86,11 @@ const ShelfAnalyticsFormPage: React.FC = () => {
         competitorAnalysis: formData.competitors
       });
 
-      alert('✅ Shelf analytics recorded successfully!');
+      toast.success('✅ Shelf analytics recorded successfully!')
       navigate(-1);
     } catch (error) {
       console.error('Failed to create shelf analytics:', error);
-      alert('Failed to record shelf analytics. Please try again.');
+      toast.error('Failed to record shelf analytics. Please try again.')
     } finally {
       setLoading(false);
     }

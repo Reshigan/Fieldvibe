@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import TransactionDetail from '../../../components/transactions/TransactionDetail'
 import { inventoryService } from '../../../services/inventory.service'
 import { formatDate } from '../../../utils/format'
+import toast from 'react-hot-toast'
 
 export default function ReceiptDetail() {
   const { id } = useParams()
@@ -36,7 +37,7 @@ export default function ReceiptDetail() {
       navigate('/inventory/receipts')
     } catch (error) {
       console.error('Failed to reverse receipt:', error)
-      alert('Failed to reverse receipt')
+      toast.error('Failed to reverse receipt')
     }
   }
 

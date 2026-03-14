@@ -4,6 +4,7 @@ import { Eye, CheckCircle } from 'lucide-react'
 import TransactionList from '../../../components/transactions/TransactionList'
 import { inventoryService } from '../../../services/inventory.service'
 import { formatDate } from '../../../utils/format'
+import toast from 'react-hot-toast'
 
 export default function StockCountsList() {
   const navigate = useNavigate()
@@ -36,7 +37,7 @@ export default function StockCountsList() {
       loadStockCounts()
     } catch (error) {
       console.error('Failed to confirm stock count:', error)
-      alert('Failed to confirm stock count')
+      toast.error('Failed to confirm stock count')
     }
   }
 

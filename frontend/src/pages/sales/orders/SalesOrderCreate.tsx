@@ -5,6 +5,7 @@ import LineItemsEditor, { LineItem, LineItemsTotals, TotalsSummary, Discount } f
 import { salesService } from '../../../services/sales.service'
 import { productsService } from '../../../services/products.service'
 import { discountsService } from '../../../services/discounts.service'
+import toast from 'react-hot-toast'
 
 interface Customer {
   id: string
@@ -113,11 +114,11 @@ export default function SalesOrderCreate() {
 
   const handleSubmit = async (submit: boolean = false) => {
     if (!selectedCustomer) {
-      alert('Please select a customer')
+      toast.error('Please select a customer')
       return
     }
     if (lineItems.length === 0 || !lineItems.some(item => item.product_id)) {
-      alert('Please add at least one product')
+      toast.error('Please add at least one product')
       return
     }
 
@@ -147,7 +148,7 @@ export default function SalesOrderCreate() {
       navigate('/sales/orders')
     } catch (error: any) {
       console.error('Failed to create order:', error)
-      alert(error.message || 'Failed to create order')
+      toast.error(error.message || 'Failed to create order')
     } finally {
       setSaving(false)
     }

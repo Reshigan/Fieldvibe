@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Upload, Download, FileText, AlertCircle, Check, X, RefreshCw, Database, FileSpreadsheet, ChevronRight, Loader } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 interface ImportHistory {
   id: string
@@ -165,7 +166,7 @@ export default function DataImportExportPage() {
       const fileExt = '.' + file.name.split('.').pop()?.toLowerCase()
       
       if (!validTypes.includes(fileExt)) {
-        alert('Please upload a valid CSV or Excel file')
+        toast.error('Please upload a valid CSV or Excel file')
         return
       }
       
@@ -175,7 +176,7 @@ export default function DataImportExportPage() {
 
   const handleImport = async () => {
     if (!uploadedFile) {
-      alert('Please select a file to import')
+      toast.error('Please select a file to import')
       return
     }
 
@@ -190,7 +191,7 @@ export default function DataImportExportPage() {
           setTimeout(() => {
             setImporting(false)
             setUploadedFile(null)
-            alert(`Successfully imported data from ${uploadedFile.name}`)
+            toast.success(`Successfully imported data from ${uploadedFile.name}`)
           }, 500)
           return 100
         }
@@ -205,7 +206,7 @@ export default function DataImportExportPage() {
     // Simulate export
     setTimeout(() => {
       setExporting(false)
-      alert(`Export started! You'll be notified when the ${format.toUpperCase()} file is ready.`)
+      toast(`Export started! You'll be notified when the ${format.toUpperCase()} file is ready.`)
     }, 1500)
   }
 

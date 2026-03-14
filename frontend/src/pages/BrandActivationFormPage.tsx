@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast'
 import { 
   Camera, MapPin, Users, DollarSign, Calendar, Clock, Target, 
   TrendingUp, MessageSquare, Star, Gift, Plus, X, Upload
@@ -146,7 +147,7 @@ const BrandActivationFormPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!formData.eventName || !formData.location || !formData.startDate || !formData.endDate) {
-      alert('Please fill all required fields');
+      toast.error('Please fill all required fields')
       return;
     }
 
@@ -161,7 +162,7 @@ const BrandActivationFormPage: React.FC = () => {
       });
 
       if (response.ok) {
-        alert('Brand Activation event created successfully!');
+        toast.success('Brand Activation event created successfully!')
         // Reset form
         setFormData({
           eventType: 'sampling',
@@ -178,11 +179,11 @@ const BrandActivationFormPage: React.FC = () => {
         });
       } else {
         const error = await response.json();
-        alert('Failed to create event: ' + (error.message || 'Unknown error'));
+        toast.error('Failed to create event: ' + (error.message || 'Unknown error'))
       }
     } catch (error) {
       console.error('Error creating brand activation:', error);
-      alert('Error creating brand activation event');
+      toast.error('Error creating brand activation event')
     }
   };
 

@@ -4,6 +4,7 @@ import { ArrowLeft, Save, Send, ArrowRightLeft, Warehouse } from 'lucide-react'
 import LineItemsEditor, { LineItem, LineItemsTotals, TotalsSummary } from '../../../components/transactions/LineItemsEditor'
 import { inventoryService } from '../../../services/inventory.service'
 import { productsService } from '../../../services/products.service'
+import toast from 'react-hot-toast'
 
 interface WarehouseType {
   id: string
@@ -55,19 +56,19 @@ export default function TransferCreate() {
 
   const handleSubmit = async (submit: boolean = false) => {
     if (!fromWarehouse) {
-      alert('Please select a source warehouse')
+      toast.error('Please select a source warehouse')
       return
     }
     if (!toWarehouse) {
-      alert('Please select a destination warehouse')
+      toast.error('Please select a destination warehouse')
       return
     }
     if (fromWarehouse === toWarehouse) {
-      alert('Source and destination warehouses must be different')
+      toast.error('Source and destination warehouses must be different')
       return
     }
     if (lineItems.length === 0 || !lineItems.some(item => item.product_id)) {
-      alert('Please add at least one product to transfer')
+      toast.error('Please add at least one product to transfer')
       return
     }
 
@@ -92,7 +93,7 @@ export default function TransferCreate() {
       navigate('/inventory/transfers')
     } catch (error: any) {
       console.error('Failed to create transfer:', error)
-      alert(error.message || 'Failed to create transfer')
+      toast.error(error.message || 'Failed to create transfer')
     } finally {
       setSaving(false)
     }

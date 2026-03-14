@@ -4,6 +4,7 @@ import { ArrowLeft, Save, Send, PackageCheck, Warehouse } from 'lucide-react'
 import LineItemsEditor, { LineItem, LineItemsTotals, TotalsSummary } from '../../../components/transactions/LineItemsEditor'
 import { inventoryService } from '../../../services/inventory.service'
 import { productsService } from '../../../services/products.service'
+import toast from 'react-hot-toast'
 
 interface WarehouseType {
   id: string
@@ -64,19 +65,19 @@ export default function ReceiptCreate() {
 
   const handleSubmit = async (submit: boolean = false) => {
     if (!selectedWarehouse) {
-      alert('Please select a warehouse')
+      toast.error('Please select a warehouse')
       return
     }
     if (!selectedSupplier) {
-      alert('Please select a supplier')
+      toast.error('Please select a supplier')
       return
     }
     if (!poNumber) {
-      alert('Please enter a PO number')
+      toast.error('Please enter a PO number')
       return
     }
     if (lineItems.length === 0 || !lineItems.some(item => item.product_id)) {
-      alert('Please add at least one product')
+      toast.error('Please add at least one product')
       return
     }
 
@@ -102,7 +103,7 @@ export default function ReceiptCreate() {
       navigate('/inventory/receipts')
     } catch (error: any) {
       console.error('Failed to create receipt:', error)
-      alert(error.message || 'Failed to create receipt')
+      toast.error(error.message || 'Failed to create receipt')
     } finally {
       setSaving(false)
     }

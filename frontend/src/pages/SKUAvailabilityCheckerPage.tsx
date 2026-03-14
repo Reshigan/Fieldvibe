@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { tradeMarketingService } from '../services/tradeMarketing.service';
+import toast from 'react-hot-toast'
 
 const SKUAvailabilityCheckerPage: React.FC = () => {
   const location = useLocation();
@@ -36,21 +37,21 @@ const SKUAvailabilityCheckerPage: React.FC = () => {
   const scanBarcode = () => {
     // Simulate barcode scanning
     const mockBarcode = Math.random().toString(36).substring(7).toUpperCase();
-    alert(`📱 Barcode scanned: ${mockBarcode}`);
+    toast(`📱 Barcode scanned: ${mockBarcode}`)
     setFormData({ ...formData, productId: mockBarcode });
   };
 
   const capturePhoto = () => {
     const photoUrl = `https://storage.example.com/sku/${Date.now()}.jpg`;
     setFormData({ ...formData, skuPhoto: photoUrl });
-    alert('📸 SKU photo captured!');
+    toast('📸 SKU photo captured!')
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.productId) {
-      alert('Please scan or enter product ID');
+      toast.error('Please scan or enter product ID')
       return;
     }
 
@@ -72,11 +73,11 @@ const SKUAvailabilityCheckerPage: React.FC = () => {
         notes: formData.notes || undefined
       });
 
-      alert('✅ SKU availability recorded!');
+      toast.success('✅ SKU availability recorded!')
       navigate(-1);
     } catch (error) {
       console.error('Failed to record SKU:', error);
-      alert('Failed to record SKU. Please try again.');
+      toast.error('Failed to record SKU. Please try again.')
     } finally {
       setLoading(false);
     }

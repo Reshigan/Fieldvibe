@@ -4,6 +4,7 @@ import { Eye, RotateCcw } from 'lucide-react'
 import TransactionList from '../../../components/transactions/TransactionList'
 import { fieldOperationsService } from '../../../services/field-operations.service'
 import { formatCurrency, formatDate } from '../../../utils/format'
+import toast from 'react-hot-toast'
 
 export default function ProductDistributionsList() {
   const navigate = useNavigate()
@@ -34,7 +35,7 @@ export default function ProductDistributionsList() {
       loadDistributions()
     } catch (error) {
       console.error('Failed to reverse product distribution:', error)
-      alert('Failed to reverse product distribution')
+      toast.error('Failed to reverse product distribution')
     }
   }
 

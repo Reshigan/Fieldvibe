@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import TransactionDetail from '../../../components/transactions/TransactionDetail'
 import { inventoryService } from '../../../services/inventory.service'
 import { formatDate } from '../../../utils/format'
+import toast from 'react-hot-toast'
 
 export default function StockCountDetail() {
   const { id } = useParams()
@@ -36,7 +37,7 @@ export default function StockCountDetail() {
       navigate('/inventory/stock-counts')
     } catch (error) {
       console.error('Failed to confirm stock count:', error)
-      alert('Failed to confirm stock count')
+      toast.error('Failed to confirm stock count')
     }
   }
 

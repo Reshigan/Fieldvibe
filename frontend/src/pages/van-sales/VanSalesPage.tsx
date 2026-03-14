@@ -5,6 +5,7 @@ import { Truck, MapPin, Package, DollarSign, TrendingUp, Clock } from 'lucide-re
 import { formatCurrency } from '../../utils/currency'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../../services/api.service'
+import toast from 'react-hot-toast'
 
 interface VanSalesMetrics {
   totalVans: number
@@ -132,11 +133,11 @@ export default function VanSalesPage() {
         })
         fetchVanSalesData() // Refresh the data
       } else {
-        alert(data.message || 'Failed to create van')
+        toast.error(data.message || 'Failed to create van')
       }
     } catch (error) {
       console.error('Error creating van:', error)
-      alert('Failed to create van')
+      toast.error('Failed to create van')
     }
   }
 

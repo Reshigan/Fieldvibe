@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { fieldMarketingService } from '../services/fieldMarketing.service';
+import toast from 'react-hot-toast'
 
 const ProductDistributionFormPage: React.FC = () => {
   const location = useLocation();
@@ -47,31 +48,31 @@ const ProductDistributionFormPage: React.FC = () => {
   const captureRecipientPhoto = () => {
     const photoUrl = `https://storage.example.com/recipients/${Date.now()}.jpg`;
     setFormData({ ...formData, recipientPhoto: photoUrl });
-    alert('📸 Recipient photo captured!');
+    toast('📸 Recipient photo captured!')
   };
 
   const captureIdPhoto = () => {
     const photoUrl = `https://storage.example.com/ids/${Date.now()}.jpg`;
     setFormData({ ...formData, idDocumentPhoto: photoUrl });
-    alert('📸 ID document photo captured!');
+    toast('📸 ID document photo captured!')
   };
 
   const captureSignature = () => {
     const signatureUrl = `https://storage.example.com/signatures/${Date.now()}.jpg`;
     setFormData({ ...formData, recipientSignature: signatureUrl });
-    alert('✍️ Signature captured!');
+    toast('✍️ Signature captured!')
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.recipientSignature || !formData.recipientPhoto || !formData.idDocumentPhoto) {
-      alert('Please capture all required photos and signature');
+      toast.error('Please capture all required photos and signature')
       return;
     }
 
     if (!currentLocation) {
-      alert('GPS location not available');
+      toast.error('GPS location not available')
       return;
     }
 
@@ -97,11 +98,11 @@ const ProductDistributionFormPage: React.FC = () => {
         distributionNotes: formData.distributionNotes
       });
 
-      alert('✅ Product distribution recorded successfully!');
+      toast.success('✅ Product distribution recorded successfully!')
       navigate(-1);
     } catch (error) {
       console.error('Failed to record distribution:', error);
-      alert('Failed to record distribution. Please try again.');
+      toast.error('Failed to record distribution. Please try again.')
     } finally {
       setLoading(false);
     }

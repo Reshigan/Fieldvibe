@@ -6,6 +6,7 @@ import { salesService } from '../../../services/sales.service'
 import { productsService } from '../../../services/products.service'
 import { customersService } from '../../../services/customers.service'
 import { discountsService } from '../../../services/discounts.service'
+import toast from 'react-hot-toast'
 
 interface Customer {
   id: string
@@ -60,15 +61,15 @@ export default function CreditNoteCreate() {
 
   const handleSubmit = async (submit: boolean = false) => {
     if (!selectedCustomer) {
-      alert('Please select a customer')
+      toast.error('Please select a customer')
       return
     }
     if (!reason) {
-      alert('Please select a reason')
+      toast.error('Please select a reason')
       return
     }
     if (lineItems.length === 0 || !lineItems.some(item => item.product_id)) {
-      alert('Please add at least one item')
+      toast.error('Please add at least one item')
       return
     }
 
@@ -96,7 +97,7 @@ export default function CreditNoteCreate() {
       navigate('/sales/credit-notes')
     } catch (error: any) {
       console.error('Failed to create credit note:', error)
-      alert(error.message || 'Failed to create credit note')
+      toast.error(error.message || 'Failed to create credit note')
     } finally {
       setSaving(false)
     }

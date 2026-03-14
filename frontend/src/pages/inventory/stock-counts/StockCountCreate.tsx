@@ -4,6 +4,7 @@ import { ArrowLeft, Save, Send, ClipboardList, Warehouse } from 'lucide-react'
 import LineItemsEditor, { LineItem, LineItemsTotals, TotalsSummary } from '../../../components/transactions/LineItemsEditor'
 import { inventoryService } from '../../../services/inventory.service'
 import { productsService } from '../../../services/products.service'
+import toast from 'react-hot-toast'
 
 interface WarehouseType {
   id: string
@@ -55,15 +56,15 @@ export default function StockCountCreate() {
 
   const handleSubmit = async (submit: boolean = false) => {
     if (!selectedWarehouse) {
-      alert('Please select a warehouse')
+      toast.error('Please select a warehouse')
       return
     }
     if (!countType) {
-      alert('Please select a count type')
+      toast.error('Please select a count type')
       return
     }
     if (lineItems.length === 0 || !lineItems.some(item => item.product_id)) {
-      alert('Please add at least one product to count')
+      toast.error('Please add at least one product to count')
       return
     }
 
@@ -88,7 +89,7 @@ export default function StockCountCreate() {
       navigate('/inventory/stock-counts')
     } catch (error: any) {
       console.error('Failed to create stock count:', error)
-      alert(error.message || 'Failed to create stock count')
+      toast.error(error.message || 'Failed to create stock count')
     } finally {
       setSaving(false)
     }

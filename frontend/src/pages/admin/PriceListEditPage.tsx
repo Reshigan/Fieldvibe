@@ -4,6 +4,7 @@ import { ArrowLeft, Save, Plus, Trash2 } from 'lucide-react'
 import { pricingService, PriceListWithItems, PriceListItem } from '../../services/pricing.service'
 import { productsService, Product } from '../../services/products.service'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
+import toast from 'react-hot-toast'
 
 export default function PriceListEditPage() {
   const navigate = useNavigate()
@@ -78,7 +79,7 @@ export default function PriceListEditPage() {
       }
     } catch (error) {
       console.error('Failed to load price list:', error)
-      alert('Failed to load price list')
+      toast.error('Failed to load price list')
     } finally {
       setLoading(false)
     }
@@ -88,7 +89,7 @@ export default function PriceListEditPage() {
     e.preventDefault()
     
     if (items.length === 0) {
-      alert('Please add at least one product to the price list')
+      toast.error('Please add at least one product to the price list')
       return
     }
 
@@ -108,11 +109,11 @@ export default function PriceListEditPage() {
         await pricingService.updatePriceListItems(priceListId, items)
       }
 
-      alert(isNew ? 'Price list created successfully' : 'Price list updated successfully')
+      toast.success(isNew ? 'Price list created successfully' : 'Price list updated successfully')
       navigate('/admin/price-lists')
     } catch (error) {
       console.error('Failed to save price list:', error)
-      alert('Failed to save price list')
+      toast.error('Failed to save price list')
     } finally {
       setSaving(false)
     }

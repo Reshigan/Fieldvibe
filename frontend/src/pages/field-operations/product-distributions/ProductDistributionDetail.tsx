@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import TransactionDetail from '../../../components/transactions/TransactionDetail'
 import { fieldOperationsService } from '../../../services/field-operations.service'
 import { formatCurrency, formatDate } from '../../../utils/format'
+import toast from 'react-hot-toast'
 
 export default function ProductDistributionDetail() {
   const { id } = useParams()
@@ -36,7 +37,7 @@ export default function ProductDistributionDetail() {
       navigate('/field-operations/product-distributions')
     } catch (error) {
       console.error('Failed to reverse product distribution:', error)
-      alert('Failed to reverse product distribution')
+      toast.error('Failed to reverse product distribution')
     }
   }
 

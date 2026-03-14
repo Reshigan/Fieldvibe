@@ -4,6 +4,7 @@ import { Eye, RotateCcw } from 'lucide-react'
 import TransactionList from '../../../components/transactions/TransactionList'
 import { inventoryService } from '../../../services/inventory.service'
 import { formatDate } from '../../../utils/format'
+import toast from 'react-hot-toast'
 
 export default function ReceiptsList() {
   const navigate = useNavigate()
@@ -36,7 +37,7 @@ export default function ReceiptsList() {
       loadReceipts()
     } catch (error) {
       console.error('Failed to reverse receipt:', error)
-      alert('Failed to reverse receipt')
+      toast.error('Failed to reverse receipt')
     }
   }
 

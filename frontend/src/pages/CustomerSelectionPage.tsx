@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fieldMarketingService } from '../services/fieldMarketing.service';
+import toast from 'react-hot-toast'
 
 const CustomerSelectionPage: React.FC = () => {
   const navigate = useNavigate();
@@ -62,7 +63,7 @@ const CustomerSelectionPage: React.FC = () => {
 
   const validateCustomerGPS = async (customer: any) => {
     if (!currentLocation) {
-      alert('Your location is not available. Please enable GPS.');
+      toast.error('Your location is not available. Please enable GPS.')
       return;
     }
 

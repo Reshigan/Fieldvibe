@@ -6,6 +6,7 @@ import { salesService } from '../../../services/sales.service'
 import { productsService } from '../../../services/products.service'
 import { customersService } from '../../../services/customers.service'
 import { discountsService } from '../../../services/discounts.service'
+import toast from 'react-hot-toast'
 
 interface Customer {
   id: string
@@ -69,11 +70,11 @@ export default function InvoiceCreate() {
 
   const handleSubmit = async (submit: boolean = false) => {
     if (!selectedCustomer) {
-      alert('Please select a customer')
+      toast.error('Please select a customer')
       return
     }
     if (lineItems.length === 0 || !lineItems.some(item => item.product_id)) {
-      alert('Please add at least one item')
+      toast.error('Please add at least one item')
       return
     }
 
@@ -102,7 +103,7 @@ export default function InvoiceCreate() {
       navigate('/sales/invoices')
     } catch (error: any) {
       console.error('Failed to create invoice:', error)
-      alert(error.message || 'Failed to create invoice')
+      toast.error(error.message || 'Failed to create invoice')
     } finally {
       setSaving(false)
     }

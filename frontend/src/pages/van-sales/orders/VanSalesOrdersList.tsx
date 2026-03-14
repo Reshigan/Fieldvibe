@@ -4,6 +4,7 @@ import { Eye, Edit, RotateCcw } from 'lucide-react'
 import TransactionList from '../../../components/transactions/TransactionList'
 import { vanSalesService } from '../../../services/van-sales.service'
 import { formatCurrency, formatDate } from '../../../utils/format'
+import toast from 'react-hot-toast'
 
 export default function VanSalesOrdersList() {
   const navigate = useNavigate()
@@ -126,7 +127,7 @@ export default function VanSalesOrdersList() {
       loadOrders()
     } catch (error) {
       console.error('Failed to reverse order:', error)
-      alert('Failed to reverse order')
+      toast.error('Failed to reverse order')
     }
   }
 

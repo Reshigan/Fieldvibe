@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Save, Send, Truck, Package } from 'lucide-react'
 import LineItemsEditor, { LineItem, LineItemsTotals, TotalsSummary } from '../../../components/transactions/LineItemsEditor'
 import { vanSalesService } from '../../../services/van-sales.service'
+import toast from 'react-hot-toast'
 
 interface Van {
   id: string
@@ -62,15 +63,15 @@ export default function VanLoadCreate() {
 
   const handleSubmit = async (submit: boolean = false) => {
     if (!selectedVan) {
-      alert('Please select a van')
+      toast.error('Please select a van')
       return
     }
     if (!selectedRoute) {
-      alert('Please select a route')
+      toast.error('Please select a route')
       return
     }
     if (lineItems.length === 0 || !lineItems.some(item => item.product_id)) {
-      alert('Please add at least one product to load')
+      toast.error('Please add at least one product to load')
       return
     }
 
@@ -95,7 +96,7 @@ export default function VanLoadCreate() {
       navigate('/van-sales/van-loads')
     } catch (error: any) {
       console.error('Failed to create van load:', error)
-      alert(error.message || 'Failed to create van load')
+      toast.error(error.message || 'Failed to create van load')
     } finally {
       setSaving(false)
     }

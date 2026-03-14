@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Edit2, Printer, Download, Package, DollarSign, Calendar, User, MapPin, CheckCircle, XCircle, Clock, Truck, FileText, CreditCard, Save, X, Plus, Trash2, History, RefreshCw } from 'lucide-react'
 import { ordersService } from '../../services/orders.service'
+import toast from 'react-hot-toast'
 
 interface OrderItem {
   id: string
@@ -196,7 +197,7 @@ export default function OrderDetailsPage() {
       await loadStatusHistory()
     } catch (error: any) {
       console.error('Failed to update order status:', error)
-      alert(error.response?.data?.message || 'Failed to update order status')
+      toast.error(error.response?.data?.message || 'Failed to update order status')
     } finally {
       setTransitioning(false)
     }

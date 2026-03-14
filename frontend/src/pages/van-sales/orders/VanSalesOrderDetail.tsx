@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import TransactionDetail from '../../../components/transactions/TransactionDetail'
 import { vanSalesService } from '../../../services/van-sales.service'
 import { formatCurrency, formatDate } from '../../../utils/format'
+import toast from 'react-hot-toast'
 
 export default function VanSalesOrderDetail() {
   const { id } = useParams()
@@ -36,7 +37,7 @@ export default function VanSalesOrderDetail() {
       navigate('/van-sales/orders')
     } catch (error) {
       console.error('Failed to reverse order:', error)
-      alert('Failed to reverse order')
+      toast.error('Failed to reverse order')
     }
   }
 

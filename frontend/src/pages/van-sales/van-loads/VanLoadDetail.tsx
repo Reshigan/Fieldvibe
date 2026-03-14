@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import TransactionDetail from '../../../components/transactions/TransactionDetail'
 import { vanSalesService } from '../../../services/van-sales.service'
 import { formatDate } from '../../../utils/format'
+import toast from 'react-hot-toast'
 
 export default function VanLoadDetail() {
   const { id } = useParams()
@@ -36,7 +37,7 @@ export default function VanLoadDetail() {
       navigate('/van-sales/van-loads')
     } catch (error) {
       console.error('Failed to confirm van load:', error)
-      alert('Failed to confirm van load')
+      toast.error('Failed to confirm van load')
     }
   }
 

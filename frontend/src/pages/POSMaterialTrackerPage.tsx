@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Camera, MapPin, Package, QrCode, Search, Calendar, CheckCircle2, AlertCircle, Upload, Download } from 'lucide-react';
+import toast from 'react-hot-toast'
 
 interface POSMaterial {
   id: number;
@@ -133,12 +134,12 @@ const POSMaterialTrackerPage: React.FC = () => {
     // Simulate QR code scan
     const qrCode = `QR-${selectedMaterial?.type?.substring(0, 3).toUpperCase()}-${Date.now()}`;
     setFormData({ ...formData, qrCode });
-    alert(`QR Code Scanned: ${qrCode}`);
+    toast(`QR Code Scanned: ${qrCode}`)
   };
 
   const handleSubmitInstallation = async () => {
     if (!selectedMaterial || !formData.location) {
-      alert('Please fill all required fields');
+      toast.error('Please fill all required fields')
       return;
     }
 
@@ -167,7 +168,7 @@ const POSMaterialTrackerPage: React.FC = () => {
       });
 
       if (response.ok) {
-        alert('Installation recorded successfully!');
+        toast.success('Installation recorded successfully!')
         await loadInstallationHistory(); // Reload list
         setShowInstallForm(false);
         setSelectedMaterial(null);
@@ -180,11 +181,11 @@ const POSMaterialTrackerPage: React.FC = () => {
           verificationStatus: 'pending'
         });
       } else {
-        alert('Failed to record installation');
+        toast.error('Failed to record installation')
       }
     } catch (error) {
       console.error('Error submitting installation:', error);
-      alert('Error recording installation');
+      toast.error('Error recording installation')
     }
   };
 

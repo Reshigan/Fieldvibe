@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import TransactionDetail from '../../../components/transactions/TransactionDetail'
 import { fieldOperationsService } from '../../../services/field-operations.service'
 import { formatCurrency, formatDate } from '../../../utils/format'
+import toast from 'react-hot-toast'
 
 export default function BoardPlacementDetail() {
   const { id } = useParams()
@@ -36,7 +37,7 @@ export default function BoardPlacementDetail() {
       navigate('/field-operations/board-placements')
     } catch (error) {
       console.error('Failed to reverse board placement:', error)
-      alert('Failed to reverse board placement')
+      toast.error('Failed to reverse board placement')
     }
   }
 

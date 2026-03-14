@@ -3,6 +3,7 @@ import { Plus, Edit, Trash2, Search, DollarSign, Calendar } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { pricingService, PriceList } from '../../services/pricing.service'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
+import toast from 'react-hot-toast'
 
 export default function PriceListManagementPage() {
   const navigate = useNavigate()
@@ -25,7 +26,7 @@ export default function PriceListManagementPage() {
       setPriceLists(data)
     } catch (error) {
       console.error('Failed to load price lists:', error)
-      alert('Failed to load price lists')
+      toast.error('Failed to load price lists')
     } finally {
       setLoading(false)
     }
@@ -36,11 +37,11 @@ export default function PriceListManagementPage() {
     
     try {
       await pricingService.deletePriceList(id)
-      alert('Price list deleted successfully')
+      toast.success('Price list deleted successfully')
       loadPriceLists()
     } catch (error) {
       console.error('Failed to delete price list:', error)
-      alert('Failed to delete price list')
+      toast.error('Failed to delete price list')
     }
   }
 
