@@ -6030,8 +6030,477 @@ api.post('/van-sales/reconciliations/denominations', async (c) => {
   return c.json({ success: true, data: { id, total_expected: totalExpected, total_actual: totalActual, variance, denominations, status: Math.abs(variance) < 0.01 ? 'balanced' : 'discrepancy' }, message: 'Cash reconciliation recorded' }, 201);
 });
 
+// ==================== ANALYTICS TRACKING ====================
+api.post('/analytics/track', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const id = crypto.randomUUID();
+  await db.prepare("INSERT INTO page_analytics (id, tenant_id, user_id, page_path, action, duration_ms, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, tenantId, userId, body.page || '/', body.action || 'view', body.duration_ms || 0, JSON.stringify(body.metadata || {})).run();
+  return c.json({ success: true });
+});
+
+api.get('/analytics/usage', requireRole('admin', 'super_admin'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { days = 30 } = c.req.query();
+  const [popularPages, activeUsers, dailyViews] = await Promise.all([
+    db.prepare("SELECT page_path, COUNT(*) as views, AVG(duration_ms) as avg_duration FROM page_analytics WHERE tenant_id = ? AND created_at > datetime('now', '-' || ? || ' days') GROUP BY page_path ORDER BY views DESC LIMIT 20").bind(tenantId, days).all(),
+    db.prepare("SELECT COUNT(DISTINCT user_id) as count FROM page_analytics WHERE tenant_id = ? AND created_at > datetime('now', '-' || ? || ' days')").bind(tenantId, days).first(),
+    db.prepare("SELECT DATE(created_at) as date, COUNT(*) as views FROM page_analytics WHERE tenant_id = ? AND created_at > datetime('now', '-' || ? || ' days') GROUP BY DATE(created_at) ORDER BY date").bind(tenantId, days).all(),
+  ]);
+  return c.json({ success: true, data: { popular_pages: popularPages.results || [], active_users: activeUsers?.count || 0, daily_views: dailyViews.results || [] } });
+});
+
+// ==================== SELF-HEALING SYSTEM ====================
+async function healOrderTotals(db) {
+  const mismatches = await db.prepare(`
+    SELECT so.id, so.total_amount, SUM(soi.quantity * soi.unit_price) as correct_total
+    FROM sales_orders so
+    JOIN sales_order_items soi ON so.id = soi.sales_order_id
+    GROUP BY so.id
+    HAVING ABS(so.total_amount - correct_total) > 0.01
+  `).all();
+  let healed = 0;
+  for (const m of (mismatches.results || [])) {
+    await db.batch([
+      db.prepare('UPDATE sales_orders SET total_amount = ? WHERE id = ?').bind(m.correct_total, m.id),
+      db.prepare("INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, old_values, new_values) VALUES (?, (SELECT tenant_id FROM sales_orders WHERE id = ?), 'system', 'SELF_HEAL', 'sales_order', ?, ?, ?)").bind(crypto.randomUUID(), m.id, m.id, JSON.stringify({ total_amount: m.total_amount }), JSON.stringify({ total_amount: m.correct_total, reason: 'order_total_mismatch' })),
+    ]);
+    healed++;
+  }
+  return { healed };
+}
+
+async function healCustomerBalances(db) {
+  const mismatches = await db.prepare(`
+    SELECT c.id, c.outstanding_balance as recorded,
+      COALESCE(SUM(CASE WHEN so.payment_status != 'paid' AND so.status != 'cancelled'
+        THEN so.total_amount - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.sales_order_id = so.id), 0)
+        ELSE 0 END), 0) as calculated
+    FROM customers c
+    LEFT JOIN sales_orders so ON so.customer_id = c.id
+    GROUP BY c.id
+    HAVING ABS(recorded - calculated) > 0.01
+  `).all();
+  let healed = 0;
+  for (const m of (mismatches.results || [])) {
+    await db.batch([
+      db.prepare('UPDATE customers SET outstanding_balance = ? WHERE id = ?').bind(m.calculated, m.id),
+      db.prepare("INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, old_values, new_values) VALUES (?, (SELECT tenant_id FROM customers WHERE id = ?), 'system', 'SELF_HEAL', 'customer', ?, ?, ?)").bind(crypto.randomUUID(), m.id, m.id, JSON.stringify({ outstanding_balance: m.recorded }), JSON.stringify({ outstanding_balance: m.calculated, reason: 'balance_mismatch' })),
+    ]);
+    healed++;
+  }
+  return { healed };
+}
+
+async function healStockLevels(db) {
+  const mismatches = await db.prepare(`
+    SELECT sl.id, sl.warehouse_id, sl.product_id, sl.quantity as recorded,
+      COALESCE(SUM(CASE WHEN sm.movement_type IN ('in','return','adjustment_up') THEN sm.quantity
+        WHEN sm.movement_type IN ('out','transfer_out','adjustment_down','damage') THEN -sm.quantity
+        ELSE 0 END), 0) as calculated
+    FROM stock_levels sl
+    LEFT JOIN stock_movements sm ON sm.warehouse_id = sl.warehouse_id AND sm.product_id = sl.product_id
+    GROUP BY sl.id
+    HAVING ABS(recorded - calculated) > 0
+  `).all();
+  let healed = 0;
+  for (const m of (mismatches.results || [])) {
+    await db.batch([
+      db.prepare('UPDATE stock_levels SET quantity = ? WHERE id = ?').bind(Math.max(0, m.calculated), m.id),
+      db.prepare("INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, old_values, new_values) VALUES (?, (SELECT tenant_id FROM stock_levels WHERE id = ?), 'system', 'SELF_HEAL', 'stock_level', ?, ?, ?)").bind(crypto.randomUUID(), m.id, m.id, JSON.stringify({ quantity: m.recorded }), JSON.stringify({ quantity: Math.max(0, m.calculated), reason: 'stock_mismatch' })),
+    ]);
+    healed++;
+  }
+  return { healed };
+}
+
+async function cleanOrphanRecords(db) {
+  const orphanItems = await db.prepare("DELETE FROM sales_order_items WHERE sales_order_id NOT IN (SELECT id FROM sales_orders)").run();
+  const orphanPayments = await db.prepare("DELETE FROM payments WHERE sales_order_id NOT IN (SELECT id FROM sales_orders)").run();
+  const orphanVan = await db.prepare("DELETE FROM van_stock_load_items WHERE van_stock_load_id NOT IN (SELECT id FROM van_stock_loads)").run();
+  return { orphan_items: orphanItems.meta?.changes || 0, orphan_payments: orphanPayments.meta?.changes || 0, orphan_van: orphanVan.meta?.changes || 0 };
+}
+
+async function healCommissions(db) {
+  const missing = await db.prepare(`
+    SELECT so.id, so.tenant_id, so.agent_id, so.total_amount
+    FROM sales_orders so
+    WHERE so.status = 'confirmed'
+    AND so.id NOT IN (SELECT source_id FROM commission_earnings WHERE source_type = 'sales_order')
+    AND EXISTS (SELECT 1 FROM commission_rules WHERE tenant_id = so.tenant_id AND source_type IN ('SALE','sales_order') AND is_active = 1)
+  `).all();
+  let healed = 0;
+  for (const m of (missing.results || [])) {
+    const rule = await db.prepare("SELECT * FROM commission_rules WHERE tenant_id = ? AND source_type IN ('SALE','sales_order') AND is_active = 1 ORDER BY rate DESC LIMIT 1").bind(m.tenant_id).first();
+    if (rule && m.total_amount >= (rule.min_threshold || 0)) {
+      const amount = m.total_amount * rule.rate;
+      const capped = rule.max_cap ? Math.min(amount, rule.max_cap) : amount;
+      await db.prepare("INSERT INTO commission_earnings (id, tenant_id, earner_id, source_type, source_id, rule_id, rate, base_amount, amount, status) VALUES (?, ?, ?, 'sales_order', ?, ?, ?, ?, ?, 'pending')").bind(crypto.randomUUID(), m.tenant_id, m.agent_id, m.id, rule.id, rule.rate, m.total_amount, capped).run();
+      healed++;
+    }
+  }
+  return { healed };
+}
+
+async function checkStaleVanLoadsHealing(db) {
+  const stale = await db.prepare("SELECT id, tenant_id, agent_id FROM van_stock_loads WHERE status IN ('loaded','active') AND created_at < datetime('now', '-2 days')").all();
+  for (const load of (stale.results || [])) {
+    await db.prepare("INSERT INTO notifications (id, tenant_id, user_id, type, title, message, created_at) VALUES (?, ?, ?, 'warning', 'Stale Van Load', ?, datetime('now'))").bind(crypto.randomUUID(), load.tenant_id, load.agent_id, `Van load ${load.id} has been in field for over 48 hours`).run();
+  }
+  return { flagged: stale.results?.length || 0 };
+}
+
+async function expireGoals(db) {
+  const result = await db.prepare("UPDATE goals SET status = 'expired' WHERE status = 'active' AND end_date < datetime('now')").run();
+  return { expired: result.meta?.changes || 0 };
+}
+
+async function flagOverduePayments(db) {
+  const result = await db.prepare("UPDATE sales_orders SET payment_status = 'overdue' WHERE payment_status = 'pending' AND created_at < datetime('now', '-30 days')").run();
+  return { flagged: result.meta?.changes || 0 };
+}
+
+async function runSelfHealingCycle(db) {
+  const results = {};
+  try { results.orderTotals = await healOrderTotals(db); } catch(e) { results.orderTotals = { error: e.message }; }
+  try { results.customerBalances = await healCustomerBalances(db); } catch(e) { results.customerBalances = { error: e.message }; }
+  try { results.stockLevels = await healStockLevels(db); } catch(e) { results.stockLevels = { error: e.message }; }
+  try { results.orphans = await cleanOrphanRecords(db); } catch(e) { results.orphans = { error: e.message }; }
+  try { results.commissions = await healCommissions(db); } catch(e) { results.commissions = { error: e.message }; }
+  try { results.staleVanLoads = await checkStaleVanLoadsHealing(db); } catch(e) { results.staleVanLoads = { error: e.message }; }
+  try { results.expiredGoals = await expireGoals(db); } catch(e) { results.expiredGoals = { error: e.message }; }
+  try { results.overduePayments = await flagOverduePayments(db); } catch(e) { results.overduePayments = { error: e.message }; }
+  await db.prepare("INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, new_values) VALUES (?, 'system', 'system', 'SELF_HEAL_CYCLE', 'system', ?)").bind(
+    crypto.randomUUID(), JSON.stringify(results)
+  ).run();
+  return results;
+}
+
+// Self-heal API endpoint (superadmin only)
+api.get('/platform/self-heal', requireRole('admin', 'super_admin'), async (c) => {
+  const db = c.env.DB;
+  const results = await runSelfHealingCycle(db);
+  return c.json({ success: true, data: results, message: 'Self-healing cycle completed' });
+});
+
+// Data integrity check endpoint
+api.get('/platform/integrity-check', requireRole('admin', 'super_admin'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const checks = {};
+  try {
+    const orderMismatches = await db.prepare("SELECT COUNT(*) as count FROM sales_orders so JOIN (SELECT sales_order_id, SUM(quantity * unit_price) as calc FROM sales_order_items GROUP BY sales_order_id) soi ON so.id = soi.sales_order_id WHERE ABS(so.total_amount - soi.calc) > 0.01").first();
+    checks.order_totals = { status: (orderMismatches?.count || 0) === 0 ? 'PASS' : 'FAIL', mismatches: orderMismatches?.count || 0 };
+  } catch(e) { checks.order_totals = { status: 'ERROR', error: e.message }; }
+  try {
+    const orphanItems = await db.prepare("SELECT COUNT(*) as count FROM sales_order_items WHERE sales_order_id NOT IN (SELECT id FROM sales_orders)").first();
+    checks.orphan_records = { status: (orphanItems?.count || 0) === 0 ? 'PASS' : 'FAIL', orphans: orphanItems?.count || 0 };
+  } catch(e) { checks.orphan_records = { status: 'ERROR', error: e.message }; }
+  try {
+    const staleLoads = await db.prepare("SELECT COUNT(*) as count FROM van_stock_loads WHERE status IN ('loaded','active') AND created_at < datetime('now', '-2 days')").first();
+    checks.stale_van_loads = { status: (staleLoads?.count || 0) === 0 ? 'PASS' : 'WARNING', count: staleLoads?.count || 0 };
+  } catch(e) { checks.stale_van_loads = { status: 'ERROR', error: e.message }; }
+  try {
+    const expiredGoals = await db.prepare("SELECT COUNT(*) as count FROM goals WHERE status = 'active' AND end_date < datetime('now')").first();
+    checks.expired_goals = { status: (expiredGoals?.count || 0) === 0 ? 'PASS' : 'WARNING', count: expiredGoals?.count || 0 };
+  } catch(e) { checks.expired_goals = { status: 'ERROR', error: e.message }; }
+  const allPass = Object.values(checks).every(ch => ch.status === 'PASS');
+  return c.json({ success: true, data: { overall: allPass ? 'HEALTHY' : 'ISSUES_FOUND', checks, timestamp: new Date().toISOString() } });
+});
+
+// Self-heal history
+api.get('/platform/self-heal/history', requireRole('admin', 'super_admin'), async (c) => {
+  const db = c.env.DB;
+  const history = await db.prepare("SELECT * FROM audit_log WHERE action = 'SELF_HEAL_CYCLE' ORDER BY created_at DESC LIMIT 20").all();
+  return c.json({ success: true, data: history.results || [] });
+});
+
+// ==================== PREDICTIVE INSIGHTS ====================
+async function generatePredictiveInsights(db) {
+  const insights = {};
+  try {
+    const revenueAvg = await db.prepare("SELECT AVG(daily_total) as avg_daily FROM (SELECT DATE(created_at) as d, SUM(total_amount) as daily_total FROM sales_orders WHERE status != 'cancelled' AND created_at > datetime('now', '-30 days') GROUP BY DATE(created_at))").first();
+    insights.revenue_forecast_30d = (revenueAvg?.avg_daily || 0) * 30;
+  } catch(e) { insights.revenue_forecast_30d = 0; }
+  try {
+    const stockout = await db.prepare(`
+      SELECT p.id, p.name, sl.quantity as current_stock,
+        COALESCE((SELECT SUM(soi.quantity) FROM sales_order_items soi JOIN sales_orders so ON soi.sales_order_id = so.id WHERE soi.product_id = p.id AND so.created_at > datetime('now', '-30 days')) / 30.0, 0) as avg_daily_sales
+      FROM products p JOIN stock_levels sl ON sl.product_id = p.id
+      WHERE sl.quantity > 0
+      HAVING avg_daily_sales > 0 AND (current_stock / avg_daily_sales) < 7
+    `).all();
+    insights.stockout_risks = stockout.results || [];
+  } catch(e) { insights.stockout_risks = []; }
+  try {
+    const churn = await db.prepare(`
+      SELECT c.id, c.name, COUNT(so.id) as recent_orders,
+        (SELECT COUNT(*) FROM sales_orders so2 WHERE so2.customer_id = c.id AND so2.created_at > datetime('now', '-90 days') AND so2.created_at < datetime('now', '-30 days')) as prev_orders
+      FROM customers c
+      LEFT JOIN sales_orders so ON so.customer_id = c.id AND so.created_at > datetime('now', '-30 days')
+      GROUP BY c.id
+      HAVING prev_orders > 2 AND recent_orders <= 1
+    `).all();
+    insights.churn_risks = churn.results || [];
+  } catch(e) { insights.churn_risks = []; }
+  try {
+    const commLiability = await db.prepare("SELECT COALESCE(SUM(amount), 0) as total FROM commission_earnings WHERE status IN ('pending', 'approved')").first();
+    insights.commission_liability = commLiability?.total || 0;
+  } catch(e) { insights.commission_liability = 0; }
+  return insights;
+}
+
+api.get('/insights/predictions', requireRole('admin', 'manager', 'super_admin'), async (c) => {
+  const db = c.env.DB;
+  const insights = await generatePredictiveInsights(db);
+  return c.json({ success: true, data: insights });
+});
+
+// ==================== ADAPTIVE ANOMALY THRESHOLDS ====================
+async function adaptAnomalyThresholds(db) {
+  const agents = await db.prepare(`
+    SELECT v.agent_id,
+      AVG(CASE WHEN c.latitude IS NOT NULL AND v.latitude IS NOT NULL THEN
+        (ABS(v.latitude - c.latitude) + ABS(v.longitude - c.longitude)) * 111000
+      ELSE NULL END) as avg_distance,
+      AVG(CASE WHEN v.check_out_time IS NOT NULL AND v.check_in_time IS NOT NULL THEN
+        (julianday(v.check_out_time) - julianday(v.check_in_time)) * 86400
+      ELSE NULL END) as avg_duration_seconds
+    FROM visits v
+    LEFT JOIN customers c ON v.customer_id = c.id
+    WHERE v.created_at > datetime('now', '-30 days')
+    GROUP BY v.agent_id
+    HAVING avg_distance IS NOT NULL
+  `).all();
+  for (const agent of (agents.results || [])) {
+    const geofenceThreshold = Math.max(200, Math.round((agent.avg_distance || 500) * 3));
+    const ghostThreshold = Math.max(60, Math.round((agent.avg_duration_seconds || 300) * 0.25));
+    await db.prepare("INSERT INTO settings (id, tenant_id, key, value, category) VALUES (?, (SELECT tenant_id FROM users WHERE id = ?), ?, ?, 'anomaly') ON CONFLICT(id) DO UPDATE SET value = ?, updated_at = datetime('now')").bind(`anomaly_geofence_${agent.agent_id}`, agent.agent_id, `anomaly_geofence_${agent.agent_id}`, String(geofenceThreshold), String(geofenceThreshold)).run();
+    await db.prepare("INSERT INTO settings (id, tenant_id, key, value, category) VALUES (?, (SELECT tenant_id FROM users WHERE id = ?), ?, ?, 'anomaly') ON CONFLICT(id) DO UPDATE SET value = ?, updated_at = datetime('now')").bind(`anomaly_ghost_${agent.agent_id}`, agent.agent_id, `anomaly_ghost_${agent.agent_id}`, String(ghostThreshold), String(ghostThreshold)).run();
+  }
+  return { agents_updated: agents.results?.length || 0 };
+}
+
+// ==================== PERFORMANCE ANALYSIS ====================
+async function analyzePerformance(db) {
+  const report = {};
+  try {
+    const errors = await db.prepare("SELECT error_type, COUNT(*) as count, MAX(created_at) as last_seen FROM error_logs WHERE created_at > datetime('now', '-7 days') GROUP BY error_type ORDER BY count DESC LIMIT 10").all();
+    report.frequent_errors = errors.results || [];
+  } catch(e) { report.frequent_errors = []; }
+  try {
+    const popular = await db.prepare("SELECT page_path, COUNT(*) as views FROM page_analytics WHERE created_at > datetime('now', '-7 days') GROUP BY page_path ORDER BY views DESC LIMIT 10").all();
+    report.popular_pages = popular.results || [];
+  } catch(e) { report.popular_pages = []; }
+  try {
+    const errorTrend = await db.prepare("SELECT DATE(created_at) as date, severity, COUNT(*) as count FROM error_logs WHERE created_at > datetime('now', '-30 days') GROUP BY DATE(created_at), severity ORDER BY date").all();
+    report.error_trend = errorTrend.results || [];
+  } catch(e) { report.error_trend = []; }
+  await db.prepare("INSERT INTO dashboard_snapshots (id, tenant_id, dashboard_type, data, period) VALUES (?, 'system', 'performance_report', ?, ?)").bind(crypto.randomUUID(), JSON.stringify(report), new Date().toISOString().slice(0,7)).run();
+  return report;
+}
+
+api.get('/platform/performance-report', requireRole('admin', 'super_admin'), async (c) => {
+  const db = c.env.DB;
+  const report = await analyzePerformance(db);
+  return c.json({ success: true, data: report });
+});
+
+// ==================== COMPETITIVE FEATURES ====================
+
+// Three-Tap Visit: quick visit creation
+api.post('/visits/quick-start', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const agentId = c.get('userId');
+  const body = await c.req.json();
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await db.prepare("INSERT INTO visits (id, tenant_id, agent_id, customer_id, visit_date, visit_type, check_in_time, latitude, longitude, status, created_at) VALUES (?, ?, ?, ?, ?, 'customer', ?, ?, ?, 'in_progress', ?)").bind(id, tenantId, agentId, body.customer_id, now.slice(0, 10), now, body.latitude || null, body.longitude || null, now).run();
+  return c.json({ success: true, data: { id, status: 'in_progress', check_in_time: now }, message: 'Visit started' }, 201);
+});
+
+// Nearest customers for quick visit
+api.get('/visits/nearby-customers', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { lat, lng, limit = 5 } = c.req.query();
+  let customers;
+  if (lat && lng) {
+    customers = await db.prepare("SELECT id, name, address, latitude, longitude, contact_phone, ((latitude - ?) * (latitude - ?) + (longitude - ?) * (longitude - ?)) as dist_sq FROM customers WHERE tenant_id = ? AND status = 'active' AND latitude IS NOT NULL ORDER BY dist_sq ASC LIMIT ?").bind(parseFloat(lat), parseFloat(lat), parseFloat(lng), parseFloat(lng), tenantId, parseInt(limit)).all();
+  } else {
+    customers = await db.prepare("SELECT id, name, address, latitude, longitude, contact_phone FROM customers WHERE tenant_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT ?").bind(tenantId, parseInt(limit)).all();
+  }
+  return c.json({ success: true, data: customers.results || [] });
+});
+
+// Route suggestion: Plan My Day
+api.post('/route-plans/suggest', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const agentId = c.get('userId');
+  const body = await c.req.json();
+  const routeDate = body.date || new Date().toISOString().slice(0, 10);
+  // Find customers in agent's territory not visited in last 7 days
+  const unvisited = await db.prepare(`
+    SELECT c.id, c.name, c.address, c.latitude, c.longitude
+    FROM customers c
+    LEFT JOIN territory_assignments ta ON ta.agent_id = ?
+    LEFT JOIN territories t ON ta.territory_id = t.id
+    WHERE c.tenant_id = ? AND c.status = 'active'
+    AND c.id NOT IN (SELECT customer_id FROM visits WHERE agent_id = ? AND visit_date > datetime('now', '-7 days') AND customer_id IS NOT NULL)
+    ORDER BY c.latitude, c.longitude
+    LIMIT 15
+  `).bind(agentId, tenantId, agentId).all();
+  const stops = (unvisited.results || []).map((c, i) => ({ sequence: i + 1, customer_id: c.id, customer_name: c.name, address: c.address, latitude: c.latitude, longitude: c.longitude }));
+  // Create route plan
+  const planId = crypto.randomUUID();
+  await db.prepare("INSERT INTO route_plans (id, tenant_id, agent_id, route_date, status, total_stops) VALUES (?, ?, ?, ?, 'PLANNED', ?)").bind(planId, tenantId, agentId, routeDate, stops.length).run();
+  for (const stop of stops) {
+    await db.prepare("INSERT INTO route_plan_stops (id, route_plan_id, customer_id, sequence_order, status) VALUES (?, ?, ?, ?, 'PENDING')").bind(crypto.randomUUID(), planId, stop.customer_id, stop.sequence).run();
+  }
+  return c.json({ success: true, data: { plan_id: planId, date: routeDate, total_stops: stops.length, stops }, message: 'Route plan generated' }, 201);
+});
+
+// AI Daily Briefing for managers
+api.get('/insights/daily-briefing', requireRole('admin', 'manager', 'super_admin'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const [yesterdayVisits, yesterdayRevenue, anomalies, topAgent, lowPerformer] = await Promise.all([
+    db.prepare("SELECT COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date = date('now', '-1 day')").bind(tenantId).first(),
+    db.prepare("SELECT COALESCE(SUM(total_amount), 0) as revenue FROM sales_orders WHERE tenant_id = ? AND DATE(created_at) = date('now', '-1 day') AND status != 'cancelled'").bind(tenantId).first(),
+    db.prepare("SELECT COUNT(*) as count FROM anomaly_flags WHERE tenant_id = ? AND created_at > datetime('now', '-1 day')").bind(tenantId).first(),
+    db.prepare("SELECT u.first_name || ' ' || u.last_name as name, COUNT(v.id) as visits FROM users u JOIN visits v ON v.agent_id = u.id WHERE u.tenant_id = ? AND v.visit_date = date('now', '-1 day') GROUP BY u.id ORDER BY visits DESC LIMIT 1").bind(tenantId).first(),
+    db.prepare("SELECT u.first_name || ' ' || u.last_name as name, COUNT(v.id) as visits FROM users u LEFT JOIN visits v ON v.agent_id = u.id AND v.visit_date = date('now', '-1 day') WHERE u.tenant_id = ? AND u.role = 'agent' AND u.is_active = 1 GROUP BY u.id ORDER BY visits ASC LIMIT 1").bind(tenantId).first(),
+  ]);
+  const weekRevenue = await db.prepare("SELECT COALESCE(SUM(total_amount), 0) as revenue FROM sales_orders WHERE tenant_id = ? AND created_at > datetime('now', '-7 days') AND status != 'cancelled'").bind(tenantId).first();
+  const prevWeekRevenue = await db.prepare("SELECT COALESCE(SUM(total_amount), 0) as revenue FROM sales_orders WHERE tenant_id = ? AND created_at > datetime('now', '-14 days') AND created_at <= datetime('now', '-7 days') AND status != 'cancelled'").bind(tenantId).first();
+  const revenueChange = prevWeekRevenue?.revenue > 0 ? ((weekRevenue?.revenue - prevWeekRevenue?.revenue) / prevWeekRevenue.revenue * 100).toFixed(1) : 0;
+  const briefing = {
+    date: new Date().toISOString().slice(0, 10),
+    summary: `Your team completed ${yesterdayVisits?.count || 0} visits yesterday. Revenue was R${(yesterdayRevenue?.revenue || 0).toLocaleString()}, ${revenueChange > 0 ? 'up' : 'down'} ${Math.abs(revenueChange)}% from last week. ${anomalies?.count || 0} anomaly flags raised.`,
+    metrics: { yesterday_visits: yesterdayVisits?.count || 0, yesterday_revenue: yesterdayRevenue?.revenue || 0, week_revenue: weekRevenue?.revenue || 0, revenue_change_pct: parseFloat(revenueChange), anomaly_flags: anomalies?.count || 0 },
+    highlights: [],
+  };
+  if (topAgent) briefing.highlights.push({ type: 'positive', text: `Top performer: ${topAgent.name} with ${topAgent.visits} visits` });
+  if (lowPerformer && lowPerformer.visits === 0) briefing.highlights.push({ type: 'concern', text: `${lowPerformer.name} had 0 visits yesterday. Consider follow-up.` });
+  if ((anomalies?.count || 0) > 0) briefing.highlights.push({ type: 'warning', text: `${anomalies.count} anomaly flag(s) need review` });
+  return c.json({ success: true, data: briefing });
+});
+
+// Sales recommendations based on customer purchase patterns
+api.get('/insights/sales-recommendations', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const recommendations = await db.prepare(`
+    SELECT c.id as customer_id, c.name as customer_name, p.id as product_id, p.name as product_name,
+      MAX(so.created_at) as last_ordered, COUNT(soi.id) as order_count,
+      CAST(julianday('now') - julianday(MAX(so.created_at)) AS INTEGER) as days_since_last
+    FROM customers c
+    JOIN sales_orders so ON so.customer_id = c.id
+    JOIN sales_order_items soi ON soi.sales_order_id = so.id
+    JOIN products p ON soi.product_id = p.id
+    WHERE c.tenant_id = ? AND so.status != 'cancelled'
+    GROUP BY c.id, p.id
+    HAVING order_count >= 2 AND days_since_last > 14
+    ORDER BY days_since_last DESC
+    LIMIT 20
+  `).bind(tenantId).all();
+  return c.json({ success: true, data: recommendations.results || [] });
+});
+
+// Error logging endpoint for frontend
+api.post('/error-logs', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const id = crypto.randomUUID();
+  await db.prepare("INSERT INTO error_logs (id, tenant_id, error_type, message, stack_trace, request_path, request_method, user_id, severity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, tenantId, body.error_type || 'FRONTEND', body.message || '', body.stack_trace || '', body.context || '', '', userId, body.severity || 'ERROR').run();
+  return c.json({ success: true });
+});
+
+// Error logs list for admin
+api.get('/error-logs', requireRole('admin', 'super_admin'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { days = 7, severity, page = 1, limit = 50 } = c.req.query();
+  let where = "WHERE (tenant_id = ? OR tenant_id IS NULL) AND created_at > datetime('now', '-' || ? || ' days')";
+  const params = [tenantId, days];
+  if (severity) { where += ' AND severity = ?'; params.push(severity); }
+  const total = await db.prepare('SELECT COUNT(*) as count FROM error_logs ' + where).bind(...params).first();
+  const logs = await db.prepare('SELECT * FROM error_logs ' + where + ' ORDER BY created_at DESC LIMIT ? OFFSET ?').bind(...params, parseInt(limit), (parseInt(page) - 1) * parseInt(limit)).all();
+  return c.json({ success: true, data: { logs: logs.results || [], total: total?.count || 0 } });
+});
+
+// Error trend for dashboard
+api.get('/error-logs/trend', requireRole('admin', 'super_admin'), async (c) => {
+  const db = c.env.DB;
+  const trend = await db.prepare("SELECT DATE(created_at) as date, severity, COUNT(*) as count FROM error_logs WHERE created_at > datetime('now', '-30 days') GROUP BY DATE(created_at), severity ORDER BY date").all();
+  return c.json({ success: true, data: trend.results || [] });
+});
+
+// Onboarding progress
+api.get('/onboarding/progress', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const progress = await db.prepare("SELECT * FROM onboarding_progress WHERE tenant_id = ? AND user_id = ?").bind(tenantId, userId).all();
+  const steps = ['company_setup', 'first_product', 'first_customer', 'first_order', 'first_visit', 'invite_team', 'configure_commissions', 'setup_territories'];
+  const completed = new Set((progress.results || []).filter(p => p.completed).map(p => p.step));
+  return c.json({ success: true, data: { steps: steps.map(s => ({ step: s, completed: completed.has(s) })), completion_pct: Math.round(completed.size / steps.length * 100) } });
+});
+
+api.post('/onboarding/complete-step', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const { step } = await c.req.json();
+  const id = crypto.randomUUID();
+  await db.prepare("INSERT INTO onboarding_progress (id, tenant_id, user_id, step, completed, completed_at) VALUES (?, ?, ?, ?, 1, datetime('now')) ON CONFLICT(id) DO UPDATE SET completed = 1, completed_at = datetime('now')").bind(id, tenantId, userId, step).run();
+  return c.json({ success: true, message: 'Step completed' });
+});
+
+// Token refresh endpoint
+app.post('/api/auth/refresh', async (c) => {
+  try {
+    const body = await c.req.json();
+    const refreshToken = body.refresh_token;
+    if (!refreshToken) return c.json({ success: false, message: 'Refresh token required' }, 400);
+    const parts = refreshToken.split('.');
+    if (parts.length !== 3) return c.json({ success: false, message: 'Invalid token' }, 401);
+    const jwtSecret = c.env.JWT_SECRET;
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', encoder.encode(jwtSecret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+    const sigBytes = Uint8Array.from(atob(parts[2].replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
+    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, encoder.encode(parts[0] + '.' + parts[1]));
+    if (!valid) return c.json({ success: false, message: 'Invalid token' }, 401);
+    const payload = JSON.parse(atob(parts[1]));
+    if (payload.exp < Math.floor(Date.now() / 1000)) return c.json({ success: false, message: 'Refresh token expired' }, 401);
+    if (payload.type !== 'refresh') return c.json({ success: false, message: 'Not a refresh token' }, 401);
+    const accessToken = await generateToken({ userId: payload.userId, tenantId: payload.tenantId, role: payload.role }, jwtSecret);
+    const newRefreshToken = await generateToken({ userId: payload.userId, tenantId: payload.tenantId, role: payload.role, type: 'refresh' }, jwtSecret, 604800);
+    return c.json({ success: true, data: { access_token: accessToken, refresh_token: newRefreshToken, expires_in: 86400 } });
+  } catch(e) { return c.json({ success: false, message: 'Token refresh failed' }, 401); }
+});
+
 // ==================== MOUNT AND EXPORT ====================
 app.route('/api', api);
+
+// Global error handler (Sentry-ready)
+app.onError(async (err, c) => {
+  console.error('Unhandled error:', err.message, err.stack);
+  try {
+    const db = c.env?.DB;
+    if (db) {
+      await db.prepare("INSERT INTO error_logs (id, tenant_id, error_type, message, stack_trace, request_path, request_method, severity) VALUES (?, ?, 'UNHANDLED', ?, ?, ?, ?, 'CRITICAL')").bind(crypto.randomUUID(), '', err.message || 'Unknown error', err.stack || '', c.req?.path || '', c.req?.method || '').run();
+    }
+  } catch(logErr) { console.error('Failed to log error:', logErr); }
+  return c.json({ success: false, message: 'Internal server error' }, 500);
+});
 
 // Catch-all for unmatched routes
 app.all('*', (c) => c.json({ success: false, message: 'Not found' }, 404));
@@ -6121,5 +6590,17 @@ export default {
     if (hour === 16) await checkStaleVanLoads(env.DB);
     if (date === 1 && hour === 22) await closeCommissionPeriod(env.DB);
     if (day === 1 && hour === 5) await generateAgingReport(env.DB);
+    // Self-healing cycle every 6 hours (0, 6, 12, 18)
+    if (hour % 6 === 0) {
+      try { await runSelfHealingCycle(env.DB); } catch(e) { console.error('Self-healing error:', e); }
+    }
+    // Adaptive anomaly thresholds weekly (Sunday 3 AM)
+    if (day === 0 && hour === 3) {
+      try { await adaptAnomalyThresholds(env.DB); } catch(e) { console.error('Anomaly threshold error:', e); }
+    }
+    // Performance analysis weekly (Monday 2 AM)
+    if (day === 1 && hour === 2) {
+      try { await analyzePerformance(env.DB); } catch(e) { console.error('Performance analysis error:', e); }
+    }
   },
 };

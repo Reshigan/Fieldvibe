@@ -1260,3 +1260,46 @@ CREATE INDEX IF NOT EXISTS idx_import_jobs_tenant ON import_jobs(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_error_logs_tenant ON error_logs(tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_commission_payouts_tenant ON commission_payouts(tenant_id, earner_id);
 CREATE INDEX IF NOT EXISTS idx_stock_adjustments_tenant ON stock_adjustments(tenant_id);
+
+-- ==================== SELF-HEALING & SELF-IMPROVING ====================
+
+-- Page Analytics (Usage Tracking)
+CREATE TABLE IF NOT EXISTS page_analytics (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  page_path TEXT NOT NULL,
+  action TEXT NOT NULL DEFAULT 'view',
+  duration_ms INTEGER,
+  metadata TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_page_analytics_tenant ON page_analytics(tenant_id, page_path, created_at);
+CREATE INDEX IF NOT EXISTS idx_page_analytics_user ON page_analytics(user_id, created_at);
+
+-- Exchange Rates (Multi-Currency)
+CREATE TABLE IF NOT EXISTS exchange_rates (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  from_currency TEXT NOT NULL DEFAULT 'ZAR',
+  to_currency TEXT NOT NULL,
+  rate REAL NOT NULL,
+  effective_date TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_exchange_rates_tenant ON exchange_rates(tenant_id, from_currency, to_currency);
+
+-- Onboarding Progress
+CREATE TABLE IF NOT EXISTS onboarding_progress (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  step TEXT NOT NULL,
+  completed INTEGER DEFAULT 0,
+  completed_at TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_onboarding_tenant ON onboarding_progress(tenant_id, user_id);
