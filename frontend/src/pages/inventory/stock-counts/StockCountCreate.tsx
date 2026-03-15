@@ -5,6 +5,7 @@ import LineItemsEditor, { LineItem, LineItemsTotals, TotalsSummary } from '../..
 import { inventoryService } from '../../../services/inventory.service'
 import { productsService } from '../../../services/products.service'
 import LoadingSpinner from '../../../components/ui/LoadingSpinner'
+import { useToast } from '../../../components/ui/Toast'
 
 interface WarehouseType {
   id: string
@@ -21,6 +22,7 @@ interface Product {
 }
 
 export default function StockCountCreate() {
+  const { toast } = useToast()
   const navigate = useNavigate()
   const [warehouses, setWarehouses] = useState<WarehouseType[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -56,15 +58,15 @@ export default function StockCountCreate() {
 
   const handleSubmit = async (submit: boolean = false) => {
     if (!selectedWarehouse) {
-      alert('Please select a warehouse')
+      toast.info('Please select a warehouse')
       return
     }
     if (!countType) {
-      alert('Please select a count type')
+      toast.info('Please select a count type')
       return
     }
     if (lineItems.length === 0 || !lineItems.some(item => item.product_id)) {
-      alert('Please add at least one product to count')
+      toast.info('Please add at least one product to count')
       return
     }
 
@@ -89,7 +91,7 @@ export default function StockCountCreate() {
       navigate('/inventory/stock-counts')
     } catch (error: any) {
       console.error('Failed to create stock count:', error)
-      alert(error.message || 'Failed to create stock count')
+      toast.error(error.message || 'Failed to create stock count')
     } finally {
       setSaving(false)
     }

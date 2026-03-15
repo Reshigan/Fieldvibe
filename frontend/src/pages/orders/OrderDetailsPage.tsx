@@ -4,6 +4,7 @@ import { ArrowLeft, Edit2, Printer, Download, Package, DollarSign, Calendar, Use
 import { ordersService } from '../../services/orders.service'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
 import ErrorState from '../../components/ui/ErrorState'
+import { useToast } from '../../components/ui/Toast'
 
 interface OrderItem {
   id: string
@@ -52,6 +53,7 @@ interface TimelineEvent {
 }
 
 export default function OrderDetailsPage() {
+  const { toast } = useToast()
   const { id } = useParams()
   const navigate = useNavigate()
   const [order, setOrder] = useState<Order | null>(null)
@@ -197,7 +199,7 @@ export default function OrderDetailsPage() {
       await loadStatusHistory()
     } catch (error: any) {
       console.error('Failed to update order status:', error)
-      alert(error.response?.data?.message || 'Failed to update order status')
+      toast.error(error.response?.data?.message || 'Failed to update order status')
     } finally {
       setTransitioning(false)
     }
