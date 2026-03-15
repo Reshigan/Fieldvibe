@@ -105,7 +105,7 @@ export default function InvoiceCreate() {
       navigate('/sales/invoices')
     } catch (error: any) {
       console.error('Failed to create invoice:', error)
-      alert(error.message || 'Failed to create invoice')
+      toast.error(error.message || 'Failed to create invoice')
     } finally {
       setSaving(false)
     }

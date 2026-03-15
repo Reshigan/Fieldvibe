@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Camera, MapPin, Package, QrCode, Search, Calendar, CheckCircle2, AlertCircle, Upload, Download } from 'lucide-react';
 import { useToast } from '../components/ui/Toast'
 
@@ -49,10 +49,19 @@ const POSMaterialTrackerPage: React.FC = () => {
     verificationStatus: 'pending'
   });
 
+  // Track blob URLs for cleanup
+  const blobUrlsRef = useRef<string[]>([]);
+
   useEffect(() => {
     loadMaterialLibrary();
     loadInstallationHistory();
     getCurrentLocation();
+
+    // Cleanup blob URLs on unmount
+    return () => {
+      blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+      blobUrlsRef.current = [];
+    };
   }, []);
 
   const loadMaterialLibrary = async () => {
@@ -124,6 +133,7 @@ const POSMaterialTrackerPage: React.FC = () => {
       const file = (e.target as HTMLInputElement)?.files?.[0];
       if (file) {
         const photoUrl = URL.createObjectURL(file);
+        blobUrlsRef.current.push(photoUrl);
         if (type === 'before') {
           setFormData(prev => ({
             ...prev,

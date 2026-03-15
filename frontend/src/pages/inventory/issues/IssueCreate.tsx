@@ -97,7 +97,7 @@ export default function IssueCreate() {
       navigate('/inventory/issues')
     } catch (error: any) {
       console.error('Failed to create issue:', error)
-      alert(error.message || 'Failed to create issue')
+      toast.error(error.message || 'Failed to create issue')
     } finally {
       setSaving(false)
     }

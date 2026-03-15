@@ -98,7 +98,7 @@ export default function VanLoadCreate() {
       navigate('/van-sales/van-loads')
     } catch (error: any) {
       console.error('Failed to create van load:', error)
-      alert(error.message || 'Failed to create van load')
+      toast.error(error.message || 'Failed to create van load')
     } finally {
       setSaving(false)
     }

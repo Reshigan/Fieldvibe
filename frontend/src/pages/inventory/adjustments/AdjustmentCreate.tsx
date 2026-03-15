@@ -97,7 +97,7 @@ export default function AdjustmentCreate() {
       navigate('/inventory/adjustments')
     } catch (error: any) {
       console.error('Failed to create adjustment:', error)
-      alert(error.message || 'Failed to create adjustment')
+      toast.error(error.message || 'Failed to create adjustment')
     } finally {
       setSaving(false)
     }

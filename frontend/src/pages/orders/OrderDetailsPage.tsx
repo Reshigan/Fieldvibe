@@ -199,7 +199,7 @@ export default function OrderDetailsPage() {
       await loadStatusHistory()
     } catch (error: any) {
       console.error('Failed to update order status:', error)
-      alert(error.response?.data?.message || 'Failed to update order status')
+      toast.error(error.response?.data?.message || 'Failed to update order status')
     } finally {
       setTransitioning(false)
     }

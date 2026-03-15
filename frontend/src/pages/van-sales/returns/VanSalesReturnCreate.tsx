@@ -93,7 +93,7 @@ export default function VanSalesReturnCreate() {
       navigate('/van-sales/returns')
     } catch (error: any) {
       console.error('Failed to create return:', error)
-      alert(error.message || 'Failed to create return')
+      toast.error(error.message || 'Failed to create return')
     } finally {
       setSaving(false)
     }

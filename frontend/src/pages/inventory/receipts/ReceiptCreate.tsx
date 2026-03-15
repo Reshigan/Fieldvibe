@@ -105,7 +105,7 @@ export default function ReceiptCreate() {
       navigate('/inventory/receipts')
     } catch (error: any) {
       console.error('Failed to create receipt:', error)
-      alert(error.message || 'Failed to create receipt')
+      toast.error(error.message || 'Failed to create receipt')
     } finally {
       setSaving(false)
     }

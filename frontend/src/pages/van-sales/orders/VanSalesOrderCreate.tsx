@@ -109,7 +109,7 @@ export default function VanSalesOrderCreate() {
       navigate('/van-sales/orders')
     } catch (error: any) {
       console.error('Failed to create order:', error)
-      alert(error.message || 'Failed to create order')
+      toast.error(error.message || 'Failed to create order')
     } finally {
       setSaving(false)
     }

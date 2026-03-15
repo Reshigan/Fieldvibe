@@ -95,7 +95,7 @@ export default function TransferCreate() {
       navigate('/inventory/transfers')
     } catch (error: any) {
       console.error('Failed to create transfer:', error)
-      alert(error.message || 'Failed to create transfer')
+      toast.error(error.message || 'Failed to create transfer')
     } finally {
       setSaving(false)
     }

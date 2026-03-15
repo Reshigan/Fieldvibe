@@ -91,7 +91,7 @@ export default function StockCountCreate() {
       navigate('/inventory/stock-counts')
     } catch (error: any) {
       console.error('Failed to create stock count:', error)
-      alert(error.message || 'Failed to create stock count')
+      toast.error(error.message || 'Failed to create stock count')
     } finally {
       setSaving(false)
     }

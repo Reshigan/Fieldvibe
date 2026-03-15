@@ -99,7 +99,7 @@ export default function CreditNoteCreate() {
       navigate('/sales/credit-notes')
     } catch (error: any) {
       console.error('Failed to create credit note:', error)
-      alert(error.message || 'Failed to create credit note')
+      toast.error(error.message || 'Failed to create credit note')
     } finally {
       setSaving(false)
     }
