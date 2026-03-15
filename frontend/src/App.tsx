@@ -900,10 +900,10 @@ function App() {
             <Route path="commissions/calculations/:id/log" element={<CalculationLog />} />
             <Route path="van-sales/cash-reconciliation/:sessionId/variance" element={<CashVariance />} />
             <Route path="van-sales/cash-reconciliation/:sessionId/collections/:collectionId" element={<CollectionDetail />} />
-            <Route path="inventory/stock-counts/:id/lines/:lineId/approval" element={<CountLineApproval />} />
-            <Route path="inventory/stock-counts/:id/lines/:lineId" element={<CountLineDetail />} />
-            <Route path="inventory/stock-counts/:id/lines/:lineId/edit" element={<CountLineEdit />} />
-            <Route path="inventory/stock-counts/:id/lines" element={<CountLineList />} />
+            <Route path="inventory/stock-counts/:countId/lines/:lineId/approval" element={<CountLineApproval />} />
+            <Route path="inventory/stock-counts/:countId/lines/:lineId" element={<CountLineDetail />} />
+            <Route path="inventory/stock-counts/:countId/lines/:lineId/edit" element={<CountLineEdit />} />
+            <Route path="inventory/stock-counts/:countId/lines" element={<CountLineList />} />
             <Route path="customer-selection" element={<CustomerSelectionPage />} />
             <Route path="customers/advanced" element={<CustomersAdvanced />} />
             <Route path="orders/:id/deliveries/:deliveryId" element={<DeliveryDetail />} />
@@ -921,11 +921,11 @@ function App() {
             <Route path="field-operations/visits/:id/tasks/:taskId/edit" element={<FOVisitTaskEdit />} />
             <Route path="field-operations/visits/:id/tasks" element={<FOVisitTaskList />} />
             <Route path="field-marketing/agent" element={<FieldMarketingAgentPage />} />
-            <Route path="finance/invoices/:id/items/:itemId" element={<InvoiceItemDetail />} />
-            <Route path="finance/invoices/:id/items/:itemId/edit" element={<InvoiceItemEdit />} />
-            <Route path="finance/invoices/:id/items/:itemId/history" element={<InvoiceItemHistory />} />
-            <Route path="finance/invoices/:id/items-list" element={<InvoiceItemList />} />
-            <Route path="finance/invoices/:id/status-history" element={<InvoiceStatusHistory />} />
+            <Route path="finance/invoices/:invoiceId/items/:itemId" element={<InvoiceItemDetail />} />
+            <Route path="finance/invoices/:invoiceId/items/:itemId/edit" element={<InvoiceItemEdit />} />
+            <Route path="finance/invoices/:invoiceId/items/:itemId/history" element={<InvoiceItemHistory />} />
+            <Route path="finance/invoices/:invoiceId/items-list" element={<InvoiceItemList />} />
+            <Route path="finance/invoices/:invoiceId/status-history" element={<InvoiceStatusHistory />} />
             <Route path="inventory/lots/:id" element={<LotDetail />} />
             <Route path="inventory/lots" element={<LotTracking />} />
             <Route path="inventory/stock-ledger/movements/:id" element={<MovementDetail />} />
@@ -936,15 +936,15 @@ function App() {
             <Route path="orders/:id/status-history" element={<OrderStatusHistory />} />
             <Route path="orders/kanban" element={<OrdersKanban />} />
             <Route path="field-operations/pos-tracker" element={<POSMaterialTrackerPage />} />
-            <Route path="finance/payments/:id/allocations/create" element={<PaymentAllocationCreate />} />
-            <Route path="finance/payments/:id/allocations/:allocId" element={<PaymentAllocationDetail />} />
-            <Route path="finance/payments/:id/allocations/:allocId/edit" element={<PaymentAllocationEdit />} />
-            <Route path="finance/payments/:id/allocations" element={<PaymentAllocationList />} />
-            <Route path="finance/payments/:id/status-history" element={<PaymentStatusHistory />} />
-            <Route path="commissions/payouts/:id/audit" element={<PayoutAuditTrail />} />
-            <Route path="commissions/payouts/:id/lines/:lineId" element={<PayoutLineDetail />} />
-            <Route path="commissions/payouts/:id/lines/:lineId/edit" element={<PayoutLineEdit />} />
-            <Route path="commissions/payouts/:id/lines" element={<PayoutLineList />} />
+            <Route path="finance/payments/:paymentId/allocations/create" element={<PaymentAllocationCreate />} />
+            <Route path="finance/payments/:paymentId/allocations/:allocId" element={<PaymentAllocationDetail />} />
+            <Route path="finance/payments/:paymentId/allocations/:allocId/edit" element={<PaymentAllocationEdit />} />
+            <Route path="finance/payments/:paymentId/allocations" element={<PaymentAllocationList />} />
+            <Route path="finance/payments/:paymentId/status-history" element={<PaymentStatusHistory />} />
+            <Route path="commissions/payouts/:payoutId/audit" element={<PayoutAuditTrail />} />
+            <Route path="commissions/payouts/:payoutId/lines/:lineId" element={<PayoutLineDetail />} />
+            <Route path="commissions/payouts/:payoutId/lines/:lineId/edit" element={<PayoutLineEdit />} />
+            <Route path="commissions/payouts/:payoutId/lines" element={<PayoutLineList />} />
             <Route path="field-operations/photos/:id" element={<PhotoDetail />} />
             <Route path="field-operations/photos/:id/evidence" element={<PhotoEvidence />} />
             <Route path="field-operations/photos" element={<PhotoGallery />} />
@@ -963,7 +963,7 @@ function App() {
             <Route path="inventory/serials/:id" element={<SerialDetail />} />
             <Route path="inventory/serials" element={<SerialTracking />} />
             <Route path="field-operations/shelf-analytics" element={<ShelfAnalyticsFormPage />} />
-            <Route path="commissions/payouts/:id/transactions" element={<SourceTransactions />} />
+            <Route path="commissions/payouts/:payoutId/transactions" element={<SourceTransactions />} />
             <Route path="orders/:id/status-history/:transitionId" element={<StatusTransitionDetail />} />
             <Route path="inventory/stock-ledger/by-product" element={<StockLedgerByProduct />} />
             <Route path="inventory/stock-ledger/by-warehouse" element={<StockLedgerByWarehouse />} />
@@ -983,7 +983,7 @@ function App() {
             <Route path="van-sales/van-loads/:loadId/items" element={<VanLoadItemList />} />
             <Route path="van-sales/van-loads/:loadId/reconciliation" element={<VanLoadReconciliation />} />
             <Route path="van-sales/van-loads/:loadId/variance" element={<VanLoadVariance />} />
-            <Route path="inventory/stock-counts/:id/variance" element={<VarianceResolution />} />
+            <Route path="inventory/stock-counts/:countId/variance" element={<VarianceResolution />} />
             <Route path="field-operations/visit-workflow" element={<VisitWorkflowPage />} />
             <Route path="field-operations/visits/list" element={<VisitsList />} />
 
