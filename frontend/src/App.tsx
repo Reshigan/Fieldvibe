@@ -215,7 +215,7 @@ import AuditLogsPage from './pages/admin/AuditLogsPage'
 import SmokeTestPage from './pages/admin/SmokeTestPage'
 import RouteAuditPage from './pages/admin/RouteAuditPage'
 import BrandManagementPage from './pages/admin/BrandManagementPage'
-import CampaignManagementPage from './pages/admin/CampaignManagementPage'
+import AdminCampaignManagementPage from './pages/admin/CampaignManagementPage'
 import CommissionRuleBuilderPage from './pages/admin/CommissionRuleBuilderPage'
 import DataImportExportPage from './pages/admin/DataImportExportPage'
 import POSLibraryPage from './pages/admin/POSLibraryPage'
@@ -789,7 +789,7 @@ function App() {
             } />
             <Route path="admin/campaigns" element={
               <ProtectedRoute requiredRole="admin">
-                <CampaignManagementPage />
+                <AdminCampaignManagementPage />
               </ProtectedRoute>
             } />
             <Route path="admin/commissions" element={
