@@ -180,7 +180,7 @@ const BrandActivationFormPage: React.FC = () => {
         });
       } else {
         const error = await response.json();
-        alert('Failed to create event: ' + (error.message || 'Unknown error'));
+        toast.error('Failed to create event: ' + (error.message || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error creating brand activation:', error);

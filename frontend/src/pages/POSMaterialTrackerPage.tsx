@@ -116,19 +116,29 @@ const POSMaterialTrackerPage: React.FC = () => {
   };
 
   const handlePhotoCapture = (type: 'before' | 'after') => {
-    // Simulate photo capture
-    // Use real camera for photo capture;
-    if (type === 'before') {
-      setFormData({
-        ...formData,
-        photosBefore: [...(formData.photosBefore || []), mockPhoto]
-      });
-    } else {
-      setFormData({
-        ...formData,
-        photosAfter: [...(formData.photosAfter || []), mockPhoto]
-      });
-    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.capture = 'environment';
+    input.onchange = (e: Event) => {
+      const file = (e.target as HTMLInputElement)?.files?.[0];
+      if (file) {
+        const photoUrl = URL.createObjectURL(file);
+        if (type === 'before') {
+          setFormData(prev => ({
+            ...prev,
+            photosBefore: [...(prev.photosBefore || []), photoUrl]
+          }));
+        } else {
+          setFormData(prev => ({
+            ...prev,
+            photosAfter: [...(prev.photosAfter || []), photoUrl]
+          }));
+        }
+        toast.success(`${type === 'before' ? 'Before' : 'After'} photo captured`);
+      }
+    };
+    input.click();
   };
 
   const handleQRScan = () => {

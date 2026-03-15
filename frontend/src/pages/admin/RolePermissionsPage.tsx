@@ -205,7 +205,7 @@ export default function RolePermissionsPage() {
 
   const handleDeleteRole = (role: Role) => {
     if (role.isSystem) {
-      toast.success('System roles cannot be deleted')
+      toast.error('System roles cannot be deleted')
       return
     }
     setSelectedRole(role)
