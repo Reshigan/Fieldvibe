@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Save, Send, ShoppingCart, User } from 'lucide-react'
 import LineItemsEditor, { LineItem, LineItemsTotals, TotalsSummary, Discount } from '../../../components/transactions/LineItemsEditor'
@@ -9,6 +9,7 @@ import { pricingService } from '../../../services/pricing.service'
 import LoadingSpinner from '../../../components/ui/LoadingSpinner'
 import { useToast } from '../../../components/ui/Toast'
 import SearchableSelect from '../../../components/ui/SearchableSelect'
+import { useUnsavedChanges } from '../../../hooks/useUnsavedChanges'
 import type { SearchableSelectOption } from '../../../components/ui/SearchableSelect'
 
 interface Customer {
@@ -49,6 +50,11 @@ export default function SalesOrderCreate() {
   const [totals, setTotals] = useState<LineItemsTotals>({ subtotal: 0, discount_amount: 0, tax_amount: 0, total_amount: 0, item_count: 0 })
   const [customerPrices, setCustomerPrices] = useState<Record<string, { price: number; source: string }>>({})
   const baseProductsRef = useRef<Product[]>([])
+
+  const hasUnsavedChanges = useMemo(() => {
+    return selectedCustomer !== '' || lineItems.some(item => item.product_id) || notes !== ''
+  }, [selectedCustomer, lineItems, notes])
+  useUnsavedChanges(hasUnsavedChanges)
 
   useEffect(() => {
     loadFormData()
