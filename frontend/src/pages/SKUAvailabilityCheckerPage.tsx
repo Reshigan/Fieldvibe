@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { tradeMarketingService } from '../services/tradeMarketing.service';
 import { useToast } from '../components/ui/Toast'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 
 const SKUAvailabilityCheckerPage: React.FC = () => {
   const { toast } = useToast()
@@ -10,6 +11,7 @@ const SKUAvailabilityCheckerPage: React.FC = () => {
   const { visit, store } = location.state || {};
   
   const [loading, setLoading] = useState(false);
+  const [showBarcodeInput, setShowBarcodeInput] = useState(false);
   const [formData, setFormData] = useState({
     productId: '',
     availabilityStatus: 'in_stock',
@@ -45,11 +47,15 @@ const SKUAvailabilityCheckerPage: React.FC = () => {
       const file = e.target?.files?.[0];
       if (file) {
         toast.success('Photo captured for barcode');
-        const productId = prompt('Enter the product ID/barcode:');
-        if (productId) setFormData(prev => ({ ...prev, productId }));
+        setShowBarcodeInput(true);
       }
     };
     input.click();
+  };
+
+  const confirmBarcodeInput = (productId?: string) => {
+    setShowBarcodeInput(false);
+    if (productId) setFormData(prev => ({ ...prev, productId }));
   };
 
   const capturePhoto = () => {
@@ -310,6 +316,19 @@ const SKUAvailabilityCheckerPage: React.FC = () => {
           </button>
         </form>
       </div>
+
+      <ConfirmDialog
+        isOpen={showBarcodeInput}
+        onClose={() => setShowBarcodeInput(false)}
+        onConfirm={confirmBarcodeInput}
+        title="Enter Product ID"
+        message="Enter the product ID or barcode number."
+        confirmLabel="OK"
+        variant="info"
+        showReasonInput
+        reasonPlaceholder="Enter the product ID/barcode..."
+        reasonRequired
+      />
     </div>
   );
 };

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { fieldMarketingService } from '../services/field-marketing.service';
 import { useToast } from '../components/ui/Toast'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 
 const VisitWorkflowPage: React.FC = () => {
   const { toast } = useToast()
@@ -12,6 +13,7 @@ const VisitWorkflowPage: React.FC = () => {
   const [visit, setVisit] = useState<any>(null);
   const [currentStep, setCurrentStep] = useState<'create' | 'boards' | 'products' | 'survey' | 'complete'>('create');
   const [loading, setLoading] = useState(false);
+  const [showCompleteDialog, setShowCompleteDialog] = useState(false);
   const [boards, setBoards] = useState<any[]>([]);
   const [selectedBoards, setSelectedBoards] = useState<number[]>([]);
   const [activities, setActivities] = useState({
@@ -70,18 +72,18 @@ const VisitWorkflowPage: React.FC = () => {
     });
   };
 
-  const completeVisit = async () => {
-    if (!window.confirm('Complete this visit? You cannot add more activities after completion.')) {
-      return;
-    }
+  const completeVisit = () => {
+    setShowCompleteDialog(true);
+  };
 
+  const confirmCompleteVisit = async (notes?: string) => {
+    setShowCompleteDialog(false);
     setLoading(true);
     try {
-      const visitNotes = prompt('Add any final notes (optional):');
       await fieldMarketingService.completeVisit(visit.id, {
         endLatitude: gpsLocation.latitude,
         endLongitude: gpsLocation.longitude,
-        visitNotes: visitNotes || undefined
+        visitNotes: notes || undefined
       });
       
       toast.success('Visit completed successfully!');
@@ -218,6 +220,18 @@ const VisitWorkflowPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={showCompleteDialog}
+        onClose={() => setShowCompleteDialog(false)}
+        onConfirm={confirmCompleteVisit}
+        title="Complete Visit"
+        message="Complete this visit? You cannot add more activities after completion. Add any final notes below (optional)."
+        confirmLabel="Complete Visit"
+        variant="warning"
+        showReasonInput
+        reasonPlaceholder="Add any final notes (optional)..."
+      />
     </div>
   );
 };

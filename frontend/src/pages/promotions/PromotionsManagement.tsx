@@ -22,6 +22,7 @@ import {
   Clock,
   AlertTriangle
 } from 'lucide-react'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { promotionsService, Promotion, PromotionFilter } from '../../services/promotions.service'
 import { formatDate, formatNumber, formatCurrency } from '../../utils/format'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
@@ -29,6 +30,7 @@ import { DataTable } from '../../components/ui/tables/DataTable'
 import toast from 'react-hot-toast'
 
 export default function PromotionsManagement() {
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [filter, setFilter] = useState<PromotionFilter>({
     page: 1,
     limit: 20,
@@ -159,8 +161,13 @@ export default function PromotionsManagement() {
   }
 
   const handleDelete = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this promotion?')) {
-      deletePromotionMutation.mutate(id)
+    setDeleteConfirmId(id)
+  }
+
+  const confirmDelete = () => {
+    if (deleteConfirmId) {
+      deletePromotionMutation.mutate(deleteConfirmId)
+      setDeleteConfirmId(null)
     }
   }
 
@@ -679,6 +686,15 @@ export default function PromotionsManagement() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        isOpen={deleteConfirmId !== null}
+        onClose={() => setDeleteConfirmId(null)}
+        onConfirm={confirmDelete}
+        title="Delete Promotion"
+        message="Are you sure you want to delete this promotion? This action cannot be undone."
+        confirmLabel="Delete"
+        variant="danger"
+      />
     </div>
   )
 }
