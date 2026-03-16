@@ -62,8 +62,10 @@ export default function SalesOrderCreate() {
 
   // Fetch customer-specific prices when customer changes (Section 1.4)
   useEffect(() => {
+    let stale = false
     if (selectedCustomer) {
       pricingService.getCustomerPrices(selectedCustomer).then(prices => {
+        if (stale) return
         const priceMap: Record<string, { price: number; source: string }> = {}
         prices.forEach(p => { priceMap[p.product_id] = { price: p.resolved_price, source: p.source } })
         setCustomerPrices(priceMap)
@@ -80,6 +82,7 @@ export default function SalesOrderCreate() {
         setProducts(baseProductsRef.current)
       }
     }
+    return () => { stale = true }
   }, [selectedCustomer])
 
   const loadFormData = async () => {

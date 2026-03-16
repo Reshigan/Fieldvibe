@@ -41,7 +41,7 @@ export default function TransactionForm({
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const isDirty = useMemo(() => {
-    return Object.keys(formData).some(key => formData[key] !== (initialData[key] ?? ''))
+    return Object.keys(formData).some(key => (formData[key] ?? '') !== (initialData[key] ?? ''))
   }, [formData, initialData])
   useUnsavedChanges(isDirty)
 
