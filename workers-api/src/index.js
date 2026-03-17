@@ -2064,7 +2064,7 @@ api.post('/orders/create', authMiddleware, async (c) => {
     const paymentStatus = paymentMethod === 'CREDIT' || paymentMethod === 'credit' ? 'PENDING' : 'PENDING';
 
     const batchStatements = [];
-    batchStatements.push(db.prepare('INSERT INTO sales_orders (id, tenant_id, order_number, agent_id, customer_id, order_type, status, subtotal, tax_amount, discount_amount, total_amount, payment_method, payment_status, notes, delivery_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))').bind(orderId, tenantId, orderNumber, userId, body.customer_id, body.order_type || 'direct_sale', 'CONFIRMED', subtotal, totalTax, totalDiscount, subtotal, paymentMethod, paymentStatus, body.notes || null, body.delivery_date || null));
+    batchStatements.push(db.prepare('INSERT INTO sales_orders (id, tenant_id, order_number, agent_id, customer_id, order_type, status, subtotal, tax_amount, discount_amount, total_amount, payment_method, payment_status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))').bind(orderId, tenantId, orderNumber, userId, body.customer_id, body.order_type || 'direct_sale', 'CONFIRMED', subtotal, totalTax, totalDiscount, subtotal, paymentMethod, paymentStatus, body.notes || null));
 
     for (const item of resolvedItems) {
       batchStatements.push(db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price, discount_percent, line_total) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(uuidv4(), orderId, item.product_id, item.quantity, item.unit_price, item.discount_percent, item.line_total));
@@ -2173,7 +2173,7 @@ api.post('/invoices/create', authMiddleware, async (c) => {
       resolvedItems.push({ product_id: item.product_id, quantity: qty, unit_price: unitPrice, line_total: lineTotal });
     }
 
-    batchStatements.push(db.prepare('INSERT INTO sales_orders (id, tenant_id, order_number, agent_id, customer_id, order_type, status, subtotal, total_amount, payment_method, payment_status, notes, delivery_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))').bind(id, tenantId, invoiceNum, userId, body.customer_id, 'invoice', 'CONFIRMED', subtotal, subtotal, body.payment_method || 'CASH', 'PENDING', body.notes || null, body.delivery_date || null));
+    batchStatements.push(db.prepare('INSERT INTO sales_orders (id, tenant_id, order_number, agent_id, customer_id, order_type, status, subtotal, total_amount, payment_method, payment_status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))').bind(id, tenantId, invoiceNum, userId, body.customer_id, 'invoice', 'CONFIRMED', subtotal, subtotal, body.payment_method || 'CASH', 'PENDING', body.notes || null));
 
     for (const item of resolvedItems) {
       batchStatements.push(db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?)').bind(uuidv4(), id, item.product_id, item.quantity, item.unit_price, item.line_total));
