@@ -26,7 +26,7 @@ const DEFAULT_BACKUPS: Backup[] = [{
 export const BackupManagementPage: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false)
 
-  const { data: backups = DEFAULT_BACKUPS, isLoading } = useQuery({
+  const { data: backups = DEFAULT_BACKUPS, isLoading, isError } = useQuery({
     queryKey: ['backups'],
     queryFn: async () => {
       try {

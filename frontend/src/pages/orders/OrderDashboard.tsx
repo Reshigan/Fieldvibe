@@ -329,14 +329,14 @@ export default function OrderDashboard() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {metrics.recentOrders.length === 0 ? (
+                  {(metrics?.recentOrders?.length ?? 0) === 0 ? (
                     <TableRow>
                       <TableCell colSpan={7} align="center">
                         <Typography color="text.secondary">No orders available</Typography>
                       </TableCell>
                     </TableRow>
                   ) : (
-                    metrics.recentOrders.map((order) => (
+                    (metrics?.recentOrders || []).map((order) => (
                       <TableRow key={order.id} hover>
                         <TableCell>
                           <Typography fontWeight="medium">{order.order_number}</Typography>

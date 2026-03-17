@@ -22,7 +22,7 @@ const DEFAULT_ROLES: Role[] = [
 export const RoleManagementPage: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false)
 
-  const { data: roles = DEFAULT_ROLES, isLoading } = useQuery({
+  const { data: roles = DEFAULT_ROLES, isLoading, isError } = useQuery({
     queryKey: ['roles'],
     queryFn: async () => {
       try {

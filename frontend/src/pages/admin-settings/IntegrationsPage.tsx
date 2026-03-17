@@ -26,7 +26,7 @@ export const IntegrationsPage: React.FC = () => {
   const [showConfigModal, setShowConfigModal] = useState(false)
   const [selectedIntegration, setSelectedIntegration] = useState<Integration | null>(null)
 
-  const { data: integrations = DEFAULT_INTEGRATIONS, isLoading } = useQuery({
+  const { data: integrations = DEFAULT_INTEGRATIONS, isLoading, isError } = useQuery({
     queryKey: ['integrations'],
     queryFn: async () => {
       try {

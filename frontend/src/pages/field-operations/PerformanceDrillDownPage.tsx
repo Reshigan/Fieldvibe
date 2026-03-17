@@ -24,7 +24,7 @@ export default function PerformanceDrillDownPage() {
     end_date: new Date().toISOString().split('T')[0]
   })
 
-  const { data: drillDown, isLoading, error } = useQuery({
+  const { data: drillDown, isLoading, isError, error } = useQuery({
     queryKey: ['field-ops-drill-down', userId, dateRange],
     queryFn: () => fieldOperationsService.getDrillDown(userId!, dateRange),
     enabled: !!userId,
@@ -33,6 +33,7 @@ export default function PerformanceDrillDownPage() {
   if (isLoading) {
     return <div className="flex items-center justify-center h-64"><LoadingSpinner size="lg" /></div>
   }
+
 
   if (error || !drillDown) {
     return (

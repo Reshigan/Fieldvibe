@@ -362,14 +362,14 @@ export default function AdminDashboard() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {metrics.agentPerformance.length === 0 ? (
+                  {(metrics?.agentPerformance?.length ?? 0) === 0 ? (
                     <TableRow>
                       <TableCell colSpan={4} align="center">
                         <Typography color="text.secondary">No agent data available</Typography>
                       </TableCell>
                     </TableRow>
                   ) : (
-                    metrics.agentPerformance.map((agent) => (
+                    (metrics?.agentPerformance || []).map((agent) => (
                       <TableRow key={agent.id} hover>
                         <TableCell>
                           <Typography fontWeight="medium">{agent.name}</Typography>
@@ -407,14 +407,14 @@ export default function AdminDashboard() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {metrics.recentUsers.length === 0 ? (
+                  {(metrics?.recentUsers?.length ?? 0) === 0 ? (
                     <TableRow>
                       <TableCell colSpan={4} align="center">
                         <Typography color="text.secondary">No users available</Typography>
                       </TableCell>
                     </TableRow>
                   ) : (
-                    metrics.recentUsers.map((user) => (
+                    (metrics?.recentUsers || []).map((user) => (
                       <TableRow key={user.id} hover>
                         <TableCell>
                           <Typography fontWeight="medium">
