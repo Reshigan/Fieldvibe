@@ -2232,7 +2232,7 @@ api.post('/sales/payments', authMiddleware, async (c) => {
   if (!v.valid) return c.json({ success: false, message: 'Validation failed', errors: v.errors }, 400);
 
   const paymentId = uuidv4();
-  await db.prepare('INSERT INTO payments (id, tenant_id, sales_order_id, amount, method, reference, notes, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))').bind(paymentId, tenantId, body.order_id || body.sales_order_id || null, body.amount, body.method || 'cash', body.reference || null, body.notes || null, 'completed').run();
+  await db.prepare('INSERT INTO payments (id, tenant_id, sales_order_id, amount, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(paymentId, tenantId, body.order_id || body.sales_order_id || null, body.amount, body.method || 'cash', body.reference || null, 'completed').run();
 
   // Update order payment status if linked
   if (body.order_id || body.sales_order_id) {
@@ -2294,7 +2294,7 @@ api.post('/credit-notes/:id/transition', authMiddleware, async (c) => {
 api.get('/sales/returns', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
-  const returns = await db.prepare('SELECT r.*, so.order_number, c.name as customer_name FROM returns r LEFT JOIN sales_orders so ON r.order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE r.tenant_id = ? ORDER BY r.created_at DESC LIMIT 500').bind(tenantId).all();
+  const returns = await db.prepare('SELECT r.*, so.order_number, c.name as customer_name FROM returns r LEFT JOIN sales_orders so ON r.original_order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE r.tenant_id = ? ORDER BY r.created_at DESC LIMIT 500').bind(tenantId).all();
   return c.json({ success: true, data: returns.results || [] });
 });
 
@@ -2302,7 +2302,7 @@ api.get('/sales/returns/:id', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
-  const ret = await db.prepare('SELECT r.*, so.order_number, c.name as customer_name FROM returns r LEFT JOIN sales_orders so ON r.order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE r.id = ? AND r.tenant_id = ?').bind(id, tenantId).first();
+  const ret = await db.prepare('SELECT r.*, so.order_number, c.name as customer_name FROM returns r LEFT JOIN sales_orders so ON r.original_order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE r.id = ? AND r.tenant_id = ?').bind(id, tenantId).first();
   if (!ret) return c.json({ success: false, message: 'Return not found' }, 404);
   const items = await db.prepare('SELECT ri.*, p.name as product_name FROM return_items ri LEFT JOIN products p ON ri.product_id = p.id WHERE ri.return_id = ? LIMIT 500').bind(id).all();
   return c.json({ success: true, data: { ...ret, items: items.results || [] } });
@@ -2320,7 +2320,7 @@ api.post('/sales/returns/create', authMiddleware, async (c) => {
     const batchStatements = [];
     let totalAmount = 0;
 
-    batchStatements.push(db.prepare('INSERT INTO returns (id, tenant_id, order_id, return_number, reason, status, net_credit_amount, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))').bind(returnId, tenantId, body.order_id || null, returnNum, body.reason || 'Customer return', 'PENDING', 0, userId));
+    batchStatements.push(db.prepare('INSERT INTO returns (id, tenant_id, original_order_id, return_number, reason, status, net_credit_amount, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))').bind(returnId, tenantId, body.order_id || null, returnNum, body.reason || 'Customer return', 'PENDING', 0, userId));
 
     for (const item of (body.items || [])) {
       const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
