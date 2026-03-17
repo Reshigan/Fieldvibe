@@ -2765,7 +2765,7 @@ api.get('/inventory/receipts', authMiddleware, async (c) => {
   const offset = (parseInt(page) - 1) * parseInt(limit);
   let where = "WHERE sm.tenant_id = ? AND sm.movement_type = 'in'";
   const params = [tenantId];
-  if (status) { where += ' AND sm.status = ?'; params.push(status); }
+  if (status) { where += ' AND sm.reference_type = ?'; params.push(status); }
   const receipts = await db.prepare('SELECT sm.*, p.name as product_name, p.code as product_code, w.name as warehouse_name FROM stock_movements sm LEFT JOIN products p ON sm.product_id = p.id LEFT JOIN warehouses w ON sm.warehouse_id = w.id ' + where + ' ORDER BY sm.created_at DESC LIMIT ? OFFSET ?').bind(...params, parseInt(limit), offset).all();
   const total = await db.prepare('SELECT COUNT(*) as count FROM stock_movements sm ' + where).bind(...params).first();
   return c.json({ data: receipts.results || [], total: total?.count || 0 });
@@ -2777,7 +2777,7 @@ api.post('/inventory/receipts/create', authMiddleware, async (c) => {
   const userId = c.get('userId');
   const body = await c.req.json();
   const id = uuidv4();
-  await db.prepare("INSERT INTO stock_movements (id, tenant_id, product_id, warehouse_id, movement_type, quantity, reference_number, notes, created_by, created_at) VALUES (?, ?, ?, ?, 'in', ?, ?, ?, ?, CURRENT_TIMESTAMP)").bind(id, tenantId, body.product_id, body.warehouse_id, body.quantity, 'RCV-' + Date.now(), body.notes || '', userId).run();
+  await db.prepare("INSERT INTO stock_movements (id, tenant_id, product_id, warehouse_id, movement_type, quantity, reference_type, reference_id, notes, created_by, created_at) VALUES (?, ?, ?, ?, 'in', ?, 'receipt', ?, ?, ?, CURRENT_TIMESTAMP)").bind(id, tenantId, body.product_id, body.warehouse_id, body.quantity, 'RCV-' + Date.now(), body.notes || '', userId).run();
   await db.prepare('UPDATE stock_levels SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND product_id = ? AND warehouse_id = ?').bind(body.quantity, tenantId, body.product_id, body.warehouse_id).run();
   return c.json({ id, message: 'Receipt created' }, 201);
 });
@@ -2787,7 +2787,7 @@ api.post('/inventory/receipts/:id/transition', authMiddleware, async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
   const { new_status, notes } = await c.req.json();
-  await db.prepare('UPDATE stock_movements SET status = ?, notes = COALESCE(?, notes) WHERE id = ? AND tenant_id = ?').bind(new_status, notes || null, id, tenantId).run();
+  await db.prepare('UPDATE stock_movements SET reference_type = ?, notes = COALESCE(?, notes) WHERE id = ? AND tenant_id = ?').bind(new_status, notes || null, id, tenantId).run();
   return c.json({ message: 'Receipt status updated' });
 });
 
@@ -2799,7 +2799,7 @@ api.get('/inventory/issues', authMiddleware, async (c) => {
   const offset = (parseInt(page) - 1) * parseInt(limit);
   let where = "WHERE sm.tenant_id = ? AND sm.movement_type = 'out'";
   const params = [tenantId];
-  if (status) { where += ' AND sm.status = ?'; params.push(status); }
+  if (status) { where += ' AND sm.reference_type = ?'; params.push(status); }
   const issues = await db.prepare('SELECT sm.*, p.name as product_name, p.code as product_code, w.name as warehouse_name FROM stock_movements sm LEFT JOIN products p ON sm.product_id = p.id LEFT JOIN warehouses w ON sm.warehouse_id = w.id ' + where + ' ORDER BY sm.created_at DESC LIMIT ? OFFSET ?').bind(...params, parseInt(limit), offset).all();
   const total = await db.prepare('SELECT COUNT(*) as count FROM stock_movements sm ' + where).bind(...params).first();
   return c.json({ data: issues.results || [], total: total?.count || 0 });
@@ -2811,7 +2811,7 @@ api.post('/inventory/issues/create', authMiddleware, async (c) => {
   const userId = c.get('userId');
   const body = await c.req.json();
   const id = uuidv4();
-  await db.prepare("INSERT INTO stock_movements (id, tenant_id, product_id, warehouse_id, movement_type, quantity, reference_number, notes, created_by, created_at) VALUES (?, ?, ?, ?, 'out', ?, ?, ?, ?, CURRENT_TIMESTAMP)").bind(id, tenantId, body.product_id, body.warehouse_id, body.quantity, 'ISS-' + Date.now(), body.notes || '', userId).run();
+  await db.prepare("INSERT INTO stock_movements (id, tenant_id, product_id, warehouse_id, movement_type, quantity, reference_type, reference_id, notes, created_by, created_at) VALUES (?, ?, ?, ?, 'out', ?, 'issue', ?, ?, ?, CURRENT_TIMESTAMP)").bind(id, tenantId, body.product_id, body.warehouse_id, body.quantity, 'ISS-' + Date.now(), body.notes || '', userId).run();
   await db.prepare('UPDATE stock_levels SET quantity = MAX(0, quantity - ?), updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND product_id = ? AND warehouse_id = ?').bind(body.quantity, tenantId, body.product_id, body.warehouse_id).run();
   return c.json({ id, message: 'Issue created' }, 201);
 });
@@ -2821,7 +2821,7 @@ api.post('/inventory/issues/:id/transition', authMiddleware, async (c) => {
   const tenantId = c.get('tenantId');
   const id = c.req.param('id');
   const { new_status, notes } = await c.req.json();
-  await db.prepare('UPDATE stock_movements SET status = ?, notes = COALESCE(?, notes) WHERE id = ? AND tenant_id = ?').bind(new_status, notes || null, id, tenantId).run();
+  await db.prepare('UPDATE stock_movements SET reference_type = ?, notes = COALESCE(?, notes) WHERE id = ? AND tenant_id = ?').bind(new_status, notes || null, id, tenantId).run();
   return c.json({ message: 'Issue status updated' });
 });
 
