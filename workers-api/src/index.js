@@ -6416,7 +6416,7 @@ api.get('/insights/field-ops', authMiddleware, async (c) => {
   const [visitSummary, routeCompliance, territories, competitorActivity] = await Promise.all([
     db.prepare("SELECT COUNT(*) as total_visits, COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed, COUNT(CASE WHEN check_out_time IS NOT NULL THEN 1 END) as checked_out, ROUND(AVG(CASE WHEN check_out_time IS NOT NULL THEN (julianday(check_out_time) - julianday(check_in_time)) * 1440 END), 1) as avg_duration_min FROM visits WHERE tenant_id = ? AND created_at >= datetime('now', '-30 days')").bind(tenantId).first(),
     db.prepare("SELECT rp.status, COUNT(*) as count FROM route_plans rp WHERE rp.tenant_id = ? AND rp.route_date >= datetime('now', '-30 days') GROUP BY rp.status").bind(tenantId).all(),
-    db.prepare("SELECT t.name, (SELECT COUNT(*) FROM territory_assignments WHERE territory_id = t.id) as agents, (SELECT COUNT(*) FROM customers WHERE route_id IN (SELECT id FROM routes WHERE tenant_id = ?) AND tenant_id = ?) as customers FROM territories t WHERE t.tenant_id = ?").bind(tenantId, tenantId, tenantId).all(),
+    db.prepare("SELECT t.name, (SELECT COUNT(*) FROM territory_assignments WHERE territory_id = t.id) as agents FROM territories t WHERE t.tenant_id = ?").bind(tenantId).all(),
     db.prepare("SELECT competitor_brand as competitor_name, COUNT(*) as sightings, AVG(observed_price) as avg_price FROM competitor_sightings WHERE tenant_id = ? AND created_at >= datetime('now', '-30 days') GROUP BY competitor_brand ORDER BY sightings DESC LIMIT 10").bind(tenantId).all(),
   ]);
 
