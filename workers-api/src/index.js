@@ -2776,10 +2776,22 @@ api.post('/inventory/receipts/create', authMiddleware, async (c) => {
   const tenantId = c.get('tenantId');
   const userId = c.get('userId');
   const body = await c.req.json();
-  const id = uuidv4();
-  await db.prepare("INSERT INTO stock_movements (id, tenant_id, product_id, warehouse_id, movement_type, quantity, reference_type, reference_id, notes, created_by, created_at) VALUES (?, ?, ?, ?, 'in', ?, 'receipt', ?, ?, ?, CURRENT_TIMESTAMP)").bind(id, tenantId, body.product_id, body.warehouse_id, body.quantity, 'RCV-' + Date.now(), body.notes || '', userId).run();
-  await db.prepare('UPDATE stock_levels SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND product_id = ? AND warehouse_id = ?').bind(body.quantity, tenantId, body.product_id, body.warehouse_id).run();
-  return c.json({ id, message: 'Receipt created' }, 201);
+  const items = body.items || [{ product_id: body.product_id, quantity: body.quantity, unit_cost: body.unit_cost }];
+  const refId = 'RCV-' + Date.now();
+  const ids = [];
+  for (const item of items) {
+    if (!item.product_id || !item.quantity) continue;
+    const id = uuidv4();
+    ids.push(id);
+    await db.prepare("INSERT INTO stock_movements (id, tenant_id, product_id, warehouse_id, movement_type, quantity, reference_type, reference_id, notes, created_by, created_at) VALUES (?, ?, ?, ?, 'in', ?, 'receipt', ?, ?, ?, CURRENT_TIMESTAMP)").bind(id, tenantId, item.product_id, body.warehouse_id, item.quantity, refId, body.notes || '', userId).run();
+    const existing = await db.prepare('SELECT id FROM stock_levels WHERE tenant_id = ? AND product_id = ? AND warehouse_id = ?').bind(tenantId, item.product_id, body.warehouse_id).first();
+    if (existing) {
+      await db.prepare('UPDATE stock_levels SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND product_id = ? AND warehouse_id = ?').bind(item.quantity, tenantId, item.product_id, body.warehouse_id).run();
+    } else {
+      await db.prepare('INSERT INTO stock_levels (id, tenant_id, product_id, warehouse_id, quantity, reorder_level) VALUES (?, ?, ?, ?, ?, 10)').bind(uuidv4(), tenantId, item.product_id, body.warehouse_id, item.quantity).run();
+    }
+  }
+  return c.json({ ids, message: 'Receipt created' }, 201);
 });
 
 api.post('/inventory/receipts/:id/transition', authMiddleware, async (c) => {
@@ -2810,10 +2822,23 @@ api.post('/inventory/issues/create', authMiddleware, async (c) => {
   const tenantId = c.get('tenantId');
   const userId = c.get('userId');
   const body = await c.req.json();
-  const id = uuidv4();
-  await db.prepare("INSERT INTO stock_movements (id, tenant_id, product_id, warehouse_id, movement_type, quantity, reference_type, reference_id, notes, created_by, created_at) VALUES (?, ?, ?, ?, 'out', ?, 'issue', ?, ?, ?, CURRENT_TIMESTAMP)").bind(id, tenantId, body.product_id, body.warehouse_id, body.quantity, 'ISS-' + Date.now(), body.notes || '', userId).run();
-  await db.prepare('UPDATE stock_levels SET quantity = MAX(0, quantity - ?), updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND product_id = ? AND warehouse_id = ?').bind(body.quantity, tenantId, body.product_id, body.warehouse_id).run();
-  return c.json({ id, message: 'Issue created' }, 201);
+  const items = body.items || [{ product_id: body.product_id, quantity: body.quantity, unit_cost: body.unit_cost }];
+  const refId = 'ISS-' + Date.now();
+  const ids = [];
+  for (const item of items) {
+    if (!item.product_id || !item.quantity) continue;
+    const existing = await db.prepare('SELECT quantity FROM stock_levels WHERE tenant_id = ? AND product_id = ? AND warehouse_id = ?').bind(tenantId, item.product_id, body.warehouse_id).first();
+    if (existing && existing.quantity < item.quantity) {
+      return c.json({ error: 'Insufficient stock for product ' + item.product_id + '. Available: ' + existing.quantity + ', Requested: ' + item.quantity }, 400);
+    }
+    const id = uuidv4();
+    ids.push(id);
+    await db.prepare("INSERT INTO stock_movements (id, tenant_id, product_id, warehouse_id, movement_type, quantity, reference_type, reference_id, notes, created_by, created_at) VALUES (?, ?, ?, ?, 'out', ?, 'issue', ?, ?, ?, CURRENT_TIMESTAMP)").bind(id, tenantId, item.product_id, body.warehouse_id, item.quantity, refId, body.notes || '', userId).run();
+    if (existing) {
+      await db.prepare('UPDATE stock_levels SET quantity = MAX(0, quantity - ?), updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND product_id = ? AND warehouse_id = ?').bind(item.quantity, tenantId, item.product_id, body.warehouse_id).run();
+    }
+  }
+  return c.json({ ids, message: 'Issue created' }, 201);
 });
 
 api.post('/inventory/issues/:id/transition', authMiddleware, async (c) => {
