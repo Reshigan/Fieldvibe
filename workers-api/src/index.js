@@ -2010,20 +2010,7 @@ api.post('/orders/create', authMiddleware, async (c) => {
   const body = await c.req.json();
   const v = validate(createSalesOrderSchema, body);
   if (!v.valid) {
-    // Fallback to simple order creation if validation fails (e.g. missing optional fields)
-    const id = uuidv4();
-    const orderNum = 'ORD-' + Date.now();
-    try {
-      await db.prepare('INSERT INTO sales_orders (id, tenant_id, order_number, customer_id, agent_id, status, total_amount, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)').bind(id, tenantId, orderNum, body.customer_id, userId, 'pending', body.total_amount || 0, body.notes || '').run();
-      if (body.items && Array.isArray(body.items)) {
-        for (const item of body.items) {
-          await db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?, ?)').bind(uuidv4(), id, item.product_id, item.quantity, item.unit_price || 0).run();
-        }
-      }
-      return c.json({ success: true, data: { id, order_number: orderNum, message: 'Order created' } }, 201);
-    } catch (error) {
-      return c.json({ success: false, message: 'Order creation failed: ' + error.message }, 500);
-    }
+    return c.json({ success: false, message: 'Validation failed', errors: v.errors }, 400);
   }
 
   try {
@@ -2376,22 +2363,28 @@ api.get('/order-lines', authMiddleware, async (c) => {
 
 api.get('/order-lines/:id', authMiddleware, async (c) => {
   const db = c.env.DB;
+  const tenantId = c.get('tenantId');
   const id = c.req.param('id');
-  const item = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id WHERE soi.id = ?').bind(id).first();
+  const item = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id JOIN sales_orders so ON soi.sales_order_id = so.id WHERE soi.id = ? AND so.tenant_id = ?').bind(id, tenantId).first();
   if (!item) return c.json({ success: false, message: 'Order line not found' }, 404);
   return c.json({ success: true, data: item });
 });
 
 api.post('/order-lines', authMiddleware, async (c) => {
   const db = c.env.DB;
+  const tenantId = c.get('tenantId');
   const body = await c.req.json();
+  const orderId = body.sales_order_id || body.order_id;
+  const order = await db.prepare('SELECT id FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(orderId, tenantId).first();
+  if (!order) return c.json({ success: false, message: 'Order not found or access denied' }, 404);
   const id = uuidv4();
-  await db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price, discount_percent, line_total) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id, body.sales_order_id || body.order_id, body.product_id, body.quantity || 1, body.unit_price || 0, body.discount_percent || 0, (body.unit_price || 0) * (body.quantity || 1)).run();
+  await db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price, discount_percent, line_total) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id, orderId, body.product_id, body.quantity || 1, body.unit_price || 0, body.discount_percent || 0, (body.unit_price || 0) * (body.quantity || 1)).run();
   return c.json({ success: true, data: { id } }, 201);
 });
 
 api.put('/order-lines/:id', authMiddleware, async (c) => {
   const db = c.env.DB;
+  const tenantId = c.get('tenantId');
   const id = c.req.param('id');
   const body = await c.req.json();
   const sets = [];
@@ -2400,14 +2393,15 @@ api.put('/order-lines/:id', authMiddleware, async (c) => {
     if (['quantity', 'unit_price', 'discount_percent', 'line_total'].includes(k)) { sets.push(k + ' = ?'); vals.push(v); }
   }
   if (sets.length === 0) return c.json({ success: false, message: 'No valid fields' }, 400);
-  await db.prepare('UPDATE sales_order_items SET ' + sets.join(', ') + ' WHERE id = ?').bind(...vals, id).run();
+  await db.prepare('UPDATE sales_order_items SET ' + sets.join(', ') + ' WHERE id = ? AND sales_order_id IN (SELECT id FROM sales_orders WHERE tenant_id = ?)').bind(...vals, id, tenantId).run();
   return c.json({ success: true, message: 'Order line updated' });
 });
 
 api.delete('/order-lines/:id', authMiddleware, async (c) => {
   const db = c.env.DB;
+  const tenantId = c.get('tenantId');
   const id = c.req.param('id');
-  await db.prepare('DELETE FROM sales_order_items WHERE id = ?').bind(id).run();
+  await db.prepare('DELETE FROM sales_order_items WHERE id = ? AND sales_order_id IN (SELECT id FROM sales_orders WHERE tenant_id = ?)').bind(id, tenantId).run();
   return c.json({ success: true, message: 'Order line deleted' });
 });
 
