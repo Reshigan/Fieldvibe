@@ -329,7 +329,7 @@ export default function OrderDashboard() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {metrics.recentOrders.length === 0 ? (
+                  {(metrics?.recentOrders?.length ?? 0) === 0 ? (
                     <TableRow>
                       <TableCell colSpan={7} align="center">
                         <Typography color="text.secondary">No orders available</Typography>

@@ -36,18 +36,6 @@ export const RoleManagementPage: React.FC = () => {
 
   if (isLoading) return <LoadingSpinner />
 
-
-  if (isError) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <p className="text-red-500 text-lg font-medium">Failed to load data</p>
-          <p className="text-gray-500 mt-2">Please try refreshing the page</p>
-        </div>
-      </div>
-    )
-  }
-
   const availablePermissions = [
     { id: 'users.view', name: 'View Users', category: 'Users' },
     { id: 'users.create', name: 'Create Users', category: 'Users' },

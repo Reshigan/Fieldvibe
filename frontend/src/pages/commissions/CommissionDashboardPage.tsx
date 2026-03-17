@@ -180,7 +180,7 @@ export const CommissionDashboardPage: React.FC = () => {
         {/* By Type */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-medium text-gray-900 mb-4">Commissions by Type</h2>
-          {commissionStats.commissions_by_type.length === 0 ? (
+          {(commissionStats?.commissions_by_type?.length ?? 0) === 0 ? (
             <div className="text-center py-8">
               <p className="text-sm text-gray-500">No commission data available</p>
             </div>
@@ -212,7 +212,7 @@ export const CommissionDashboardPage: React.FC = () => {
         {/* Top Earners */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-medium text-gray-900 mb-4">Top Earners</h2>
-          {commissionStats.top_earners.length === 0 ? (
+          {(commissionStats?.top_earners?.length ?? 0) === 0 ? (
             <div className="text-center py-8">
               <p className="text-sm text-gray-500">No earner data available</p>
             </div>
