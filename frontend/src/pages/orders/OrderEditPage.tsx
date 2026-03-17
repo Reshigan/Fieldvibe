@@ -20,12 +20,17 @@ export default function OrderEditPage() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [orderRes, customersRes] = await Promise.all([
+      // Use Promise.allSettled to handle partial failures gracefully
+      const [orderRes, customersRes] = await Promise.allSettled([
         ordersService.getOrder(id!),
         customersService.getCustomers()
       ])
-      setOrder(orderRes)
-      setCustomers(customersRes.customers || [])
+      if (orderRes.status === 'fulfilled') {
+        setOrder(orderRes.value)
+      }
+      if (customersRes.status === 'fulfilled') {
+        setCustomers(customersRes.value.customers || [])
+      }
     } catch (error) {
       console.error('Failed to load data:', error)
     } finally {
