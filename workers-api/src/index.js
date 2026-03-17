@@ -2203,7 +2203,7 @@ api.post('/invoices/:id/transition', authMiddleware, async (c) => {
   const { new_status, notes } = await c.req.json();
   const invoice = await db.prepare('SELECT * FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
   if (!invoice) return c.json({ success: false, message: 'Invoice not found' }, 404);
-  await db.prepare('UPDATE sales_orders SET status = ?, updated_at = datetime("now") WHERE id = ?').bind(new_status, id).run();
+  await db.prepare('UPDATE sales_orders SET status = ?, notes = COALESCE(?, notes), updated_at = datetime("now") WHERE id = ? AND tenant_id = ?').bind(new_status, notes || null, id, tenantId).run();
   return c.json({ success: true, message: `Invoice transitioned to ${new_status}` });
 });
 
