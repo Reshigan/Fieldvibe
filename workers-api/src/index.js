@@ -2631,7 +2631,7 @@ api.get('/inventory', authMiddleware, async (c) => {
   const params = [tenantId];
   if (warehouse_id) { where += ' AND sl.warehouse_id = ?'; params.push(warehouse_id); }
   if (search) { where += ' AND (p.name LIKE ? OR p.code LIKE ?)'; params.push('%' + search + '%', '%' + search + '%'); }
-  const items = await db.prepare('SELECT sl.*, p.name as product_name, p.code as product_code, p.category, w.name as warehouse_name FROM stock_levels sl LEFT JOIN products p ON sl.product_id = p.id LEFT JOIN warehouses w ON sl.warehouse_id = w.id ' + where + ' ORDER BY p.name LIMIT ? OFFSET ?').bind(...params, parseInt(limit), offset).all();
+  const items = await db.prepare('SELECT sl.*, p.name as product_name, p.code as product_code, p.category_id, w.name as warehouse_name FROM stock_levels sl LEFT JOIN products p ON sl.product_id = p.id LEFT JOIN warehouses w ON sl.warehouse_id = w.id ' + where + ' ORDER BY p.name LIMIT ? OFFSET ?').bind(...params, parseInt(limit), offset).all();
   return c.json({ data: items.results || [] });
 });
 
@@ -2757,6 +2757,74 @@ api.get('/inventory/transfers', authMiddleware, async (c) => {
   return c.json({ data: transfers.results || [] });
 });
 
+// Inventory receipts (goods received)
+api.get('/inventory/receipts', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { page = '1', limit = '50', status } = c.req.query();
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  let where = "WHERE sm.tenant_id = ? AND sm.movement_type = 'in'";
+  const params = [tenantId];
+  if (status) { where += ' AND sm.status = ?'; params.push(status); }
+  const receipts = await db.prepare('SELECT sm.*, p.name as product_name, p.code as product_code, w.name as warehouse_name FROM stock_movements sm LEFT JOIN products p ON sm.product_id = p.id LEFT JOIN warehouses w ON sm.warehouse_id = w.id ' + where + ' ORDER BY sm.created_at DESC LIMIT ? OFFSET ?').bind(...params, parseInt(limit), offset).all();
+  const total = await db.prepare('SELECT COUNT(*) as count FROM stock_movements sm ' + where).bind(...params).first();
+  return c.json({ data: receipts.results || [], total: total?.count || 0 });
+});
+
+api.post('/inventory/receipts/create', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const id = uuidv4();
+  await db.prepare("INSERT INTO stock_movements (id, tenant_id, product_id, warehouse_id, movement_type, quantity, reference_number, notes, created_by, created_at) VALUES (?, ?, ?, ?, 'in', ?, ?, ?, ?, CURRENT_TIMESTAMP)").bind(id, tenantId, body.product_id, body.warehouse_id, body.quantity, 'RCV-' + Date.now(), body.notes || '', userId).run();
+  await db.prepare('UPDATE stock_levels SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND product_id = ? AND warehouse_id = ?').bind(body.quantity, tenantId, body.product_id, body.warehouse_id).run();
+  return c.json({ id, message: 'Receipt created' }, 201);
+});
+
+api.post('/inventory/receipts/:id/transition', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const { new_status, notes } = await c.req.json();
+  await db.prepare('UPDATE stock_movements SET status = ?, notes = COALESCE(?, notes) WHERE id = ? AND tenant_id = ?').bind(new_status, notes || null, id, tenantId).run();
+  return c.json({ message: 'Receipt status updated' });
+});
+
+// Inventory issues (goods issued out)
+api.get('/inventory/issues', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { page = '1', limit = '50', status } = c.req.query();
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  let where = "WHERE sm.tenant_id = ? AND sm.movement_type = 'out'";
+  const params = [tenantId];
+  if (status) { where += ' AND sm.status = ?'; params.push(status); }
+  const issues = await db.prepare('SELECT sm.*, p.name as product_name, p.code as product_code, w.name as warehouse_name FROM stock_movements sm LEFT JOIN products p ON sm.product_id = p.id LEFT JOIN warehouses w ON sm.warehouse_id = w.id ' + where + ' ORDER BY sm.created_at DESC LIMIT ? OFFSET ?').bind(...params, parseInt(limit), offset).all();
+  const total = await db.prepare('SELECT COUNT(*) as count FROM stock_movements sm ' + where).bind(...params).first();
+  return c.json({ data: issues.results || [], total: total?.count || 0 });
+});
+
+api.post('/inventory/issues/create', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const id = uuidv4();
+  await db.prepare("INSERT INTO stock_movements (id, tenant_id, product_id, warehouse_id, movement_type, quantity, reference_number, notes, created_by, created_at) VALUES (?, ?, ?, ?, 'out', ?, ?, ?, ?, CURRENT_TIMESTAMP)").bind(id, tenantId, body.product_id, body.warehouse_id, body.quantity, 'ISS-' + Date.now(), body.notes || '', userId).run();
+  await db.prepare('UPDATE stock_levels SET quantity = MAX(0, quantity - ?), updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND product_id = ? AND warehouse_id = ?').bind(body.quantity, tenantId, body.product_id, body.warehouse_id).run();
+  return c.json({ id, message: 'Issue created' }, 201);
+});
+
+api.post('/inventory/issues/:id/transition', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const { new_status, notes } = await c.req.json();
+  await db.prepare('UPDATE stock_movements SET status = ?, notes = COALESCE(?, notes) WHERE id = ? AND tenant_id = ?').bind(new_status, notes || null, id, tenantId).run();
+  return c.json({ message: 'Issue status updated' });
+});
+
 api.get('/inventory/warehouses', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
@@ -2834,13 +2902,11 @@ api.get('/commissions/stats', authMiddleware, async (c) => {
   return c.json({ total: total?.total || 0, pending: pending?.total || 0, approved: approved?.total || 0, paid: paid?.total || 0 });
 });
 
-api.get('/commissions/:id', authMiddleware, async (c) => {
+api.get('/commissions/rules', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
-  const id = c.req.param('id');
-  const commission = await db.prepare("SELECT ce.*, u.first_name || ' ' || u.last_name as earner_name, cr.name as rule_name FROM commission_earnings ce LEFT JOIN users u ON ce.earner_id = u.id LEFT JOIN commission_rules cr ON ce.rule_id = cr.id WHERE ce.id = ? AND ce.tenant_id = ?").bind(id, tenantId).first();
-  if (!commission) return c.json({ message: 'Commission not found' }, 404);
-  return c.json(commission);
+  const rules = await db.prepare('SELECT * FROM commission_rules WHERE tenant_id = ? ORDER BY name LIMIT 500').bind(tenantId).all();
+  return c.json({ data: rules.results || [] });
 });
 
 api.get('/commissions/user/:userId', authMiddleware, async (c) => {
@@ -2851,11 +2917,13 @@ api.get('/commissions/user/:userId', authMiddleware, async (c) => {
   return c.json(commissions.results || []);
 });
 
-api.get('/commissions/rules', authMiddleware, async (c) => {
+api.get('/commissions/:id', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
-  const rules = await db.prepare('SELECT * FROM commission_rules WHERE tenant_id = ? ORDER BY name LIMIT 500').bind(tenantId).all();
-  return c.json(rules.results || []);
+  const id = c.req.param('id');
+  const commission = await db.prepare("SELECT ce.*, u.first_name || ' ' || u.last_name as earner_name, cr.name as rule_name FROM commission_earnings ce LEFT JOIN users u ON ce.earner_id = u.id LEFT JOIN commission_rules cr ON ce.rule_id = cr.id WHERE ce.id = ? AND ce.tenant_id = ?").bind(id, tenantId).first();
+  if (!commission) return c.json({ message: 'Commission not found' }, 404);
+  return c.json(commission);
 });
 
 api.post('/commissions/calculate', authMiddleware, async (c) => {
@@ -4149,6 +4217,43 @@ api.get('/warehouses/:warehouseId/stats', authMiddleware, async (c) => {
 });
 
 // ==================== FINANCE ADDITIONAL ROUTES ====================
+api.get('/finance', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { page = '1', limit = '20', status, search } = c.req.query();
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  let where = 'WHERE so.tenant_id = ?';
+  const params = [tenantId];
+  if (status) { where += ' AND so.payment_status = ?'; params.push(status); }
+  if (search) { where += ' AND (so.order_number LIKE ? OR c.name LIKE ?)'; params.push('%' + search + '%', '%' + search + '%'); }
+  const total = await db.prepare('SELECT COUNT(*) as count FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id ' + where).bind(...params).first();
+  const invoices = await db.prepare('SELECT so.id, so.order_number as invoice_number, so.customer_id, c.name as customer_name, so.total_amount, so.payment_status as status, so.created_at, so.updated_at FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id ' + where + ' ORDER BY so.created_at DESC LIMIT ? OFFSET ?').bind(...params, parseInt(limit), offset).all();
+  return c.json({ data: invoices.results || [], total: total?.count || 0, page: parseInt(page), limit: parseInt(limit) });
+});
+
+api.get('/finance/invoices/:invoiceId/status-history', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const invoiceId = c.req.param('invoiceId');
+  const history = await db.prepare("SELECT * FROM audit_log WHERE tenant_id = ? AND entity_type = 'sales_order' AND entity_id = ? ORDER BY created_at DESC LIMIT 50").bind(tenantId, invoiceId).all();
+  return c.json({ data: history.results || [] });
+});
+
+api.get('/finance/cash-reconciliation', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const recons = await db.prepare("SELECT * FROM van_reconciliations WHERE tenant_id = ? ORDER BY created_at DESC").bind(tenantId).all();
+  return c.json({ data: recons.results || [] });
+});
+
+api.get('/finance/cash-reconciliation/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const recon = await db.prepare("SELECT * FROM van_reconciliations WHERE id = ? AND tenant_id = ?").bind(id, tenantId).first();
+  return recon ? c.json(recon) : c.json({ message: 'Not found' }, 404);
+});
+
 api.get('/finance/:id', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
@@ -4167,31 +4272,6 @@ api.put('/finance/:id', authMiddleware, async (c) => {
 
 api.delete('/finance/:id', authMiddleware, async (c) => {
   return c.json({ message: 'Invoice deleted' });
-});
-
-api.get('/finance/cash-reconciliation', authMiddleware, async (c) => {
-  const db = c.env.DB;
-  const tenantId = c.get('tenantId');
-  const recons = await db.prepare("SELECT * FROM van_reconciliations WHERE tenant_id = ? ORDER BY created_at DESC").bind(tenantId).all();
-  return c.json({ data: recons.results || [] });
-});
-
-api.get('/finance/cash-reconciliation/:id', authMiddleware, async (c) => {
-  const db = c.env.DB;
-  const tenantId = c.get('tenantId');
-  const id = c.req.param('id');
-  const recon = await db.prepare("SELECT * FROM van_reconciliations WHERE id = ? AND tenant_id = ?").bind(id, tenantId).first();
-  return recon ? c.json(recon) : c.json({ message: 'Not found' }, 404);
-});
-
-api.post('/finance/cash-reconciliation', authMiddleware, async (c) => {
-  const db = c.env.DB;
-  const tenantId = c.get('tenantId');
-  const userId = c.get('userId');
-  const body = await c.req.json();
-  const id = uuidv4();
-  await db.prepare("INSERT INTO van_reconciliations (id, tenant_id, load_id, reconciled_by, status, created_at) VALUES (?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)").bind(id, tenantId, body.load_id || '', userId).run();
-  return c.json({ id, message: 'Reconciliation created' }, 201);
 });
 
 api.get('/finance/invoices/:invoiceId/items', authMiddleware, async (c) => {
@@ -5679,7 +5759,7 @@ api.get('/trade-promotions/:id/roi', async (c) => {
 api.get('/territories', async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
-  const territories = await db.prepare("SELECT t.*, (SELECT COUNT(*) FROM territory_assignments WHERE territory_id = t.id AND is_active = 1) as assigned_agents, (SELECT COUNT(*) FROM customers WHERE territory = t.name AND tenant_id = ?) as customer_count FROM territories t WHERE t.tenant_id = ? ORDER BY t.name").bind(tenantId, tenantId).all();
+  const territories = await db.prepare("SELECT t.*, (SELECT COUNT(*) FROM territory_assignments WHERE territory_id = t.id AND is_active = 1) as assigned_agents FROM territories t WHERE t.tenant_id = ? ORDER BY t.name").bind(tenantId).all();
   return c.json({ success: true, data: territories.results || [] });
 });
 
@@ -5688,7 +5768,7 @@ api.post('/territories', requireRole('admin', 'manager'), async (c) => {
   const tenantId = c.get('tenantId');
   const body = await c.req.json();
   const id = uuidv4();
-  await db.prepare('INSERT INTO territories (id, tenant_id, name, description, boundary_geojson, parent_territory_id) VALUES (?, ?, ?, ?, ?, ?)').bind(id, tenantId, body.name, body.description || null, body.boundary_geojson ? JSON.stringify(body.boundary_geojson) : null, body.parent_territory_id || null).run();
+  await db.prepare('INSERT INTO territories (id, tenant_id, name, code, boundary, parent_id) VALUES (?, ?, ?, ?, ?, ?)').bind(id, tenantId, body.name, body.code || body.name?.substring(0, 10)?.toUpperCase() || '', body.boundary_geojson ? JSON.stringify(body.boundary_geojson) : body.boundary || null, body.parent_territory_id || body.parent_id || null).run();
   return c.json({ success: true, data: { id }, message: 'Territory created' }, 201);
 });
 
@@ -5697,7 +5777,7 @@ api.put('/territories/:id', requireRole('admin', 'manager'), async (c) => {
   const tenantId = c.get('tenantId');
   const { id } = c.req.param();
   const body = await c.req.json();
-  await db.prepare('UPDATE territories SET name = COALESCE(?, name), description = COALESCE(?, description), boundary_geojson = COALESCE(?, boundary_geojson), parent_territory_id = COALESCE(?, parent_territory_id), updated_at = datetime("now") WHERE id = ? AND tenant_id = ?').bind(body.name || null, body.description || null, body.boundary_geojson ? JSON.stringify(body.boundary_geojson) : null, body.parent_territory_id || null, id, tenantId).run();
+  await db.prepare('UPDATE territories SET name = COALESCE(?, name), boundary = COALESCE(?, boundary), parent_id = COALESCE(?, parent_id), updated_at = datetime("now") WHERE id = ? AND tenant_id = ?').bind(body.name || null, body.boundary_geojson ? JSON.stringify(body.boundary_geojson) : body.boundary || null, body.parent_territory_id || body.parent_id || null, id, tenantId).run();
   return c.json({ success: true, message: 'Territory updated' });
 });
 
