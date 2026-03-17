@@ -2128,13 +2128,17 @@ api.post('/orders/:id/recalculate', authMiddleware, async (c) => {
   const id = c.req.param('id');
   const { items } = await c.req.json();
   let subtotal = 0;
+  let totalTax = 0;
   for (const item of (items || [])) {
     const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
     const unitPrice = item.unit_price || (product ? product.price : 0) || 0;
     const qty = item.quantity || 1;
-    subtotal += unitPrice * qty;
+    const lineTotal = unitPrice * qty;
+    const taxRate = product && product.tax_rate != null ? product.tax_rate : 15;
+    totalTax += lineTotal * (taxRate / 100);
+    subtotal += lineTotal;
   }
-  return c.json({ success: true, data: { subtotal, tax: subtotal * 0.15, total: subtotal * 1.15 } });
+  return c.json({ success: true, data: { subtotal, tax: totalTax, total: subtotal + totalTax } });
 });
 
 // ==================== INVOICES ====================
@@ -2385,7 +2389,7 @@ api.get('/order-lines', authMiddleware, async (c) => {
   const { order_id, sales_order_id } = c.req.query();
   const orderId = order_id || sales_order_id;
   if (orderId) {
-    const items = await db.prepare('SELECT soi.*, p.name as product_name, p.sku as product_code FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id WHERE soi.sales_order_id = ? LIMIT 500').bind(orderId).all();
+    const items = await db.prepare('SELECT soi.*, p.name as product_name, p.sku as product_code FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id JOIN sales_orders so ON soi.sales_order_id = so.id WHERE soi.sales_order_id = ? AND so.tenant_id = ? LIMIT 500').bind(orderId, tenantId).all();
     return c.json({ success: true, data: items.results || [] });
   }
   const items = await db.prepare('SELECT soi.*, p.name as product_name, so.order_number FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id LEFT JOIN sales_orders so ON soi.sales_order_id = so.id WHERE so.tenant_id = ? ORDER BY so.created_at DESC LIMIT 500').bind(tenantId).all();
@@ -2466,7 +2470,13 @@ api.post('/pricing/bulk-quote', authMiddleware, async (c) => {
     grandTotal += lineTotal;
     results.push({ product_id: item.product_id, unit_price: unitPrice, quantity: qty, line_total: lineTotal });
   }
-  return c.json({ success: true, data: { items: results, subtotal: grandTotal, tax: grandTotal * 0.15, total: grandTotal * 1.15 } });
+  let grandTax = 0;
+  for (const r of results) {
+    const prod = await db.prepare('SELECT tax_rate FROM products WHERE id = ? AND tenant_id = ?').bind(r.product_id, tenantId).first();
+    const rate = prod && prod.tax_rate != null ? prod.tax_rate : 15;
+    grandTax += r.line_total * (rate / 100);
+  }
+  return c.json({ success: true, data: { items: results, subtotal: grandTotal, tax: grandTax, total: grandTotal + grandTax } });
 });
 
 // ==================== FIELD OPERATIONS ROUTES ====================
