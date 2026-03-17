@@ -630,6 +630,233 @@ class FieldOperationsService extends ApiService {
     const response = await this.get(`/dashboard/stats?${params.toString()}`)
     return response.data
   }
+
+  // ==================== FIELD OPS: COMPANIES ====================
+  async getCompanies() {
+    const response = await this.get('/field-ops/companies')
+    return response.data || response
+  }
+
+  async getCompany(id: string) {
+    const response = await this.get(`/field-ops/companies/${id}`)
+    return response.data || response
+  }
+
+  async createCompany(data: { name: string; code?: string; description?: string; contact_email?: string; contact_phone?: string; logo_url?: string }) {
+    const response = await this.post('/field-ops/companies', data)
+    return response.data || response
+  }
+
+  async updateCompany(id: string, data: Record<string, unknown>) {
+    const response = await this.put(`/field-ops/companies/${id}`, data)
+    return response.data || response
+  }
+
+  async deleteCompany(id: string) {
+    const response = await this.delete(`/field-ops/companies/${id}`)
+    return response.data || response
+  }
+
+  // ==================== FIELD OPS: AGENT-COMPANY LINKS ====================
+  async getAgentCompanies(agentId: string) {
+    const response = await this.get(`/field-ops/agent-companies/${agentId}`)
+    return response.data || response
+  }
+
+  async linkAgentToCompany(agentId: string, companyId: string) {
+    const response = await this.post('/field-ops/agent-companies', { agent_id: agentId, company_id: companyId })
+    return response.data || response
+  }
+
+  async unlinkAgentFromCompany(linkId: string) {
+    const response = await this.delete(`/field-ops/agent-companies/${linkId}`)
+    return response.data || response
+  }
+
+  // ==================== FIELD OPS: DAILY TARGETS ====================
+  async getDailyTargets(filter: { agent_id?: string; company_id?: string; date?: string; start_date?: string; end_date?: string } = {}) {
+    const params = new URLSearchParams()
+    Object.entries(filter).forEach(([key, value]) => {
+      if (value) params.append(key, String(value))
+    })
+    const response = await this.get(`/field-ops/daily-targets?${params.toString()}`)
+    return response.data || response
+  }
+
+  async createDailyTarget(data: { agent_id: string; company_id?: string; target_visits?: number; target_conversions?: number; target_registrations?: number; target_date: string }) {
+    const response = await this.post('/field-ops/daily-targets', data)
+    return response.data || response
+  }
+
+  async updateDailyTarget(id: string, data: Record<string, unknown>) {
+    const response = await this.put(`/field-ops/daily-targets/${id}`, data)
+    return response.data || response
+  }
+
+  async deleteDailyTarget(id: string) {
+    const response = await this.delete(`/field-ops/daily-targets/${id}`)
+    return response.data || response
+  }
+
+  async bulkCreateDailyTargets(data: { agent_ids: string[]; company_id?: string; target_visits?: number; target_conversions?: number; target_registrations?: number; target_date: string }) {
+    const response = await this.post('/field-ops/daily-targets/bulk', data)
+    return response.data || response
+  }
+
+  // ==================== FIELD OPS: INDIVIDUAL REGISTRATIONS ====================
+  async getIndividuals(filter: { agent_id?: string; company_id?: string; converted?: string; search?: string; page?: number; limit?: number } = {}) {
+    const params = new URLSearchParams()
+    Object.entries(filter).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') params.append(key, String(value))
+    })
+    const response = await this.get(`/field-ops/individuals?${params.toString()}`)
+    return response.data || response
+  }
+
+  async getIndividual(id: string) {
+    const response = await this.get(`/field-ops/individuals/${id}`)
+    return response.data || response
+  }
+
+  async registerIndividual(data: { first_name: string; last_name: string; id_number?: string; phone?: string; email?: string; product_app_player_id?: string; company_id?: string; visit_id?: string; notes?: string; gps_latitude?: number; gps_longitude?: number; converted?: boolean }) {
+    const response = await this.post('/field-ops/individuals/register', data)
+    return response.data || response
+  }
+
+  async updateIndividual(id: string, data: Record<string, unknown>) {
+    const response = await this.put(`/field-ops/individuals/${id}`, data)
+    return response.data || response
+  }
+
+  async convertIndividual(id: string, productAppPlayerId?: string) {
+    const response = await this.post(`/field-ops/individuals/${id}/convert`, { product_app_player_id: productAppPlayerId })
+    return response.data || response
+  }
+
+  // ==================== FIELD OPS: HIERARCHY ====================
+  async getHierarchy() {
+    const response = await this.get('/field-ops/hierarchy')
+    return response.data || response
+  }
+
+  async assignHierarchy(userId: string, data: { manager_id?: string | null; team_lead_id?: string | null }) {
+    const response = await this.put('/field-ops/hierarchy/assign', { user_id: userId, ...data })
+    return response.data || response
+  }
+
+  // ==================== FIELD OPS: PERFORMANCE (ROLE-BASED) ====================
+  async getPerformance(filter: { date?: string; start_date?: string; end_date?: string; company_id?: string } = {}) {
+    const params = new URLSearchParams()
+    Object.entries(filter).forEach(([key, value]) => {
+      if (value) params.append(key, String(value))
+    })
+    const response = await this.get(`/field-ops/performance?${params.toString()}`)
+    return response.data || response
+  }
+
+  // ==================== FIELD OPS: DRILL-DOWN ====================
+  async getDrillDown(userId: string, filter: { start_date?: string; end_date?: string } = {}) {
+    const params = new URLSearchParams()
+    Object.entries(filter).forEach(([key, value]) => {
+      if (value) params.append(key, String(value))
+    })
+    const response = await this.get(`/field-ops/drill-down/${userId}?${params.toString()}`)
+    return response.data || response
+  }
+
+  // ==================== FIELD OPS: COMPANY AUTH ====================
+  async companyLogin(email: string, password: string) {
+    // Use plain axios.post() to bypass the shared apiClient's 401 interceptor,
+    // which would try to refresh the main app token and redirect to /auth/login
+    const { default: axios } = await import('axios')
+    const { API_CONFIG } = await import('../config/api.config')
+    const response = await axios.post(`${API_CONFIG.BASE_URL}/field-ops/company-auth/login`, { email, password })
+    return response.data || response
+  }
+
+  async getCompanyDashboard(companyId: string, companyToken?: string) {
+    // If a company_token is provided (company portal users), inject it into the request headers
+    if (companyToken) {
+      const response = await this.client.get(`/field-ops/company-dashboard?company_id=${companyId}`, {
+        headers: { Authorization: `Bearer ${companyToken}` },
+      })
+      return response.data || response
+    }
+    const response = await this.get(`/field-ops/company-dashboard?company_id=${companyId}`)
+    return response.data || response
+  }
+
+  // ==================== COMPANY PORTAL ENDPOINTS (company_token auth) ====================
+  private async companyPortalGet(path: string) {
+    const { default: axios } = await import('axios')
+    const { API_CONFIG } = await import('../config/api.config')
+    const token = localStorage.getItem('company_token')
+    const response = await axios.get(`${API_CONFIG.BASE_URL}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    return response.data || response
+  }
+
+  async getCompanyPortalDashboard() {
+    return this.companyPortalGet('/field-ops/company-portal/dashboard')
+  }
+
+  async getCompanyPortalBrandInsights(filter: { start_date?: string; end_date?: string } = {}) {
+    const params = new URLSearchParams()
+    Object.entries(filter).forEach(([key, value]) => {
+      if (value) params.append(key, String(value))
+    })
+    return this.companyPortalGet(`/field-ops/company-portal/brand-insights?${params.toString()}`)
+  }
+
+  async exportCompanyPortalData(type: 'visits' | 'registrations', startDate?: string, endDate?: string) {
+    const { default: axios } = await import('axios')
+    const { API_CONFIG } = await import('../config/api.config')
+    const token = localStorage.getItem('company_token')
+    const params = new URLSearchParams()
+    params.append('type', type)
+    if (startDate) params.append('start_date', startDate)
+    if (endDate) params.append('end_date', endDate)
+    const response = await axios.get(`${API_CONFIG.BASE_URL}/field-ops/company-portal/export?${params.toString()}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      responseType: 'blob',
+    })
+    return response.data
+  }
+
+  // ==================== FIELD OPS: BRAND INSIGHTS ====================
+  async getBrandInsights(filter: { company_id?: string; start_date?: string; end_date?: string } = {}) {
+    const params = new URLSearchParams()
+    Object.entries(filter).forEach(([key, value]) => {
+      if (value) params.append(key, String(value))
+    })
+    const response = await this.get(`/field-ops/brand-insights?${params.toString()}`)
+    return response.data || response
+  }
+
+  // ==================== FIELD OPS: COMPANY LOGINS MANAGEMENT ====================
+  async getCompanyLogins(companyId?: string) {
+    const params = companyId ? `?company_id=${companyId}` : ''
+    const response = await this.get(`/field-ops/company-logins${params}`)
+    return response.data || response
+  }
+
+  async createCompanyLogin(data: { company_id: string; email: string; password: string; name: string; role?: string }) {
+    const response = await this.post('/field-ops/company-logins', data)
+    return response.data || response
+  }
+
+  async deleteCompanyLogin(id: string) {
+    const response = await this.delete(`/field-ops/company-logins/${id}`)
+    return response.data || response
+  }
+
+  // Convenience: get visits for field ops with proper response shape
+  async getVisits(filter: Record<string, string> = {}) {
+    const params = new URLSearchParams(filter)
+    const response = await this.get(`${this.baseUrl}/visits?${params.toString()}`)
+    return response.data || response
+  }
 }
 
 export const fieldOperationsService = new FieldOperationsService()

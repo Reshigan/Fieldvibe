@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Upload, X, File } from 'lucide-react'
 import { toast } from 'react-hot-toast'
+import { compressPhoto } from '../../../utils/photo-compression'
 
 interface AttachmentUploadProps {
   entityType: string
@@ -15,9 +16,23 @@ export default function AttachmentUpload({ entityType, entityId }: AttachmentUpl
   const [tags, setTags] = useState('')
   const [isUploading, setIsUploading] = useState(false)
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      setSelectedFiles(Array.from(e.target.files))
+      const files = Array.from(e.target.files)
+      const processed = await Promise.all(
+        files.map(async (file) => {
+          if (file.type.startsWith('image/')) {
+            try {
+              const { compressed } = await compressPhoto(file)
+              return compressed
+            } catch {
+              return file
+            }
+          }
+          return file
+        })
+      )
+      setSelectedFiles(processed)
     }
   }
 
