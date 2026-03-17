@@ -25,6 +25,7 @@ import {
 } from '@mui/material';
 import { CameraAlt, Create } from '@mui/icons-material';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { compressPhoto } from '../../utils/photo-compression';
 
 interface FormField {
   name: string;
@@ -143,16 +144,28 @@ export default function DynamicForm({
     input.accept = 'image/*';
     input.capture = 'environment';
     
-    input.onchange = (e: any) => {
+    input.onchange = async (e: any) => {
       const file = e.target.files[0];
       if (file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const dataUrl = event.target?.result as string;
-          setPhotos({ ...photos, [fieldName]: dataUrl });
-          handleChange(fieldName, dataUrl);
-        };
-        reader.readAsDataURL(file);
+        try {
+          const { compressed } = await compressPhoto(file);
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const dataUrl = event.target?.result as string;
+            setPhotos(prev => ({ ...prev, [fieldName]: dataUrl }));
+            handleChange(fieldName, dataUrl);
+          };
+          reader.readAsDataURL(compressed);
+        } catch {
+          // Fallback to uncompressed if compression fails
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const dataUrl = event.target?.result as string;
+            setPhotos(prev => ({ ...prev, [fieldName]: dataUrl }));
+            handleChange(fieldName, dataUrl);
+          };
+          reader.readAsDataURL(file);
+        }
       }
     };
     

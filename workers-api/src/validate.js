@@ -37,10 +37,10 @@ export const createUserSchema = z.object({
   lastName: z.string().min(1).optional(),
   last_name: z.string().min(1).optional(),
   role: z.enum(['admin', 'manager', 'team_lead', 'agent', 'viewer']).default('agent'),
-  managerId: z.string().uuid().optional().nullable(),
-  manager_id: z.string().uuid().optional().nullable(),
-  teamLeadId: z.string().uuid().optional().nullable(),
-  team_lead_id: z.string().uuid().optional().nullable(),
+  managerId: z.string().optional().nullable(),
+  manager_id: z.string().optional().nullable(),
+  teamLeadId: z.string().optional().nullable(),
+  team_lead_id: z.string().optional().nullable(),
 });
 
 export const updateUserSchema = z.object({
@@ -53,24 +53,24 @@ export const updateUserSchema = z.object({
   role: z.enum(['admin', 'manager', 'team_lead', 'agent', 'viewer']).optional().nullable(),
   status: z.enum(['active', 'inactive', 'suspended']).optional().nullable(),
   is_active: z.union([z.boolean(), z.number()]).optional(),
-  managerId: z.string().uuid().optional().nullable(),
-  manager_id: z.string().uuid().optional().nullable(),
-  teamLeadId: z.string().uuid().optional().nullable(),
-  team_lead_id: z.string().uuid().optional().nullable(),
+  managerId: z.string().optional().nullable(),
+  manager_id: z.string().optional().nullable(),
+  teamLeadId: z.string().optional().nullable(),
+  team_lead_id: z.string().optional().nullable(),
 });
 
 // Sales Orders
 export const createSalesOrderSchema = z.object({
-  customer_id: z.string().uuid('Invalid customer ID'),
+  customer_id: z.string().min(1, 'Customer ID is required'),
   items: z.array(z.object({
-    product_id: z.string().uuid('Invalid product ID'),
+    product_id: z.string().min(1, 'Product ID is required'),
     quantity: z.number().int().positive('Quantity must be > 0'),
     unit_price: z.number().positive('Price must be > 0').optional(),
     discount: z.number().min(0).max(100).optional(),
   })).min(1, 'At least one item is required'),
   notes: z.string().optional(),
   delivery_date: z.string().optional(),
-  price_list_id: z.string().uuid().optional(),
+  price_list_id: z.string().optional(),
   order_type: z.string().optional(),
   payment_method: z.string().optional(),
   payment_terms: z.string().optional(),
@@ -91,18 +91,18 @@ export const createVanLoadSchema = z.object({
   agent_id: z.string().optional(),
   warehouse_id: z.string().optional(),
   items: z.array(z.object({
-    product_id: z.string().uuid('Invalid product ID'),
+    product_id: z.string().min(1, 'Product ID is required'),
     quantity: z.number().int().positive('Quantity must be > 0'),
   })).min(1, 'At least one item is required'),
   notes: z.string().optional(),
 }).refine(data => data.van_id || data.vehicle_id, { message: 'van_id or vehicle_id is required' });
 
 export const vanSellSchema = z.object({
-  load_id: z.string().uuid('Invalid load ID').optional(),
-  van_stock_load_id: z.string().uuid('Invalid load ID').optional(),
-  customer_id: z.string().uuid('Invalid customer ID'),
+  load_id: z.string().min(1).optional(),
+  van_stock_load_id: z.string().min(1).optional(),
+  customer_id: z.string().min(1, 'Customer ID is required'),
   items: z.array(z.object({
-    product_id: z.string().uuid('Invalid product ID'),
+    product_id: z.string().min(1, 'Product ID is required'),
     quantity: z.number().int().positive('Quantity must be > 0'),
     unit_price: z.number().positive('Price must be > 0').optional(),
   })).min(1, 'At least one item is required'),
@@ -116,7 +116,7 @@ export const vanSellSchema = z.object({
 
 export const vanReturnSchema = z.object({
   items: z.array(z.object({
-    product_id: z.string().uuid('Invalid product ID'),
+    product_id: z.string().min(1, 'Product ID is required'),
     quantity_returned: z.number().int().min(0).default(0),
     quantity_damaged: z.number().int().min(0).default(0),
   })).min(1, 'At least one item is required'),
@@ -160,7 +160,7 @@ export const updateCustomerSchema = z.object({
   longitude: z.number().min(-180).max(180).optional().nullable(),
   gps_lat: z.number().min(-90).max(90).optional().nullable(),
   gps_lng: z.number().min(-180).max(180).optional().nullable(),
-  price_list_id: z.string().uuid().optional().nullable(),
+  price_list_id: z.string().optional().nullable(),
 }).passthrough();
 
 export const updateProductSchema = z.object({
@@ -204,13 +204,13 @@ export const createCustomerSchema = z.object({
   longitude: z.number().min(-180).max(180).optional().nullable(),
   gps_lat: z.number().min(-90).max(90).optional().nullable(),
   gps_lng: z.number().min(-180).max(180).optional().nullable(),
-  price_list_id: z.string().uuid().optional().nullable(),
+  price_list_id: z.string().optional().nullable(),
 });
 
 // Inventory movements
 export const stockMovementSchema = z.object({
-  product_id: z.string().uuid('Invalid product ID'),
-  warehouse_id: z.string().uuid('Invalid warehouse ID'),
+  product_id: z.string().min(1, 'Product ID is required'),
+  warehouse_id: z.string().min(1, 'Warehouse ID is required'),
   quantity: z.number().int().positive('Quantity must be > 0'),
   movement_type: z.enum(['in', 'out', 'adjustment', 'transfer', 'return']),
   reference_type: z.string().optional(),
@@ -236,7 +236,7 @@ export const territorySchema = z.object({
   name: z.string().min(1, 'Territory name is required'),
   description: z.string().optional(),
   boundary_geojson: z.string().optional(),
-  parent_id: z.string().uuid().optional().nullable(),
+  parent_id: z.string().optional().nullable(),
   status: z.enum(['active', 'inactive']).default('active'),
 });
 

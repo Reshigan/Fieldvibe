@@ -1918,7 +1918,7 @@ api.get('/orders', authMiddleware, async (c) => {
   if (search) { where += ' AND (so.order_number LIKE ? OR c.name LIKE ?)'; params.push('%' + search + '%', '%' + search + '%'); }
   const total = await db.prepare('SELECT COUNT(*) as count FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id ' + where).bind(...params).first();
   const orders = await db.prepare('SELECT so.*, c.name as customer_name FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id ' + where + ' ORDER BY so.created_at DESC LIMIT ? OFFSET ?').bind(...params, parseInt(limit), offset).all();
-  return c.json({ data: orders.results || [], total: total?.count || 0, page: parseInt(page), limit: parseInt(limit) });
+  return c.json({ success: true, data: orders.results || [], total: total?.count || 0, page: parseInt(page), limit: parseInt(limit) });
 });
 
 api.get('/orders/stats', authMiddleware, async (c) => {
@@ -2000,136 +2000,483 @@ api.put('/orders/:id/status', authMiddleware, async (c) => {
   return c.json({ message: 'Status updated' });
 });
 
-// /orders/create - Enhanced order creation with pricing (alias for /sales/orders/create)
+// ==================== MISSING ROUTE ALIASES (frontend compatibility) ====================
+
+// POST /orders/create → delegates to the enhanced sales order engine (POST /sales/orders/create uses createSalesOrderSchema)
 api.post('/orders/create', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const userId = c.get('userId');
   const body = await c.req.json();
+  const v = validate(createSalesOrderSchema, body);
+  if (!v.valid) {
+    return c.json({ success: false, message: 'Validation failed', errors: v.errors }, 400);
+  }
 
   try {
-    // 1. Validate customer
     const customer = await db.prepare('SELECT * FROM customers WHERE id = ? AND tenant_id = ?').bind(body.customer_id, tenantId).first();
     if (!customer) return c.json({ success: false, message: 'Customer not found' }, 404);
 
-    // 2. Resolve items with pricing
     const resolvedItems = [];
     let subtotal = 0;
     let totalTax = 0;
     let totalDiscount = 0;
+    const errors = [];
 
-    for (const item of (body.items || [])) {
-      const product = await db.prepare("SELECT * FROM products WHERE id = ? AND tenant_id = ? AND status = 'active'").bind(item.product_id, tenantId).first();
-      if (!product) continue;
+    for (let idx = 0; idx < (body.items || []).length; idx++) {
+      const item = body.items[idx];
+      const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
+      if (!product) { errors.push(`Item ${idx + 1}: product not found`); continue; }
 
-      const unitPrice = item.unit_price != null ? item.unit_price : product.price;
+      let unitPrice = item.unit_price || product.price || 0;
+      const discountPct = Math.min(100, Math.max(0, item.discount ?? item.discount_percent ?? 0));
+      const finalPrice = unitPrice * (1 - discountPct / 100);
       const qty = item.quantity || 1;
-      const discountPct = item.discount_percentage || 0;
-      const lineSubtotal = unitPrice * qty;
-      const discountAmt = lineSubtotal * (discountPct / 100);
-      const afterDiscount = lineSubtotal - discountAmt;
+      const lineTotal = finalPrice * qty;
       const taxRate = product.tax_rate != null ? product.tax_rate : 15;
-      const taxAmt = afterDiscount * (taxRate / 100);
-      const lineTotal = afterDiscount + taxAmt;
+      const lineTax = lineTotal - (lineTotal / (1 + taxRate / 100));
 
-      subtotal += lineSubtotal;
-      totalTax += taxAmt;
-      totalDiscount += discountAmt;
-      resolvedItems.push({ product_id: item.product_id, quantity: qty, unit_price: unitPrice, discount_percent: discountPct, tax_rate: taxRate, line_total: lineTotal, product_name: product.name });
+      subtotal += lineTotal;
+      totalTax += lineTax;
+      totalDiscount += unitPrice * qty * (discountPct / 100);
+      resolvedItems.push({ product_id: item.product_id, quantity: qty, unit_price: unitPrice, discount_percent: discountPct, line_total: lineTotal, product_name: product.name });
     }
 
+    if (errors.length > 0) return c.json({ success: false, message: 'Validation failed', details: errors }, 400);
     if (resolvedItems.length === 0) return c.json({ success: false, message: 'No valid items' }, 400);
 
-    // 3. Create order
     const orderId = uuidv4();
-    const orderNumber = 'ORD-' + Date.now().toString(36).toUpperCase();
-    const paymentMethod = body.payment_method || 'cash';
-    const totalAmount = subtotal - totalDiscount + totalTax;
+    const orderNumber = 'SO-' + uuidv4().slice(0,8).toUpperCase();
+    const paymentMethod = body.payment_method || 'CASH';
+    const paymentStatus = paymentMethod === 'CREDIT' || paymentMethod === 'credit' ? 'PENDING' : 'PAID';
 
-    // 4. Use db.batch() for atomic writes (order header + line items)
-    const batchStatements = [
-      db.prepare('INSERT INTO sales_orders (id, tenant_id, order_number, customer_id, agent_id, status, payment_method, payment_status, subtotal, tax_amount, discount_amount, total_amount, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)').bind(orderId, tenantId, orderNumber, body.customer_id, userId, body.submit ? 'confirmed' : 'draft', paymentMethod, 'pending', subtotal, totalTax, totalDiscount, totalAmount, body.notes || '')
-    ];
+    const batchStatements = [];
+    batchStatements.push(db.prepare('INSERT INTO sales_orders (id, tenant_id, order_number, agent_id, customer_id, order_type, status, subtotal, tax_amount, discount_amount, total_amount, payment_method, payment_status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))').bind(orderId, tenantId, orderNumber, userId, body.customer_id, body.order_type || 'direct_sale', 'CONFIRMED', subtotal, totalTax, totalDiscount, subtotal, paymentMethod, paymentStatus, body.notes || null));
+
     for (const item of resolvedItems) {
       batchStatements.push(db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price, discount_percent, line_total) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(uuidv4(), orderId, item.product_id, item.quantity, item.unit_price, item.discount_percent, item.line_total));
     }
+
+    const auditId = uuidv4();
+    batchStatements.push(db.prepare('INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, new_values) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(auditId, tenantId, userId, 'CREATE', 'SALES_ORDER', orderId, JSON.stringify({ order_number: orderNumber, total: subtotal, items: resolvedItems.length })));
+
     await db.batch(batchStatements);
 
-    return c.json({ success: true, data: { id: orderId, order_number: orderNumber, total_amount: totalAmount, items: resolvedItems } }, 201);
+    return c.json({ success: true, data: { id: orderId, order_number: orderNumber, total_amount: subtotal, payment_status: paymentStatus, items: resolvedItems } }, 201);
   } catch (error) {
-    return c.json({ success: false, message: error.message || 'Failed to create order' }, 500);
+    console.error('Order creation error:', error);
+    return c.json({ success: false, message: 'Order creation failed: ' + error.message }, 500);
   }
 });
 
-// ==================== DISCOUNTS ROUTES ====================
-api.get('/discounts', authMiddleware, async (c) => {
+// ==================== SALES ORDERS ALIASES (frontend /sales/orders routes) ====================
+
+api.get('/sales/orders', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
-  const { is_active } = c.req.query();
+  const orders = await db.prepare('SELECT so.*, c.name as customer_name FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id WHERE so.tenant_id = ? ORDER BY so.created_at DESC LIMIT 500').bind(tenantId).all();
+  return c.json({ success: true, data: orders.results || [] });
+});
+
+api.get('/sales/orders/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const order = await db.prepare('SELECT so.*, c.name as customer_name FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id WHERE so.id = ? AND so.tenant_id = ?').bind(id, tenantId).first();
+  if (!order) return c.json({ success: false, message: 'Order not found' }, 404);
+  const items = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id WHERE soi.sales_order_id = ? LIMIT 500').bind(id).all();
+  return c.json({ success: true, data: { ...order, items: items.results || [] } });
+});
+
+// Order transitions (frontend calls /orders/:id/transition)
+api.post('/orders/:id/transition', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const id = c.req.param('id');
+  const { new_status, notes } = await c.req.json();
+  const order = await db.prepare('SELECT * FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!order) return c.json({ success: false, message: 'Order not found' }, 404);
+  await db.prepare('UPDATE sales_orders SET status = ?, notes = COALESCE(?, notes), updated_at = datetime("now") WHERE id = ?').bind(new_status, notes || null, id).run();
+  const auditId = uuidv4();
+  await db.prepare('INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, old_values, new_values) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(auditId, tenantId, userId, 'STATUS_CHANGE', 'SALES_ORDER', id, JSON.stringify({ status: order.status }), JSON.stringify({ status: new_status, notes })).run();
+  return c.json({ success: true, message: `Order transitioned to ${new_status}` });
+});
+
+// Order transitions history (frontend calls /orders/:id/transitions)
+api.get('/orders/:id/transitions', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const logs = await db.prepare("SELECT * FROM audit_log WHERE resource_type = 'SALES_ORDER' AND resource_id = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT 100").bind(id, tenantId).all();
+  return c.json({ success: true, data: logs.results || [] });
+});
+
+// Order history (frontend calls /orders/:id/history)
+api.get('/orders/:id/history', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const logs = await db.prepare("SELECT * FROM audit_log WHERE resource_type = 'SALES_ORDER' AND resource_id = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT 100").bind(id, tenantId).all();
+  return c.json({ success: true, data: logs.results || [] });
+});
+
+// Order recalculate (frontend calls /orders/:id/recalculate)
+api.post('/orders/:id/recalculate', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const { items } = await c.req.json();
+  let subtotal = 0;
+  let totalTax = 0;
+  for (const item of (items || [])) {
+    const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
+    const unitPrice = item.unit_price || (product ? product.price : 0) || 0;
+    const qty = item.quantity || 1;
+    const lineTotal = unitPrice * qty;
+    const taxRate = product && product.tax_rate != null ? product.tax_rate : 15;
+    totalTax += lineTotal - (lineTotal / (1 + taxRate / 100));
+    subtotal += lineTotal;
+  }
+  return c.json({ success: true, data: { subtotal, tax: totalTax, total: subtotal } });
+});
+
+// ==================== INVOICES ====================
+
+api.get('/invoices', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const invoices = await db.prepare('SELECT so.*, c.name as customer_name FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id WHERE so.tenant_id = ? AND so.order_type IN (?, ?) ORDER BY so.created_at DESC LIMIT 500').bind(tenantId, 'invoice', 'direct_sale').all();
+  return c.json({ success: true, data: invoices.results || [] });
+});
+
+api.get('/invoices/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const invoice = await db.prepare('SELECT so.*, c.name as customer_name FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id WHERE so.id = ? AND so.tenant_id = ?').bind(id, tenantId).first();
+  if (!invoice) return c.json({ success: false, message: 'Invoice not found' }, 404);
+  const items = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id WHERE soi.sales_order_id = ? LIMIT 500').bind(id).all();
+  return c.json({ success: true, data: { ...invoice, items: items.results || [] } });
+});
+
+api.post('/invoices/create', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const id = uuidv4();
+  const invoiceNum = 'INV-' + Date.now().toString(36).toUpperCase();
+
   try {
-    let q = 'SELECT * FROM discounts WHERE tenant_id = ?';
-    const params = [tenantId];
-    if (is_active === 'true') { q += ' AND is_active = 1'; }
-    q += ' ORDER BY name';
-    const discounts = await db.prepare(q).bind(...params).all();
-    return c.json({ success: true, data: discounts.results || [] });
+    const batchStatements = [];
+    let subtotal = 0;
+
+    // Resolve items
+    const resolvedItems = [];
+    for (const item of (body.items || [])) {
+      const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
+      const unitPrice = item.unit_price || (product ? product.price : 0) || 0;
+      const qty = item.quantity || 1;
+      const lineTotal = unitPrice * qty;
+      subtotal += lineTotal;
+      resolvedItems.push({ product_id: item.product_id, quantity: qty, unit_price: unitPrice, line_total: lineTotal });
+    }
+
+    batchStatements.push(db.prepare('INSERT INTO sales_orders (id, tenant_id, order_number, agent_id, customer_id, order_type, status, subtotal, total_amount, payment_method, payment_status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))').bind(id, tenantId, invoiceNum, userId, body.customer_id, 'invoice', 'CONFIRMED', subtotal, subtotal, body.payment_method || 'CASH', 'PENDING', body.notes || null));
+
+    for (const item of resolvedItems) {
+      batchStatements.push(db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?)').bind(uuidv4(), id, item.product_id, item.quantity, item.unit_price, item.line_total));
+    }
+
+    await db.batch(batchStatements);
+    return c.json({ success: true, data: { id, invoice_number: invoiceNum, total_amount: subtotal } }, 201);
   } catch (error) {
-    // Table may not exist yet - return empty array gracefully
-    return c.json({ success: true, data: [] });
+    return c.json({ success: false, message: 'Invoice creation failed: ' + error.message }, 500);
   }
 });
 
-// ==================== SALES RETURNS CREATE ====================
-api.post('/sales/returns/create', authMiddleware, async (c) => {
+api.post('/invoices/:id/transition', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const { new_status, notes } = await c.req.json();
+  const invoice = await db.prepare('SELECT * FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!invoice) return c.json({ success: false, message: 'Invoice not found' }, 404);
+  await db.prepare('UPDATE sales_orders SET status = ?, notes = COALESCE(?, notes), updated_at = datetime("now") WHERE id = ? AND tenant_id = ?').bind(new_status, notes || null, id, tenantId).run();
+  return c.json({ success: true, message: `Invoice transitioned to ${new_status}` });
+});
+
+api.get('/invoices/:id/transitions', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const logs = await db.prepare("SELECT * FROM audit_log WHERE resource_type = 'SALES_ORDER' AND resource_id = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT 100").bind(id, tenantId).all();
+  return c.json({ success: true, data: logs.results || [] });
+});
+
+// ==================== SALES PAYMENTS ====================
+
+api.get('/sales/payments', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const payments = await db.prepare('SELECT p.*, so.order_number, c.name as customer_name FROM payments p LEFT JOIN sales_orders so ON p.sales_order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE p.tenant_id = ? ORDER BY p.created_at DESC LIMIT 500').bind(tenantId).all();
+  return c.json({ success: true, data: payments.results || [] });
+});
+
+api.get('/sales/payments/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const payment = await db.prepare('SELECT p.*, so.order_number, c.name as customer_name FROM payments p LEFT JOIN sales_orders so ON p.sales_order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE p.id = ? AND p.tenant_id = ?').bind(id, tenantId).first();
+  if (!payment) return c.json({ success: false, message: 'Payment not found' }, 404);
+  return c.json({ success: true, data: payment });
+});
+
+api.post('/sales/payments', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const v = validate(createPaymentSchema, body);
+  if (!v.valid) return c.json({ success: false, message: 'Validation failed', errors: v.errors }, 400);
+
+  const paymentId = uuidv4();
+  const linkedOrderId = body.order_id || body.sales_order_id || null;
+  try {
+    if (linkedOrderId) {
+      const linkedOrder = await db.prepare('SELECT id FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(linkedOrderId, tenantId).first();
+      if (!linkedOrder) return c.json({ success: false, message: 'Order not found or access denied' }, 404);
+      await db.prepare('INSERT INTO payments (id, tenant_id, sales_order_id, amount, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(paymentId, tenantId, linkedOrderId, body.amount, body.method || 'cash', body.reference || null, 'completed').run();
+    } else {
+      return c.json({ success: false, message: 'order_id or sales_order_id is required — payments must be linked to an order' }, 400);
+    }
+  } catch (dbErr) {
+    return c.json({ success: false, message: 'Payment insert failed: ' + dbErr.message }, 500);
+  }
+
+  // Update order payment status if linked
+  if (body.order_id || body.sales_order_id) {
+    const orderId = body.order_id || body.sales_order_id;
+    const order = await db.prepare('SELECT total_amount FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(orderId, tenantId).first();
+    const totalPaid = await db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE sales_order_id = ? AND tenant_id = ?').bind(orderId, tenantId).first();
+    if (order && totalPaid) {
+      const newStatus = totalPaid.total >= order.total_amount ? 'PAID' : 'PARTIAL';
+      await db.prepare('UPDATE sales_orders SET payment_status = ? WHERE id = ? AND tenant_id = ?').bind(newStatus, orderId, tenantId).run();
+    }
+  }
+
+  return c.json({ success: true, data: { id: paymentId, message: 'Payment recorded' } }, 201);
+});
+
+// ==================== CREDIT NOTES (frontend aliases) ====================
+
+api.get('/credit-notes/list', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const notes = await db.prepare('SELECT cn.*, c.name as customer_name FROM credit_notes cn LEFT JOIN customers c ON cn.customer_id = c.id WHERE cn.tenant_id = ? ORDER BY cn.created_at DESC LIMIT 500').bind(tenantId).all();
+  return c.json({ success: true, data: notes.results || [] });
+});
+
+api.get('/credit-notes/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const note = await db.prepare('SELECT cn.*, c.name as customer_name FROM credit_notes cn LEFT JOIN customers c ON cn.customer_id = c.id WHERE cn.id = ? AND cn.tenant_id = ?').bind(id, tenantId).first();
+  if (!note) return c.json({ success: false, message: 'Credit note not found' }, 404);
+  return c.json({ success: true, data: note });
+});
+
+api.post('/credit-notes/create', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const userId = c.get('userId');
   const body = await c.req.json();
 
-  try {
-    // Validate order exists
-    const order = await db.prepare('SELECT * FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(body.order_id, tenantId).first();
-    if (!order) return c.json({ success: false, message: 'Order not found' }, 404);
-
-    const returnId = uuidv4();
-    const returnNumber = 'RET-' + Date.now().toString(36).toUpperCase();
-
-    // 1. Resolve items and calculate totalCredit first
-    let totalCredit = 0;
-    const resolvedItems = [];
-    for (const item of (body.items || [])) {
-      const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
-      const unitPrice = item.unit_price != null ? item.unit_price : (product ? product.price : 0);
-      const lineCredit = unitPrice * item.quantity;
-      totalCredit += lineCredit;
-      resolvedItems.push({ product_id: item.product_id, quantity: item.quantity, unitPrice, lineCredit });
-    }
-
-    // 2. Use db.batch() for atomic writes (return header + line items)
-    const batchStatements = [
-      db.prepare('INSERT INTO returns (id, tenant_id, original_order_id, return_number, return_type, status, total_credit_amount, restock_fee, net_credit_amount, reason, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(returnId, tenantId, body.order_id, returnNumber, 'PARTIAL', body.submit ? 'SUBMITTED' : 'DRAFT', totalCredit, 0, totalCredit, body.reason || body.notes || null, userId)
-    ];
-    for (const item of resolvedItems) {
-      batchStatements.push(db.prepare('INSERT INTO return_items (id, return_id, product_id, quantity, condition, unit_price, line_credit) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(uuidv4(), returnId, item.product_id, item.quantity, 'good', item.unitPrice, item.lineCredit));
-    }
-    await db.batch(batchStatements);
-
-    return c.json({ success: true, data: { id: returnId, return_number: returnNumber, total_credit: totalCredit } }, 201);
-  } catch (error) {
-    return c.json({ success: false, message: error.message || 'Failed to create return' }, 500);
+  if (!body.customer_id || typeof body.customer_id !== 'string' || body.customer_id.trim() === '') {
+    return c.json({ success: false, message: 'customer_id is required' }, 400);
   }
+  if (body.amount == null || typeof body.amount !== 'number' || body.amount <= 0) {
+    return c.json({ success: false, message: 'amount must be a positive number' }, 400);
+  }
+
+  const customer = await db.prepare('SELECT id FROM customers WHERE id = ? AND tenant_id = ?').bind(body.customer_id, tenantId).first();
+  if (!customer) return c.json({ success: false, message: 'Customer not found' }, 404);
+
+  const cnId = uuidv4();
+  const cnNumber = 'CN-' + Date.now().toString(36).toUpperCase();
+  await db.batch([
+    db.prepare('INSERT INTO credit_notes (id, tenant_id, customer_id, credit_number, amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))').bind(cnId, tenantId, body.customer_id, cnNumber, body.amount, 'ISSUED'),
+    db.prepare('UPDATE customers SET outstanding_balance = outstanding_balance - ? WHERE id = ? AND tenant_id = ?').bind(body.amount, body.customer_id, tenantId)
+  ]);
+  return c.json({ success: true, data: { id: cnId, credit_number: cnNumber, amount: body.amount } }, 201);
 });
 
-// Also add /sales/returns GET alias
+api.post('/credit-notes/:id/transition', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const { new_status } = await c.req.json();
+  await db.prepare('UPDATE credit_notes SET status = ? WHERE id = ? AND tenant_id = ?').bind(new_status, id, tenantId).run();
+  return c.json({ success: true, message: `Credit note transitioned to ${new_status}` });
+});
+
+// ==================== SALES RETURNS (frontend aliases) ====================
+
 api.get('/sales/returns', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
+  const returns = await db.prepare('SELECT r.*, so.order_number, c.name as customer_name FROM returns r LEFT JOIN sales_orders so ON r.original_order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE r.tenant_id = ? ORDER BY r.created_at DESC LIMIT 500').bind(tenantId).all();
+  return c.json({ success: true, data: returns.results || [] });
+});
+
+api.get('/sales/returns/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const ret = await db.prepare('SELECT r.*, so.order_number, c.name as customer_name FROM returns r LEFT JOIN sales_orders so ON r.original_order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE r.id = ? AND r.tenant_id = ?').bind(id, tenantId).first();
+  if (!ret) return c.json({ success: false, message: 'Return not found' }, 404);
+  const items = await db.prepare('SELECT ri.*, p.name as product_name FROM return_items ri LEFT JOIN products p ON ri.product_id = p.id WHERE ri.return_id = ? LIMIT 500').bind(id).all();
+  return c.json({ success: true, data: { ...ret, items: items.results || [] } });
+});
+
+api.post('/sales/returns/create', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const returnId = uuidv4();
+  const returnNum = 'RET-' + Date.now().toString(36).toUpperCase();
+
   try {
-    const returns = await db.prepare('SELECT r.*, so.order_number, c.name as customer_name FROM returns r LEFT JOIN sales_orders so ON r.original_order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE r.tenant_id = ? ORDER BY r.created_at DESC LIMIT 50').bind(tenantId).all();
-    return c.json({ success: true, data: returns.results || [] });
+    const batchStatements = [];
+    let totalAmount = 0;
+
+    batchStatements.push(db.prepare('INSERT INTO returns (id, tenant_id, original_order_id, return_number, reason, status, net_credit_amount, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))').bind(returnId, tenantId, body.order_id || null, returnNum, body.reason || 'Customer return', 'PENDING', 0, userId));
+
+    for (const item of (body.items || [])) {
+      const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
+      const unitPrice = item.unit_price || (product ? product.price : 0) || 0;
+      const qty = item.quantity || 1;
+      totalAmount += unitPrice * qty;
+      const lineCredit = unitPrice * qty;
+      batchStatements.push(db.prepare('INSERT INTO return_items (id, return_id, product_id, quantity, condition, unit_price, line_credit) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(uuidv4(), returnId, item.product_id, qty, item.condition || item.reason || 'good', unitPrice, lineCredit));
+    }
+
+    batchStatements.push(db.prepare('UPDATE returns SET net_credit_amount = ? WHERE id = ?').bind(totalAmount, returnId));
+
+    await db.batch(batchStatements);
+    return c.json({ success: true, data: { id: returnId, return_number: returnNum, total_amount: totalAmount } }, 201);
   } catch (error) {
-    return c.json({ success: true, data: [] });
+    return c.json({ success: false, message: 'Return creation failed: ' + error.message }, 500);
   }
+});
+
+api.post('/sales/returns/:id/transition', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const { new_status } = await c.req.json();
+  await db.prepare('UPDATE returns SET status = ? WHERE id = ? AND tenant_id = ?').bind(new_status, id, tenantId).run();
+  return c.json({ success: true, message: `Return transitioned to ${new_status}` });
+});
+
+// ==================== ORDER LINES ====================
+
+api.get('/order-lines', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { order_id, sales_order_id } = c.req.query();
+  const orderId = order_id || sales_order_id;
+  if (orderId) {
+    const items = await db.prepare('SELECT soi.*, p.name as product_name, p.sku as product_code FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id JOIN sales_orders so ON soi.sales_order_id = so.id WHERE soi.sales_order_id = ? AND so.tenant_id = ? LIMIT 500').bind(orderId, tenantId).all();
+    return c.json({ success: true, data: items.results || [] });
+  }
+  const items = await db.prepare('SELECT soi.*, p.name as product_name, so.order_number FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id LEFT JOIN sales_orders so ON soi.sales_order_id = so.id WHERE so.tenant_id = ? ORDER BY so.created_at DESC LIMIT 500').bind(tenantId).all();
+  return c.json({ success: true, data: items.results || [] });
+});
+
+api.get('/order-lines/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const item = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id JOIN sales_orders so ON soi.sales_order_id = so.id WHERE soi.id = ? AND so.tenant_id = ?').bind(id, tenantId).first();
+  if (!item) return c.json({ success: false, message: 'Order line not found' }, 404);
+  return c.json({ success: true, data: item });
+});
+
+api.post('/order-lines', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const body = await c.req.json();
+  const orderId = body.sales_order_id || body.order_id;
+  const order = await db.prepare('SELECT id FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(orderId, tenantId).first();
+  if (!order) return c.json({ success: false, message: 'Order not found or access denied' }, 404);
+  const id = uuidv4();
+  await db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price, discount_percent, line_total) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id, orderId, body.product_id, body.quantity || 1, body.unit_price || 0, body.discount_percent || 0, (body.unit_price || 0) * (body.quantity || 1)).run();
+  return c.json({ success: true, data: { id } }, 201);
+});
+
+api.put('/order-lines/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  const sets = [];
+  const vals = [];
+  for (const [k, v] of Object.entries(body)) {
+    if (['quantity', 'unit_price', 'discount_percent', 'line_total'].includes(k)) { sets.push(k + ' = ?'); vals.push(v); }
+  }
+  if (sets.length === 0) return c.json({ success: false, message: 'No valid fields' }, 400);
+  await db.prepare('UPDATE sales_order_items SET ' + sets.join(', ') + ' WHERE id = ? AND sales_order_id IN (SELECT id FROM sales_orders WHERE tenant_id = ?)').bind(...vals, id, tenantId).run();
+  return c.json({ success: true, message: 'Order line updated' });
+});
+
+api.delete('/order-lines/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  await db.prepare('DELETE FROM sales_order_items WHERE id = ? AND sales_order_id IN (SELECT id FROM sales_orders WHERE tenant_id = ?)').bind(id, tenantId).run();
+  return c.json({ success: true, message: 'Order line deleted' });
+});
+
+// ==================== PRICING ENDPOINTS ====================
+
+api.get('/pricing/quote', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { product_id, customer_id, quantity } = c.req.query();
+  const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(product_id, tenantId).first();
+  if (!product) return c.json({ success: false, message: 'Product not found' }, 404);
+  const qty = parseInt(quantity) || 1;
+  const unitPrice = product.price || 0;
+  const taxRate = product.tax_rate != null ? product.tax_rate : 15;
+  const lineTotal = unitPrice * qty;
+  const tax = lineTotal - (lineTotal / (1 + taxRate / 100));
+  return c.json({ success: true, data: { product_id, unit_price: unitPrice, quantity: qty, line_total: lineTotal, tax, total: lineTotal } });
+});
+
+api.post('/pricing/bulk-quote', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { items } = await c.req.json();
+  const results = [];
+  let grandTotal = 0;
+  for (const item of (items || [])) {
+    const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
+    const unitPrice = item.unit_price || (product ? product.price : 0) || 0;
+    const qty = item.quantity || 1;
+    const lineTotal = unitPrice * qty;
+    grandTotal += lineTotal;
+    results.push({ product_id: item.product_id, unit_price: unitPrice, quantity: qty, line_total: lineTotal });
+  }
+  let grandTax = 0;
+  for (const r of results) {
+    const prod = await db.prepare('SELECT tax_rate FROM products WHERE id = ? AND tenant_id = ?').bind(r.product_id, tenantId).first();
+    const rate = prod && prod.tax_rate != null ? prod.tax_rate : 15;
+    grandTax += r.line_total - (r.line_total / (1 + rate / 100));
+  }
+  return c.json({ success: true, data: { items: results, subtotal: grandTotal, tax: grandTax, total: grandTotal } });
 });
 
 // ==================== FIELD OPERATIONS ROUTES ====================
@@ -3004,6 +3351,491 @@ api.post('/field-operations/beats', authMiddleware, async (c) => {
   const id = uuidv4();
   await db.prepare("INSERT INTO beats (id, tenant_id, name, description, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)").bind(id, tenantId, body.name, body.description || '').run();
   return c.json({ id, message: 'Beat created' }, 201);
+});
+
+// ==================== FIELD OPERATIONS: COMPANIES ====================
+api.get('/field-ops/companies', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  try {
+    const companies = await db.prepare('SELECT * FROM field_companies WHERE tenant_id = ? ORDER BY name').bind(tenantId).all();
+    return c.json({ data: companies.results || [] });
+  } catch {
+    return c.json({ data: [] });
+  }
+});
+
+api.get('/field-ops/companies/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const company = await db.prepare('SELECT * FROM field_companies WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!company) return c.json({ message: 'Company not found' }, 404);
+  const agentCount = await db.prepare('SELECT COUNT(*) as count FROM agent_company_links WHERE company_id = ? AND tenant_id = ? AND is_active = 1').bind(id, tenantId).first();
+  return c.json({ ...company, agent_count: agentCount?.count || 0 });
+});
+
+api.post('/field-ops/companies', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const body = await c.req.json();
+  const id = uuidv4();
+  await db.prepare('INSERT INTO field_companies (id, tenant_id, name, code, logo_url, description, contact_email, contact_phone, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(id, tenantId, body.name, body.code || body.name.toUpperCase().replace(/\s+/g, '_'), body.logo_url || null, body.description || null, body.contact_email || null, body.contact_phone || null, 'active').run();
+  return c.json({ id, message: 'Company created' }, 201);
+});
+
+api.put('/field-ops/companies/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  const sets = [];
+  const vals = [];
+  for (const [k, v] of Object.entries(body)) {
+    if (['name', 'code', 'logo_url', 'description', 'contact_email', 'contact_phone', 'status'].includes(k)) { sets.push(k + ' = ?'); vals.push(v); }
+  }
+  if (sets.length === 0) return c.json({ message: 'No valid fields' }, 400);
+  sets.push('updated_at = CURRENT_TIMESTAMP');
+  await db.prepare('UPDATE field_companies SET ' + sets.join(', ') + ' WHERE id = ? AND tenant_id = ?').bind(...vals, id, tenantId).run();
+  return c.json({ message: 'Company updated' });
+});
+
+api.delete('/field-ops/companies/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  await db.prepare("UPDATE field_companies SET status = 'inactive' WHERE id = ? AND tenant_id = ?").bind(id, tenantId).run();
+  return c.json({ message: 'Company deactivated' });
+});
+
+// ==================== FIELD OPERATIONS: AGENT-COMPANY LINKS ====================
+api.get('/field-ops/agent-companies/:agentId', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const agentId = c.req.param('agentId');
+  try {
+    const links = await db.prepare('SELECT acl.*, fc.name as company_name, fc.code as company_code, fc.logo_url FROM agent_company_links acl JOIN field_companies fc ON acl.company_id = fc.id WHERE acl.agent_id = ? AND acl.tenant_id = ? AND acl.is_active = 1').bind(agentId, tenantId).all();
+    return c.json({ data: links.results || [] });
+  } catch {
+    return c.json({ data: [] });
+  }
+});
+
+api.post('/field-ops/agent-companies', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const body = await c.req.json();
+  const id = uuidv4();
+  await db.prepare('INSERT INTO agent_company_links (id, agent_id, company_id, tenant_id, is_active) VALUES (?, ?, ?, ?, 1)').bind(id, body.agent_id, body.company_id, tenantId).run();
+  return c.json({ id, message: 'Agent linked to company' }, 201);
+});
+
+api.delete('/field-ops/agent-companies/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  await db.prepare('UPDATE agent_company_links SET is_active = 0 WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+  return c.json({ message: 'Link removed' });
+});
+
+// ==================== FIELD OPERATIONS: DAILY TARGETS ====================
+api.get('/field-ops/daily-targets', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const role = c.get('role');
+  const userId = c.get('userId');
+  const { agent_id, company_id, date, start_date, end_date } = c.req.query();
+  try {
+    let where = 'WHERE dt.tenant_id = ?';
+    const params = [tenantId];
+    if (role === 'agent' || role === 'field_agent') { where += ' AND dt.agent_id = ?'; params.push(userId); }
+    else if (agent_id) { where += ' AND dt.agent_id = ?'; params.push(agent_id); }
+    if (company_id) { where += ' AND dt.company_id = ?'; params.push(company_id); }
+    if (date) { where += ' AND dt.target_date = ?'; params.push(date); }
+    if (start_date) { where += ' AND dt.target_date >= ?'; params.push(start_date); }
+    if (end_date) { where += ' AND dt.target_date <= ?'; params.push(end_date); }
+    const targets = await db.prepare("SELECT dt.*, u.first_name || ' ' || u.last_name as agent_name, fc.name as company_name FROM daily_targets dt LEFT JOIN users u ON dt.agent_id = u.id LEFT JOIN field_companies fc ON dt.company_id = fc.id " + where + " ORDER BY dt.target_date DESC LIMIT 200").bind(...params).all();
+    return c.json({ data: targets.results || [] });
+  } catch {
+    return c.json({ data: [] });
+  }
+});
+
+api.post('/field-ops/daily-targets', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const id = uuidv4();
+  await db.prepare('INSERT INTO daily_targets (id, tenant_id, agent_id, company_id, target_visits, target_conversions, target_registrations, target_date, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(id, tenantId, body.agent_id, body.company_id || null, body.target_visits || 20, body.target_conversions || 5, body.target_registrations || 10, body.target_date, userId).run();
+  return c.json({ id, message: 'Daily target created' }, 201);
+});
+
+api.put('/field-ops/daily-targets/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  const sets = [];
+  const vals = [];
+  for (const [k, v] of Object.entries(body)) {
+    if (['target_visits', 'target_conversions', 'target_registrations', 'target_date', 'agent_id', 'company_id'].includes(k)) { sets.push(k + ' = ?'); vals.push(v); }
+  }
+  if (sets.length === 0) return c.json({ message: 'No valid fields' }, 400);
+  sets.push('updated_at = CURRENT_TIMESTAMP');
+  await db.prepare('UPDATE daily_targets SET ' + sets.join(', ') + ' WHERE id = ? AND tenant_id = ?').bind(...vals, id, tenantId).run();
+  return c.json({ message: 'Target updated' });
+});
+
+api.delete('/field-ops/daily-targets/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  await db.prepare('DELETE FROM daily_targets WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+  return c.json({ message: 'Target deleted' });
+});
+
+// Bulk create daily targets for multiple agents
+api.post('/field-ops/daily-targets/bulk', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const { agent_ids, company_id, target_visits, target_conversions, target_registrations, target_date } = body;
+  if (!agent_ids || !Array.isArray(agent_ids) || agent_ids.length === 0) return c.json({ message: 'agent_ids required' }, 400);
+  const stmts = agent_ids.map(agentId => db.prepare('INSERT INTO daily_targets (id, tenant_id, agent_id, company_id, target_visits, target_conversions, target_registrations, target_date, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(uuidv4(), tenantId, agentId, company_id || null, target_visits || 20, target_conversions || 5, target_registrations || 10, target_date, userId));
+  await db.batch(stmts);
+  return c.json({ message: `Created targets for ${agent_ids.length} agents` }, 201);
+});
+
+// ==================== FIELD OPERATIONS: INDIVIDUAL REGISTRATIONS ====================
+api.get('/field-ops/individuals', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const role = c.get('role');
+  const userId = c.get('userId');
+  const { agent_id, company_id, converted, search, page = '1', limit = '50' } = c.req.query();
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  try {
+    let where = 'WHERE ir.tenant_id = ?';
+    const params = [tenantId];
+    if (role === 'agent' || role === 'field_agent') { where += ' AND ir.agent_id = ?'; params.push(userId); }
+    else if (agent_id) { where += ' AND ir.agent_id = ?'; params.push(agent_id); }
+    if (company_id) { where += ' AND ir.company_id = ?'; params.push(company_id); }
+    if (converted === '1' || converted === 'true') { where += ' AND ir.converted = 1'; }
+    if (converted === '0' || converted === 'false') { where += ' AND ir.converted = 0'; }
+    if (search) { where += " AND (ir.first_name LIKE ? OR ir.last_name LIKE ? OR ir.phone LIKE ? OR ir.id_number LIKE ?)"; params.push('%' + search + '%', '%' + search + '%', '%' + search + '%', '%' + search + '%'); }
+    const total = await db.prepare('SELECT COUNT(*) as count FROM individual_registrations ir ' + where).bind(...params).first();
+    const individuals = await db.prepare("SELECT ir.*, u.first_name || ' ' || u.last_name as agent_name, fc.name as company_name FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id LEFT JOIN field_companies fc ON ir.company_id = fc.id " + where + " ORDER BY ir.created_at DESC LIMIT ? OFFSET ?").bind(...params, parseInt(limit), offset).all();
+    return c.json({ data: individuals.results || [], total: total?.count || 0, page: parseInt(page), limit: parseInt(limit) });
+  } catch {
+    return c.json({ data: [], total: 0, page: 1, limit: 50 });
+  }
+});
+
+api.get('/field-ops/individuals/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const individual = await db.prepare("SELECT ir.*, u.first_name || ' ' || u.last_name as agent_name, fc.name as company_name FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id LEFT JOIN field_companies fc ON ir.company_id = fc.id WHERE ir.id = ? AND ir.tenant_id = ?").bind(id, tenantId).first();
+  if (!individual) return c.json({ message: 'Individual not found' }, 404);
+  return c.json(individual);
+});
+
+api.post('/field-ops/individuals/register', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  if (!body.first_name || !body.last_name) return c.json({ message: 'first_name and last_name required' }, 400);
+  const id = uuidv4();
+  await db.prepare('INSERT INTO individual_registrations (id, tenant_id, agent_id, company_id, visit_id, first_name, last_name, id_number, phone, email, product_app_player_id, converted, notes, gps_latitude, gps_longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(id, tenantId, body.agent_id || userId, body.company_id || null, body.visit_id || null, body.first_name, body.last_name, body.id_number || null, body.phone || null, body.email || null, body.product_app_player_id || null, body.converted ? 1 : 0, body.notes || null, body.gps_latitude || null, body.gps_longitude || null).run();
+  return c.json({ id, message: 'Individual registered' }, 201);
+});
+
+api.put('/field-ops/individuals/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  const sets = [];
+  const vals = [];
+  for (const [k, v] of Object.entries(body)) {
+    if (['first_name', 'last_name', 'id_number', 'phone', 'email', 'product_app_player_id', 'converted', 'conversion_date', 'notes', 'company_id'].includes(k)) { sets.push(k + ' = ?'); vals.push(k === 'converted' ? (v ? 1 : 0) : v); }
+  }
+  if (sets.length === 0) return c.json({ message: 'No valid fields' }, 400);
+  sets.push('updated_at = CURRENT_TIMESTAMP');
+  await db.prepare('UPDATE individual_registrations SET ' + sets.join(', ') + ' WHERE id = ? AND tenant_id = ?').bind(...vals, id, tenantId).run();
+  return c.json({ message: 'Individual updated' });
+});
+
+api.post('/field-ops/individuals/:id/convert', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  await db.prepare('UPDATE individual_registrations SET converted = 1, conversion_date = CURRENT_TIMESTAMP, product_app_player_id = COALESCE(?, product_app_player_id), updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?').bind(body.product_app_player_id || null, id, tenantId).run();
+  return c.json({ message: 'Individual marked as converted' });
+});
+
+// ==================== FIELD OPERATIONS: HIERARCHY ====================
+api.get('/field-ops/hierarchy', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  try {
+    const managers = await db.prepare("SELECT id, first_name, last_name, email, role FROM users WHERE tenant_id = ? AND role = 'manager' AND is_active = 1 ORDER BY first_name").bind(tenantId).all();
+    const teamLeads = await db.prepare("SELECT id, first_name, last_name, email, role, manager_id FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1 ORDER BY first_name").bind(tenantId).all();
+    const agents = await db.prepare("SELECT id, first_name, last_name, email, role, team_lead_id, manager_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1 ORDER BY first_name").bind(tenantId).all();
+    const hierarchy = (managers.results || []).map(m => ({
+      ...m,
+      team_leads: (teamLeads.results || []).filter(tl => tl.manager_id === m.id).map(tl => ({
+        ...tl,
+        agents: (agents.results || []).filter(a => a.team_lead_id === tl.id)
+      }))
+    }));
+    const unassignedTeamLeads = (teamLeads.results || []).filter(tl => !tl.manager_id);
+    const unassignedAgents = (agents.results || []).filter(a => !a.team_lead_id);
+    return c.json({ hierarchy, unassigned_team_leads: unassignedTeamLeads, unassigned_agents: unassignedAgents, total_managers: (managers.results || []).length, total_team_leads: (teamLeads.results || []).length, total_agents: (agents.results || []).length });
+  } catch {
+    return c.json({ hierarchy: [], unassigned_team_leads: [], unassigned_agents: [], total_managers: 0, total_team_leads: 0, total_agents: 0 });
+  }
+});
+
+api.put('/field-ops/hierarchy/assign', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const body = await c.req.json();
+  const { user_id, manager_id, team_lead_id } = body;
+  if (!user_id) return c.json({ message: 'user_id required' }, 400);
+  const sets = [];
+  const vals = [];
+  if (manager_id !== undefined) { sets.push('manager_id = ?'); vals.push(manager_id || null); }
+  if (team_lead_id !== undefined) { sets.push('team_lead_id = ?'); vals.push(team_lead_id || null); }
+  if (sets.length === 0) return c.json({ message: 'manager_id or team_lead_id required' }, 400);
+  sets.push('updated_at = CURRENT_TIMESTAMP');
+  await db.prepare('UPDATE users SET ' + sets.join(', ') + ' WHERE id = ? AND tenant_id = ?').bind(...vals, user_id, tenantId).run();
+  return c.json({ message: 'Hierarchy updated' });
+});
+
+// ==================== FIELD OPERATIONS: PERFORMANCE (ROLE-BASED) ====================
+api.get('/field-ops/performance', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const role = c.get('role');
+  const userId = c.get('userId');
+  const { date, start_date, end_date, company_id } = c.req.query();
+  const today = date || new Date().toISOString().split('T')[0];
+  const startD = start_date || today;
+  const endD = end_date || today;
+  try {
+    if (role === 'agent' || role === 'field_agent') {
+      // Agent sees own performance
+      const [visits, registrations, conversions, targets] = await Promise.all([
+        db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ?").bind(userId, tenantId, startD, endD).first(),
+        db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ?").bind(userId, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').first(),
+        db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ?").bind(userId, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').first(),
+        db.prepare("SELECT * FROM daily_targets WHERE agent_id = ? AND tenant_id = ? AND target_date = ?").bind(userId, tenantId, today).first()
+      ]);
+      return c.json({
+        role: 'agent',
+        user_id: userId,
+        period: { start: startD, end: endD },
+        visits: visits?.count || 0,
+        registrations: registrations?.count || 0,
+        conversions: conversions?.count || 0,
+        targets: targets ? { visits: targets.target_visits, conversions: targets.target_conversions, registrations: targets.target_registrations } : { visits: 20, conversions: 5, registrations: 10 },
+        visit_progress: targets ? Math.round(((visits?.count || 0) / (targets.target_visits || 1)) * 100) : 0,
+        conversion_rate: (registrations?.count || 0) > 0 ? Math.round(((conversions?.count || 0) / (registrations?.count || 1)) * 100) : 0
+      });
+    } else if (role === 'team_lead') {
+      // Team lead sees own + team's performance
+      const teamAgents = await db.prepare("SELECT id, first_name, last_name FROM users WHERE team_lead_id = ? AND tenant_id = ? AND is_active = 1").bind(userId, tenantId).all();
+      const agentIds = [userId, ...(teamAgents.results || []).map(a => a.id)];
+      const placeholders = agentIds.map(() => '?').join(',');
+      const [totalVisits, totalRegs, totalConvs] = await Promise.all([
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD, endD, ...agentIds).all(),
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND created_at >= ? AND created_at <= ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59', ...agentIds).all(),
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59', ...agentIds).all()
+      ]);
+      const visitMap = Object.fromEntries((totalVisits.results || []).map(r => [r.agent_id, r.count]));
+      const regMap = Object.fromEntries((totalRegs.results || []).map(r => [r.agent_id, r.count]));
+      const convMap = Object.fromEntries((totalConvs.results || []).map(r => [r.agent_id, r.count]));
+      const agentPerformance = agentIds.map(aid => {
+        const agent = aid === userId ? { first_name: 'You', last_name: '' } : (teamAgents.results || []).find(a => a.id === aid) || {};
+        return { agent_id: aid, agent_name: (agent.first_name + ' ' + agent.last_name).trim(), visits: visitMap[aid] || 0, registrations: regMap[aid] || 0, conversions: convMap[aid] || 0 };
+      });
+      const totalV = agentPerformance.reduce((s, a) => s + a.visits, 0);
+      const totalR = agentPerformance.reduce((s, a) => s + a.registrations, 0);
+      const totalC = agentPerformance.reduce((s, a) => s + a.conversions, 0);
+      return c.json({ role: 'team_lead', user_id: userId, period: { start: startD, end: endD }, team_size: agentIds.length, total_visits: totalV, total_registrations: totalR, total_conversions: totalC, conversion_rate: totalR > 0 ? Math.round((totalC / totalR) * 100) : 0, agents: agentPerformance });
+    } else {
+      // Manager sees all teams
+      const allTeamLeads = await db.prepare("SELECT id, first_name, last_name FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1").bind(tenantId).all();
+      const allAgents = await db.prepare("SELECT id, first_name, last_name, team_lead_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1").bind(tenantId).all();
+      const [allVisits, allRegs, allConvs] = await Promise.all([
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND created_at >= ? AND created_at <= ? GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all(),
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ? GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all()
+      ]);
+      const vMap = Object.fromEntries((allVisits.results || []).map(r => [r.agent_id, r.count]));
+      const rMap = Object.fromEntries((allRegs.results || []).map(r => [r.agent_id, r.count]));
+      const cMap = Object.fromEntries((allConvs.results || []).map(r => [r.agent_id, r.count]));
+      const teams = (allTeamLeads.results || []).map(tl => {
+        const teamAgts = (allAgents.results || []).filter(a => a.team_lead_id === tl.id);
+        const allIds = [tl.id, ...teamAgts.map(a => a.id)];
+        const tVisits = allIds.reduce((s, id) => s + (vMap[id] || 0), 0);
+        const tRegs = allIds.reduce((s, id) => s + (rMap[id] || 0), 0);
+        const tConvs = allIds.reduce((s, id) => s + (cMap[id] || 0), 0);
+        return { team_lead_id: tl.id, team_lead_name: tl.first_name + ' ' + tl.last_name, agent_count: teamAgts.length, visits: tVisits, registrations: tRegs, conversions: tConvs, conversion_rate: tRegs > 0 ? Math.round((tConvs / tRegs) * 100) : 0 };
+      });
+      const grandVisits = Object.values(vMap).reduce((s, c) => s + c, 0);
+      const grandRegs = Object.values(rMap).reduce((s, c) => s + c, 0);
+      const grandConvs = Object.values(cMap).reduce((s, c) => s + c, 0);
+      return c.json({ role: 'manager', period: { start: startD, end: endD }, total_team_leads: (allTeamLeads.results || []).length, total_agents: (allAgents.results || []).length, total_visits: grandVisits, total_registrations: grandRegs, total_conversions: grandConvs, conversion_rate: grandRegs > 0 ? Math.round((grandConvs / grandRegs) * 100) : 0, teams });
+    }
+  } catch (e) {
+    return c.json({ error: e.message, role, visits: 0, registrations: 0, conversions: 0, targets: {} });
+  }
+});
+
+// ==================== FIELD OPERATIONS: DRILL-DOWN ====================
+api.get('/field-ops/drill-down/:userId', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const targetUserId = c.req.param('userId');
+  const { start_date, end_date } = c.req.query();
+  const startD = start_date || new Date().toISOString().split('T')[0];
+  const endD = end_date || startD;
+  try {
+    const user = await db.prepare("SELECT id, first_name, last_name, role, manager_id, team_lead_id FROM users WHERE id = ? AND tenant_id = ?").bind(targetUserId, tenantId).first();
+    if (!user) return c.json({ message: 'User not found' }, 404);
+    if (user.role === 'team_lead') {
+      const teamAgents = await db.prepare("SELECT id, first_name, last_name, email, role FROM users WHERE team_lead_id = ? AND tenant_id = ? AND is_active = 1").bind(targetUserId, tenantId).all();
+      const agentPerf = [];
+      for (const agent of (teamAgents.results || [])) {
+        const [v, r, cv] = await Promise.all([
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ?").bind(agent.id, tenantId, startD, endD).first(),
+          db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ?").bind(agent.id, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').first(),
+          db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ?").bind(agent.id, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').first()
+        ]);
+        agentPerf.push({ agent_id: agent.id, agent_name: agent.first_name + ' ' + agent.last_name, email: agent.email, visits: v?.count || 0, registrations: r?.count || 0, conversions: cv?.count || 0 });
+      }
+      return c.json({ user, agents: agentPerf, period: { start: startD, end: endD } });
+    } else {
+      // Drill down into individual agent
+      const [visits, regs, dailyVisits] = await Promise.all([
+        db.prepare("SELECT v.*, c.name as customer_name FROM visits v LEFT JOIN customers c ON v.customer_id = c.id WHERE v.agent_id = ? AND v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? ORDER BY v.visit_date DESC LIMIT 50").bind(targetUserId, tenantId, startD, endD).all(),
+        db.prepare("SELECT * FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ? ORDER BY created_at DESC LIMIT 50").bind(targetUserId, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all(),
+        db.prepare("SELECT visit_date, COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? GROUP BY visit_date ORDER BY visit_date").bind(targetUserId, tenantId, startD, endD).all()
+      ]);
+      return c.json({ user, visits: visits.results || [], registrations: regs.results || [], daily_visits: dailyVisits.results || [], period: { start: startD, end: endD } });
+    }
+  } catch (e) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ==================== FIELD OPERATIONS: COMPANY AUTH ====================
+// NOTE: Company login is registered on the `app` router (public, no authMiddleware) — see below app.post('/api/field-ops/company-auth/login', ...)
+
+api.get('/field-ops/company-dashboard', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { company_id } = c.req.query();
+  if (!company_id) return c.json({ message: 'company_id required' }, 400);
+  const today = new Date().toISOString().split('T')[0];
+  const monthStart = today.substring(0, 7) + '-01';
+  try {
+    const [company, agentCount, todayVisits, monthVisits, totalRegs, totalConvs, recentRegs] = await Promise.all([
+      db.prepare('SELECT * FROM field_companies WHERE id = ? AND tenant_id = ?').bind(company_id, tenantId).first(),
+      db.prepare('SELECT COUNT(*) as count FROM agent_company_links WHERE company_id = ? AND tenant_id = ? AND is_active = 1').bind(company_id, tenantId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE acl.company_id = ? AND v.visit_date = ? AND v.tenant_id = ?").bind(company_id, today, tenantId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE acl.company_id = ? AND v.visit_date >= ? AND v.tenant_id = ?").bind(company_id, monthStart, tenantId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE company_id = ? AND tenant_id = ?").bind(company_id, tenantId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE company_id = ? AND tenant_id = ? AND converted = 1").bind(company_id, tenantId).first(),
+      db.prepare("SELECT ir.*, u.first_name || ' ' || u.last_name as agent_name FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id WHERE ir.company_id = ? AND ir.tenant_id = ? ORDER BY ir.created_at DESC LIMIT 10").bind(company_id, tenantId).all()
+    ]);
+    return c.json({ company, agents: agentCount?.count || 0, today_visits: todayVisits?.count || 0, month_visits: monthVisits?.count || 0, total_registrations: totalRegs?.count || 0, total_conversions: totalConvs?.count || 0, conversion_rate: (totalRegs?.count || 0) > 0 ? Math.round(((totalConvs?.count || 0) / (totalRegs?.count || 1)) * 100) : 0, recent_registrations: recentRegs.results || [] });
+  } catch (e) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ==================== FIELD OPERATIONS: BRAND INSIGHTS (SSReports-style) ====================
+api.get('/field-ops/brand-insights', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { company_id, start_date, end_date } = c.req.query();
+  const today = new Date().toISOString().split('T')[0];
+  const startD = start_date || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const endD = end_date || today;
+  try {
+    let companyFilter = '';
+    const baseParams = [tenantId, startD, endD];
+    if (company_id) { companyFilter = ' AND acl.company_id = ?'; baseParams.push(company_id); }
+    // Visits by day
+    const visitsByDay = await db.prepare("SELECT v.visit_date, COUNT(*) as count FROM visits v" + (company_id ? " JOIN agent_company_links acl ON v.agent_id = acl.agent_id" : "") + " WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ?" + companyFilter + " GROUP BY v.visit_date ORDER BY v.visit_date").bind(...baseParams).all();
+    // Visits by hour
+    const visitsByHour = await db.prepare("SELECT CAST(substr(v.check_in_time, 12, 2) AS INTEGER) as hour, COUNT(*) as count FROM visits v" + (company_id ? " JOIN agent_company_links acl ON v.agent_id = acl.agent_id" : "") + " WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? AND v.check_in_time IS NOT NULL" + companyFilter + " GROUP BY hour ORDER BY hour").bind(...baseParams).all();
+    // Agent performance
+    const agentPerf = await db.prepare("SELECT v.agent_id, u.first_name || ' ' || u.last_name as agent_name, COUNT(*) as visit_count, SUM(CASE WHEN v.status = 'completed' THEN 1 ELSE 0 END) as completed FROM visits v JOIN users u ON v.agent_id = u.id" + (company_id ? " JOIN agent_company_links acl ON v.agent_id = acl.agent_id" : "") + " WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ?" + companyFilter + " GROUP BY v.agent_id ORDER BY visit_count DESC LIMIT 20").bind(...baseParams).all();
+    // Registration stats
+    let regParams = [tenantId, startD + ' 00:00:00', endD + ' 23:59:59'];
+    let regFilter = '';
+    if (company_id) { regFilter = ' AND ir.company_id = ?'; regParams.push(company_id); }
+    const regStats = await db.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN converted = 1 THEN 1 ELSE 0 END) as converted FROM individual_registrations ir WHERE ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ?" + regFilter).bind(...regParams).first();
+    // Conversion by day
+    const convByDay = await db.prepare("SELECT DATE(ir.created_at) as day, COUNT(*) as registrations, SUM(CASE WHEN ir.converted = 1 THEN 1 ELSE 0 END) as conversions FROM individual_registrations ir WHERE ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ?" + regFilter + " GROUP BY day ORDER BY day").bind(...regParams).all();
+    // KPIs
+    const totalVisits = (visitsByDay.results || []).reduce((s, d) => s + d.count, 0);
+    const totalAgents = (agentPerf.results || []).length;
+    return c.json({
+      kpis: { total_visits: totalVisits, active_agents: totalAgents, total_registrations: regStats?.total || 0, total_conversions: regStats?.converted || 0, conversion_rate: (regStats?.total || 0) > 0 ? Math.round(((regStats?.converted || 0) / (regStats?.total || 1)) * 100) : 0 },
+      visits_by_day: visitsByDay.results || [],
+      visits_by_hour: visitsByHour.results || [],
+      agent_performance: agentPerf.results || [],
+      conversions_by_day: convByDay.results || [],
+      period: { start: startD, end: endD }
+    });
+  } catch (e) {
+    return c.json({ error: e.message, kpis: {}, visits_by_day: [], visits_by_hour: [], agent_performance: [], conversions_by_day: [] }, 500);
+  }
+});
+
+// ==================== FIELD OPERATIONS: COMPANY LOGINS MANAGEMENT ====================
+api.get('/field-ops/company-logins', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { company_id } = c.req.query();
+  try {
+    let q = "SELECT cl.id, cl.company_id, cl.email, cl.name, cl.role, cl.is_active, cl.last_login, cl.created_at, fc.name as company_name FROM company_logins cl JOIN field_companies fc ON cl.company_id = fc.id WHERE cl.tenant_id = ?";
+    const params = [tenantId];
+    if (company_id) { q += ' AND cl.company_id = ?'; params.push(company_id); }
+    q += ' ORDER BY cl.created_at DESC';
+    const logins = await db.prepare(q).bind(...params).all();
+    return c.json({ data: logins.results || [] });
+  } catch {
+    return c.json({ data: [] });
+  }
+});
+
+api.post('/field-ops/company-logins', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const body = await c.req.json();
+  if (!body.company_id || !body.email || !body.password || !body.name) return c.json({ message: 'company_id, email, password, and name required' }, 400);
+  const id = uuidv4();
+  const hashedPassword = await bcrypt.hash(body.password, 10);
+  await db.prepare('INSERT INTO company_logins (id, company_id, tenant_id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id, body.company_id, tenantId, body.email, hashedPassword, body.name, body.role || 'viewer').run();
+  return c.json({ id, message: 'Company login created' }, 201);
+});
+
+api.delete('/field-ops/company-logins/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  await db.prepare('UPDATE company_logins SET is_active = 0 WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+  return c.json({ message: 'Login deactivated' });
 });
 
 // ==================== CASH RECONCILIATION ROUTES ====================
@@ -6620,6 +7452,176 @@ api.post('/visits/:id/checkout-enhanced', async (c) => {
     body.outcome || 'completed', body.notes || null, id, tenantId).run();
 
   return c.json({ success: true, message: 'Visit checked out successfully' });
+});
+
+// ==================== COMPANY PORTAL AUTH MIDDLEWARE ====================
+const companyAuthMiddleware = async (c, next) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return c.json({ success: false, message: 'Unauthorized' }, 401);
+    }
+    const token = authHeader.substring(7);
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return c.json({ success: false, message: 'Malformed token' }, 401);
+    }
+    const jwtSecret = c.env.JWT_SECRET;
+    if (!jwtSecret) {
+      return c.json({ success: false, message: 'Server configuration error' }, 500);
+    }
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw', encoder.encode(jwtSecret),
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
+    );
+    const signatureBytes = Uint8Array.from(
+      atob(parts[2].replace(/-/g, '+').replace(/_/g, '/')),
+      ch => ch.charCodeAt(0)
+    );
+    const valid = await crypto.subtle.verify(
+      'HMAC', key, signatureBytes, encoder.encode(parts[0] + '.' + parts[1])
+    );
+    if (!valid) {
+      return c.json({ success: false, message: 'Invalid token' }, 401);
+    }
+    const payload = JSON.parse(atob(parts[1]));
+    if (payload.exp < Math.floor(Date.now() / 1000)) {
+      return c.json({ success: false, message: 'Token expired' }, 401);
+    }
+    // Company tokens have companyId in payload
+    if (!payload.companyId) {
+      return c.json({ success: false, message: 'Not a company token' }, 403);
+    }
+    c.set('userId', payload.userId);
+    c.set('tenantId', payload.tenantId);
+    c.set('companyId', payload.companyId);
+    c.set('role', payload.role);
+    await next();
+  } catch (error) {
+    return c.json({ success: false, message: 'Invalid token' }, 401);
+  }
+};
+
+// ==================== COMPANY PORTAL ENDPOINTS (company_token auth) ====================
+// Company Dashboard — company users only see their own company data
+app.get('/api/field-ops/company-portal/dashboard', companyAuthMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const companyId = c.get('companyId');
+  const today = new Date().toISOString().split('T')[0];
+  const monthStart = today.substring(0, 7) + '-01';
+  try {
+    const [company, agentCount, todayVisits, monthVisits, totalRegs, totalConvs, recentRegs] = await Promise.all([
+      db.prepare('SELECT * FROM field_companies WHERE id = ? AND tenant_id = ?').bind(companyId, tenantId).first(),
+      db.prepare('SELECT COUNT(*) as count FROM agent_company_links WHERE company_id = ? AND tenant_id = ? AND is_active = 1').bind(companyId, tenantId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE acl.company_id = ? AND v.visit_date = ? AND v.tenant_id = ?").bind(companyId, today, tenantId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE acl.company_id = ? AND v.visit_date >= ? AND v.tenant_id = ?").bind(companyId, monthStart, tenantId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE company_id = ? AND tenant_id = ?").bind(companyId, tenantId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE company_id = ? AND tenant_id = ? AND converted = 1").bind(companyId, tenantId).first(),
+      db.prepare("SELECT ir.*, u.first_name || ' ' || u.last_name as agent_name FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id WHERE ir.company_id = ? AND ir.tenant_id = ? ORDER BY ir.created_at DESC LIMIT 10").bind(companyId, tenantId).all()
+    ]);
+    return c.json({ company, agents: agentCount?.count || 0, today_visits: todayVisits?.count || 0, month_visits: monthVisits?.count || 0, total_registrations: totalRegs?.count || 0, total_conversions: totalConvs?.count || 0, conversion_rate: (totalRegs?.count || 0) > 0 ? Math.round(((totalConvs?.count || 0) / (totalRegs?.count || 1)) * 100) : 0, recent_registrations: recentRegs.results || [] });
+  } catch (e) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// Company Brand Insights (SSReports-style deep analytics) — company isolated
+app.get('/api/field-ops/company-portal/brand-insights', companyAuthMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const companyId = c.get('companyId');
+  const { start_date, end_date } = c.req.query();
+  const today = new Date().toISOString().split('T')[0];
+  const startD = start_date || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const endD = end_date || today;
+  try {
+    const baseParams = [tenantId, startD, endD, companyId];
+    // Visits by day
+    const visitsByDay = await db.prepare("SELECT v.visit_date, COUNT(*) as count FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? AND acl.company_id = ? GROUP BY v.visit_date ORDER BY v.visit_date").bind(...baseParams).all();
+    // Visits by hour
+    const visitsByHour = await db.prepare("SELECT CAST(substr(v.check_in_time, 12, 2) AS INTEGER) as hour, COUNT(*) as count FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? AND acl.company_id = ? AND v.check_in_time IS NOT NULL GROUP BY hour ORDER BY hour").bind(...baseParams).all();
+    // Agent performance
+    const agentPerf = await db.prepare("SELECT v.agent_id, u.first_name || ' ' || u.last_name as agent_name, COUNT(*) as visit_count, SUM(CASE WHEN v.status = 'completed' THEN 1 ELSE 0 END) as completed FROM visits v JOIN users u ON v.agent_id = u.id JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? AND acl.company_id = ? GROUP BY v.agent_id ORDER BY visit_count DESC LIMIT 20").bind(...baseParams).all();
+    // Registration stats
+    const regParams = [tenantId, startD + ' 00:00:00', endD + ' 23:59:59', companyId];
+    const regStats = await db.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN converted = 1 THEN 1 ELSE 0 END) as converted FROM individual_registrations ir WHERE ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? AND ir.company_id = ?").bind(...regParams).first();
+    // Conversions by day
+    const convByDay = await db.prepare("SELECT DATE(ir.created_at) as day, COUNT(*) as registrations, SUM(CASE WHEN ir.converted = 1 THEN 1 ELSE 0 END) as conversions FROM individual_registrations ir WHERE ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? AND ir.company_id = ? GROUP BY day ORDER BY day").bind(...regParams).all();
+    // Visits by day of week
+    const visitsByDayOfWeek = await db.prepare("SELECT CASE CAST(strftime('%w', v.visit_date) AS INTEGER) WHEN 0 THEN 'Sun' WHEN 1 THEN 'Mon' WHEN 2 THEN 'Tue' WHEN 3 THEN 'Wed' WHEN 4 THEN 'Thu' WHEN 5 THEN 'Fri' WHEN 6 THEN 'Sat' END as day_name, CAST(strftime('%w', v.visit_date) AS INTEGER) as day_num, COUNT(*) as count FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? AND acl.company_id = ? GROUP BY day_num ORDER BY day_num").bind(...baseParams).all();
+    // Daily targets vs actuals
+    const targetVsActual = await db.prepare("SELECT dt.target_visits, dt.target_registrations, dt.target_conversions, u.first_name || ' ' || u.last_name as agent_name, (SELECT COUNT(*) FROM visits v2 WHERE v2.agent_id = dt.agent_id AND v2.visit_date = ? AND v2.tenant_id = ?) as actual_visits, (SELECT COUNT(*) FROM individual_registrations ir2 WHERE ir2.agent_id = dt.agent_id AND ir2.company_id = dt.company_id AND DATE(ir2.created_at) = ? AND ir2.tenant_id = ?) as actual_registrations FROM daily_targets dt JOIN users u ON dt.agent_id = u.id WHERE dt.company_id = ? AND dt.tenant_id = ? AND dt.target_date = ?").bind(today, tenantId, today, tenantId, companyId, tenantId, today).all();
+    // Recent individual registrations
+    const recentRegs = await db.prepare("SELECT ir.*, u.first_name || ' ' || u.last_name as agent_name FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id WHERE ir.company_id = ? AND ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? ORDER BY ir.created_at DESC LIMIT 20").bind(companyId, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all();
+    // KPIs
+    const totalVisits = (visitsByDay.results || []).reduce((s, d) => s + (d.count || 0), 0);
+    const totalAgents = (agentPerf.results || []).length;
+    return c.json({
+      kpis: { total_visits: totalVisits, active_agents: totalAgents, total_registrations: regStats?.total || 0, total_conversions: regStats?.converted || 0, conversion_rate: (regStats?.total || 0) > 0 ? Math.round(((regStats?.converted || 0) / (regStats?.total || 1)) * 100) : 0 },
+      visits_by_day: visitsByDay.results || [],
+      visits_by_hour: visitsByHour.results || [],
+      visits_by_day_of_week: visitsByDayOfWeek.results || [],
+      agent_performance: agentPerf.results || [],
+      conversions_by_day: convByDay.results || [],
+      target_vs_actual: targetVsActual.results || [],
+      recent_registrations: recentRegs.results || [],
+      period: { start: startD, end: endD }
+    });
+  } catch (e) {
+    return c.json({ error: e.message, kpis: {}, visits_by_day: [], visits_by_hour: [], visits_by_day_of_week: [], agent_performance: [], conversions_by_day: [], target_vs_actual: [], recent_registrations: [] }, 500);
+  }
+});
+
+// Company Portal: Export data (CSV)
+app.get('/api/field-ops/company-portal/export', companyAuthMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const companyId = c.get('companyId');
+  const { type, start_date, end_date } = c.req.query();
+  const today = new Date().toISOString().split('T')[0];
+  const startD = start_date || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const endD = end_date || today;
+  try {
+    let rows = [];
+    let headers = [];
+    if (type === 'registrations') {
+      headers = ['Name', 'ID Number', 'Phone', 'Agent', 'Status', 'Date'];
+      const result = await db.prepare("SELECT ir.first_name, ir.last_name, ir.id_number, ir.phone, u.first_name || ' ' || u.last_name as agent_name, CASE WHEN ir.converted = 1 THEN 'Converted' ELSE 'Pending' END as status, ir.created_at FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id WHERE ir.company_id = ? AND ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? ORDER BY ir.created_at DESC").bind(companyId, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all();
+      rows = (result.results || []).map(r => [r.first_name + ' ' + r.last_name, r.id_number || '', r.phone || '', r.agent_name || '', r.status, r.created_at]);
+    } else {
+      headers = ['Date', 'Agent', 'Status', 'Check In', 'Check Out', 'Notes'];
+      const result = await db.prepare("SELECT v.visit_date, u.first_name || ' ' || u.last_name as agent_name, v.status, v.check_in_time, v.check_out_time, v.notes FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id LEFT JOIN users u ON v.agent_id = u.id WHERE acl.company_id = ? AND v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? ORDER BY v.visit_date DESC").bind(companyId, tenantId, startD, endD).all();
+      rows = (result.results || []).map(r => [r.visit_date, r.agent_name || '', r.status || '', r.check_in_time || '', r.check_out_time || '', (r.notes || '').replace(/,/g, ';')]);
+    }
+    const csvLines = [headers.join(','), ...rows.map(r => r.map(v => String(v).includes(',') ? `"${v}"` : v).join(','))];
+    return new Response(csvLines.join('\n'), {
+      headers: { 'Content-Type': 'text/csv', 'Content-Disposition': `attachment; filename="${type || 'visits'}_export_${startD}_to_${endD}.csv"` }
+    });
+  } catch (e) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// ==================== FIELD OPERATIONS: COMPANY AUTH (PUBLIC - no authMiddleware) ====================
+app.post('/api/field-ops/company-auth/login', async (c) => {
+  const db = c.env.DB;
+  const { email, password } = await c.req.json();
+  if (!email || !password) return c.json({ message: 'Email and password required' }, 400);
+  try {
+    const login = await db.prepare("SELECT cl.*, fc.name as company_name, fc.tenant_id FROM company_logins cl JOIN field_companies fc ON cl.company_id = fc.id WHERE cl.email = ? AND cl.is_active = 1").bind(email).first();
+    if (!login) return c.json({ message: 'Invalid credentials' }, 401);
+    const passwordValid = await bcrypt.compare(password, login.password_hash);
+    if (!passwordValid) return c.json({ message: 'Invalid credentials' }, 401);
+    await db.prepare("UPDATE company_logins SET last_login = CURRENT_TIMESTAMP WHERE id = ?").bind(login.id).run();
+    const jwtSecret = c.env.JWT_SECRET;
+    if (!jwtSecret) return c.json({ message: 'Server configuration error' }, 500);
+    const token = await generateToken({ userId: login.id, tenantId: login.tenant_id, role: 'company_' + login.role, companyId: login.company_id }, jwtSecret);
+    return c.json({ token, company_id: login.company_id, company_name: login.company_name, role: login.role, name: login.name });
+  } catch (e) {
+    return c.json({ message: 'Login failed' }, 500);
+  }
 });
 
 // ==================== MOUNT AND EXPORT ====================
