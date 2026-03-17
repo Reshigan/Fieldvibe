@@ -3153,8 +3153,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
       // Agent sees own performance
       const [visits, registrations, conversions, targets] = await Promise.all([
         db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ?").bind(userId, tenantId, startD, endD).first(),
-        db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ?").bind(userId, tenantId, startD + 'T00:00:00', endD + 'T23:59:59').first(),
-        db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ?").bind(userId, tenantId, startD + 'T00:00:00', endD + 'T23:59:59').first(),
+        db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ?").bind(userId, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').first(),
+        db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ?").bind(userId, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').first(),
         db.prepare("SELECT * FROM daily_targets WHERE agent_id = ? AND tenant_id = ? AND target_date = ?").bind(userId, tenantId, today).first()
       ]);
       return c.json({
@@ -3175,8 +3175,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
       const placeholders = agentIds.map(() => '?').join(',');
       const [totalVisits, totalRegs, totalConvs] = await Promise.all([
         db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD, endD, ...agentIds).all(),
-        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND created_at >= ? AND created_at <= ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD + 'T00:00:00', endD + 'T23:59:59', ...agentIds).all(),
-        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD + 'T00:00:00', endD + 'T23:59:59', ...agentIds).all()
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND created_at >= ? AND created_at <= ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59', ...agentIds).all(),
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59', ...agentIds).all()
       ]);
       const visitMap = Object.fromEntries((totalVisits.results || []).map(r => [r.agent_id, r.count]));
       const regMap = Object.fromEntries((totalRegs.results || []).map(r => [r.agent_id, r.count]));
@@ -3195,8 +3195,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
       const allAgents = await db.prepare("SELECT id, first_name, last_name, team_lead_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1").bind(tenantId).all();
       const [allVisits, allRegs, allConvs] = await Promise.all([
         db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
-        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND created_at >= ? AND created_at <= ? GROUP BY agent_id").bind(tenantId, startD + 'T00:00:00', endD + 'T23:59:59').all(),
-        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ? GROUP BY agent_id").bind(tenantId, startD + 'T00:00:00', endD + 'T23:59:59').all()
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND created_at >= ? AND created_at <= ? GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all(),
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ? GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all()
       ]);
       const vMap = Object.fromEntries((allVisits.results || []).map(r => [r.agent_id, r.count]));
       const rMap = Object.fromEntries((allRegs.results || []).map(r => [r.agent_id, r.count]));
@@ -3236,8 +3236,8 @@ api.get('/field-ops/drill-down/:userId', authMiddleware, async (c) => {
       for (const agent of (teamAgents.results || [])) {
         const [v, r, cv] = await Promise.all([
           db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ?").bind(agent.id, tenantId, startD, endD).first(),
-          db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ?").bind(agent.id, tenantId, startD + 'T00:00:00', endD + 'T23:59:59').first(),
-          db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ?").bind(agent.id, tenantId, startD + 'T00:00:00', endD + 'T23:59:59').first()
+          db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ?").bind(agent.id, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').first(),
+          db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ?").bind(agent.id, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').first()
         ]);
         agentPerf.push({ agent_id: agent.id, agent_name: agent.first_name + ' ' + agent.last_name, email: agent.email, visits: v?.count || 0, registrations: r?.count || 0, conversions: cv?.count || 0 });
       }
@@ -3246,7 +3246,7 @@ api.get('/field-ops/drill-down/:userId', authMiddleware, async (c) => {
       // Drill down into individual agent
       const [visits, regs, dailyVisits] = await Promise.all([
         db.prepare("SELECT v.*, c.name as customer_name FROM visits v LEFT JOIN customers c ON v.customer_id = c.id WHERE v.agent_id = ? AND v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? ORDER BY v.visit_date DESC LIMIT 50").bind(targetUserId, tenantId, startD, endD).all(),
-        db.prepare("SELECT * FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ? ORDER BY created_at DESC LIMIT 50").bind(targetUserId, tenantId, startD + 'T00:00:00', endD + 'T23:59:59').all(),
+        db.prepare("SELECT * FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ? ORDER BY created_at DESC LIMIT 50").bind(targetUserId, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all(),
         db.prepare("SELECT visit_date, COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? GROUP BY visit_date ORDER BY visit_date").bind(targetUserId, tenantId, startD, endD).all()
       ]);
       return c.json({ user, visits: visits.results || [], registrations: regs.results || [], daily_visits: dailyVisits.results || [], period: { start: startD, end: endD } });
@@ -3301,7 +3301,7 @@ api.get('/field-ops/brand-insights', authMiddleware, async (c) => {
     // Agent performance
     const agentPerf = await db.prepare("SELECT v.agent_id, u.first_name || ' ' || u.last_name as agent_name, COUNT(*) as visit_count, SUM(CASE WHEN v.status = 'completed' THEN 1 ELSE 0 END) as completed FROM visits v JOIN users u ON v.agent_id = u.id" + (company_id ? " JOIN agent_company_links acl ON v.agent_id = acl.agent_id" : "") + " WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ?" + companyFilter + " GROUP BY v.agent_id ORDER BY visit_count DESC LIMIT 20").bind(...baseParams).all();
     // Registration stats
-    let regParams = [tenantId, startD + 'T00:00:00', endD + 'T23:59:59'];
+    let regParams = [tenantId, startD + ' 00:00:00', endD + ' 23:59:59'];
     let regFilter = '';
     if (company_id) { regFilter = ' AND ir.company_id = ?'; regParams.push(company_id); }
     const regStats = await db.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN converted = 1 THEN 1 ELSE 0 END) as converted FROM individual_registrations ir WHERE ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ?" + regFilter).bind(...regParams).first();
@@ -7066,16 +7066,16 @@ app.get('/api/field-ops/company-portal/brand-insights', companyAuthMiddleware, a
     // Agent performance
     const agentPerf = await db.prepare("SELECT v.agent_id, u.first_name || ' ' || u.last_name as agent_name, COUNT(*) as visit_count, SUM(CASE WHEN v.status = 'completed' THEN 1 ELSE 0 END) as completed FROM visits v JOIN users u ON v.agent_id = u.id JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? AND acl.company_id = ? GROUP BY v.agent_id ORDER BY visit_count DESC LIMIT 20").bind(...baseParams).all();
     // Registration stats
-    const regParams = [tenantId, startD + 'T00:00:00', endD + 'T23:59:59', companyId];
+    const regParams = [tenantId, startD + ' 00:00:00', endD + ' 23:59:59', companyId];
     const regStats = await db.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN converted = 1 THEN 1 ELSE 0 END) as converted FROM individual_registrations ir WHERE ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? AND ir.company_id = ?").bind(...regParams).first();
     // Conversions by day
     const convByDay = await db.prepare("SELECT DATE(ir.created_at) as day, COUNT(*) as registrations, SUM(CASE WHEN ir.converted = 1 THEN 1 ELSE 0 END) as conversions FROM individual_registrations ir WHERE ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? AND ir.company_id = ? GROUP BY day ORDER BY day").bind(...regParams).all();
     // Visits by day of week
     const visitsByDayOfWeek = await db.prepare("SELECT CASE CAST(strftime('%w', v.visit_date) AS INTEGER) WHEN 0 THEN 'Sun' WHEN 1 THEN 'Mon' WHEN 2 THEN 'Tue' WHEN 3 THEN 'Wed' WHEN 4 THEN 'Thu' WHEN 5 THEN 'Fri' WHEN 6 THEN 'Sat' END as day_name, CAST(strftime('%w', v.visit_date) AS INTEGER) as day_num, COUNT(*) as count FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? AND acl.company_id = ? GROUP BY day_num ORDER BY day_num").bind(...baseParams).all();
     // Daily targets vs actuals
-    const targetVsActual = await db.prepare("SELECT dt.target_visits, dt.target_registrations, dt.target_conversions, u.first_name || ' ' || u.last_name as agent_name, (SELECT COUNT(*) FROM visits v2 WHERE v2.agent_id = dt.agent_id AND v2.visit_date = ? AND v2.tenant_id = ?) as actual_visits, (SELECT COUNT(*) FROM individual_registrations ir2 WHERE ir2.agent_id = dt.agent_id AND ir2.company_id = dt.company_id AND DATE(ir2.created_at) = ? AND ir2.tenant_id = ?) as actual_registrations FROM daily_targets dt JOIN users u ON dt.agent_id = u.id WHERE dt.company_id = ? AND dt.tenant_id = ?").bind(today, tenantId, today, tenantId, companyId, tenantId).all();
+    const targetVsActual = await db.prepare("SELECT dt.target_visits, dt.target_registrations, dt.target_conversions, u.first_name || ' ' || u.last_name as agent_name, (SELECT COUNT(*) FROM visits v2 WHERE v2.agent_id = dt.agent_id AND v2.visit_date = ? AND v2.tenant_id = ?) as actual_visits, (SELECT COUNT(*) FROM individual_registrations ir2 WHERE ir2.agent_id = dt.agent_id AND ir2.company_id = dt.company_id AND DATE(ir2.created_at) = ? AND ir2.tenant_id = ?) as actual_registrations FROM daily_targets dt JOIN users u ON dt.agent_id = u.id WHERE dt.company_id = ? AND dt.tenant_id = ? AND dt.target_date = ?").bind(today, tenantId, today, tenantId, companyId, tenantId, today).all();
     // Recent individual registrations
-    const recentRegs = await db.prepare("SELECT ir.*, u.first_name || ' ' || u.last_name as agent_name FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id WHERE ir.company_id = ? AND ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? ORDER BY ir.created_at DESC LIMIT 20").bind(companyId, tenantId, startD + 'T00:00:00', endD + 'T23:59:59').all();
+    const recentRegs = await db.prepare("SELECT ir.*, u.first_name || ' ' || u.last_name as agent_name FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id WHERE ir.company_id = ? AND ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? ORDER BY ir.created_at DESC LIMIT 20").bind(companyId, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all();
     // KPIs
     const totalVisits = (visitsByDay.results || []).reduce((s, d) => s + (d.count || 0), 0);
     const totalAgents = (agentPerf.results || []).length;
@@ -7109,7 +7109,7 @@ app.get('/api/field-ops/company-portal/export', companyAuthMiddleware, async (c)
     let headers = [];
     if (type === 'registrations') {
       headers = ['Name', 'ID Number', 'Phone', 'Agent', 'Status', 'Date'];
-      const result = await db.prepare("SELECT ir.first_name, ir.last_name, ir.id_number, ir.phone, u.first_name || ' ' || u.last_name as agent_name, CASE WHEN ir.converted = 1 THEN 'Converted' ELSE 'Pending' END as status, ir.created_at FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id WHERE ir.company_id = ? AND ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? ORDER BY ir.created_at DESC").bind(companyId, tenantId, startD + 'T00:00:00', endD + 'T23:59:59').all();
+      const result = await db.prepare("SELECT ir.first_name, ir.last_name, ir.id_number, ir.phone, u.first_name || ' ' || u.last_name as agent_name, CASE WHEN ir.converted = 1 THEN 'Converted' ELSE 'Pending' END as status, ir.created_at FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id WHERE ir.company_id = ? AND ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? ORDER BY ir.created_at DESC").bind(companyId, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all();
       rows = (result.results || []).map(r => [r.first_name + ' ' + r.last_name, r.id_number || '', r.phone || '', r.agent_name || '', r.status, r.created_at]);
     } else {
       headers = ['Date', 'Agent', 'Status', 'Check In', 'Check Out', 'Notes'];
