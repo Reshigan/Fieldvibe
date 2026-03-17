@@ -1967,7 +1967,7 @@ api.put('/orders/:id', authMiddleware, async (c) => {
   const sets = [];
   const vals = [];
   for (const [k, v] of Object.entries(body)) {
-    if (['status', 'notes', 'total_amount', 'payment_status', 'payment_method', 'delivery_date', 'order_date'].includes(k)) { sets.push(k + ' = ?'); vals.push(v); }
+    if (['status', 'notes', 'total_amount', 'payment_status', 'payment_method', 'delivery_date', 'customer_id'].includes(k)) { sets.push(k + ' = ?'); vals.push(v); }
   }
   if (sets.length === 0) return c.json({ message: 'No valid fields' }, 400);
   await db.prepare('UPDATE sales_orders SET ' + sets.join(', ') + ', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?').bind(...vals, id, tenantId).run();
