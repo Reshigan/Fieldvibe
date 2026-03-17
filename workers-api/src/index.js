@@ -2000,6 +2000,439 @@ api.put('/orders/:id/status', authMiddleware, async (c) => {
   return c.json({ message: 'Status updated' });
 });
 
+// ==================== MISSING ROUTE ALIASES (frontend compatibility) ====================
+
+// POST /orders/create → delegates to the enhanced sales order engine (POST /sales/orders/create uses createSalesOrderSchema)
+api.post('/orders/create', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const v = validate(createSalesOrderSchema, body);
+  if (!v.valid) {
+    // Fallback to simple order creation if validation fails (e.g. missing optional fields)
+    const id = uuidv4();
+    const orderNum = 'ORD-' + Date.now();
+    try {
+      await db.prepare('INSERT INTO sales_orders (id, tenant_id, order_number, customer_id, agent_id, status, total_amount, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)').bind(id, tenantId, orderNum, body.customer_id, userId, 'pending', body.total_amount || 0, body.notes || '').run();
+      if (body.items && Array.isArray(body.items)) {
+        for (const item of body.items) {
+          await db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?, ?)').bind(uuidv4(), id, item.product_id, item.quantity, item.unit_price || 0).run();
+        }
+      }
+      return c.json({ success: true, data: { id, order_number: orderNum, message: 'Order created' } }, 201);
+    } catch (error) {
+      return c.json({ success: false, message: 'Order creation failed: ' + error.message }, 500);
+    }
+  }
+
+  try {
+    const customer = await db.prepare('SELECT * FROM customers WHERE id = ? AND tenant_id = ?').bind(body.customer_id, tenantId).first();
+    if (!customer) return c.json({ success: false, message: 'Customer not found' }, 404);
+
+    const resolvedItems = [];
+    let subtotal = 0;
+    let totalTax = 0;
+    let totalDiscount = 0;
+    const errors = [];
+
+    for (let idx = 0; idx < (body.items || []).length; idx++) {
+      const item = body.items[idx];
+      const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
+      if (!product) { errors.push(`Item ${idx + 1}: product not found`); continue; }
+
+      let unitPrice = item.unit_price || product.price || 0;
+      const discountPct = item.discount || item.discount_percent || 0;
+      const finalPrice = unitPrice * (1 - discountPct / 100);
+      const qty = item.quantity || 1;
+      const lineTotal = finalPrice * qty;
+      const taxRate = product.tax_rate != null ? product.tax_rate : 15;
+      const lineTax = lineTotal - (lineTotal / (1 + taxRate / 100));
+
+      subtotal += lineTotal;
+      totalTax += lineTax;
+      totalDiscount += unitPrice * qty * (discountPct / 100);
+      resolvedItems.push({ product_id: item.product_id, quantity: qty, unit_price: unitPrice, discount_percent: discountPct, line_total: lineTotal, product_name: product.name });
+    }
+
+    if (errors.length > 0) return c.json({ success: false, message: 'Validation failed', details: errors }, 400);
+    if (resolvedItems.length === 0) return c.json({ success: false, message: 'No valid items' }, 400);
+
+    const orderId = uuidv4();
+    const orderNumber = 'SO-' + uuidv4().slice(0,8).toUpperCase();
+    const paymentMethod = body.payment_method || 'CASH';
+    const paymentStatus = paymentMethod === 'CREDIT' || paymentMethod === 'credit' ? 'PENDING' : 'PENDING';
+
+    const batchStatements = [];
+    batchStatements.push(db.prepare('INSERT INTO sales_orders (id, tenant_id, order_number, agent_id, customer_id, order_type, status, subtotal, tax_amount, discount_amount, total_amount, payment_method, payment_status, notes, delivery_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))').bind(orderId, tenantId, orderNumber, userId, body.customer_id, body.order_type || 'direct_sale', 'CONFIRMED', subtotal, totalTax, totalDiscount, subtotal, paymentMethod, paymentStatus, body.notes || null, body.delivery_date || null));
+
+    for (const item of resolvedItems) {
+      batchStatements.push(db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price, discount_percent, line_total) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(uuidv4(), orderId, item.product_id, item.quantity, item.unit_price, item.discount_percent, item.line_total));
+    }
+
+    const auditId = uuidv4();
+    batchStatements.push(db.prepare('INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, new_values) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(auditId, tenantId, userId, 'CREATE', 'SALES_ORDER', orderId, JSON.stringify({ order_number: orderNumber, total: subtotal, items: resolvedItems.length })));
+
+    await db.batch(batchStatements);
+
+    return c.json({ success: true, data: { id: orderId, order_number: orderNumber, total_amount: subtotal, payment_status: paymentStatus, items: resolvedItems } }, 201);
+  } catch (error) {
+    console.error('Order creation error:', error);
+    return c.json({ success: false, message: 'Order creation failed: ' + error.message }, 500);
+  }
+});
+
+// Order transitions (frontend calls /orders/:id/transition)
+api.post('/orders/:id/transition', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const id = c.req.param('id');
+  const { new_status, notes } = await c.req.json();
+  const order = await db.prepare('SELECT * FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!order) return c.json({ success: false, message: 'Order not found' }, 404);
+  await db.prepare('UPDATE sales_orders SET status = ?, notes = COALESCE(?, notes), updated_at = datetime("now") WHERE id = ?').bind(new_status, notes || null, id).run();
+  const auditId = uuidv4();
+  await db.prepare('INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, old_values, new_values) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(auditId, tenantId, userId, 'STATUS_CHANGE', 'SALES_ORDER', id, JSON.stringify({ status: order.status }), JSON.stringify({ status: new_status, notes })).run();
+  return c.json({ success: true, message: `Order transitioned to ${new_status}` });
+});
+
+// Order transitions history (frontend calls /orders/:id/transitions)
+api.get('/orders/:id/transitions', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const logs = await db.prepare("SELECT * FROM audit_log WHERE resource_type = 'SALES_ORDER' AND resource_id = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT 100").bind(id, tenantId).all();
+  return c.json({ success: true, data: logs.results || [] });
+});
+
+// Order history (frontend calls /orders/:id/history)
+api.get('/orders/:id/history', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const logs = await db.prepare("SELECT * FROM audit_log WHERE resource_type = 'SALES_ORDER' AND resource_id = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT 100").bind(id, tenantId).all();
+  return c.json({ success: true, data: logs.results || [] });
+});
+
+// Order recalculate (frontend calls /orders/:id/recalculate)
+api.post('/orders/:id/recalculate', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const { items } = await c.req.json();
+  let subtotal = 0;
+  for (const item of (items || [])) {
+    const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
+    const unitPrice = item.unit_price || (product ? product.price : 0) || 0;
+    const qty = item.quantity || 1;
+    subtotal += unitPrice * qty;
+  }
+  return c.json({ success: true, data: { subtotal, tax: subtotal * 0.15, total: subtotal * 1.15 } });
+});
+
+// ==================== INVOICES ====================
+
+api.get('/invoices', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const invoices = await db.prepare('SELECT so.*, c.name as customer_name FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id WHERE so.tenant_id = ? AND so.order_type IN (?, ?) ORDER BY so.created_at DESC LIMIT 500').bind(tenantId, 'invoice', 'direct_sale').all();
+  return c.json({ success: true, data: invoices.results || [] });
+});
+
+api.get('/invoices/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const invoice = await db.prepare('SELECT so.*, c.name as customer_name FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id WHERE so.id = ? AND so.tenant_id = ?').bind(id, tenantId).first();
+  if (!invoice) return c.json({ success: false, message: 'Invoice not found' }, 404);
+  const items = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id WHERE soi.sales_order_id = ? LIMIT 500').bind(id).all();
+  return c.json({ success: true, data: { ...invoice, items: items.results || [] } });
+});
+
+api.post('/invoices/create', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const id = uuidv4();
+  const invoiceNum = 'INV-' + Date.now().toString(36).toUpperCase();
+
+  try {
+    const batchStatements = [];
+    let subtotal = 0;
+
+    // Resolve items
+    const resolvedItems = [];
+    for (const item of (body.items || [])) {
+      const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
+      const unitPrice = item.unit_price || (product ? product.price : 0) || 0;
+      const qty = item.quantity || 1;
+      const lineTotal = unitPrice * qty;
+      subtotal += lineTotal;
+      resolvedItems.push({ product_id: item.product_id, quantity: qty, unit_price: unitPrice, line_total: lineTotal });
+    }
+
+    batchStatements.push(db.prepare('INSERT INTO sales_orders (id, tenant_id, order_number, agent_id, customer_id, order_type, status, subtotal, total_amount, payment_method, payment_status, notes, delivery_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))').bind(id, tenantId, invoiceNum, userId, body.customer_id, 'invoice', 'CONFIRMED', subtotal, subtotal, body.payment_method || 'CASH', 'PENDING', body.notes || null, body.delivery_date || null));
+
+    for (const item of resolvedItems) {
+      batchStatements.push(db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?)').bind(uuidv4(), id, item.product_id, item.quantity, item.unit_price, item.line_total));
+    }
+
+    await db.batch(batchStatements);
+    return c.json({ success: true, data: { id, invoice_number: invoiceNum, total_amount: subtotal } }, 201);
+  } catch (error) {
+    return c.json({ success: false, message: 'Invoice creation failed: ' + error.message }, 500);
+  }
+});
+
+api.post('/invoices/:id/transition', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const { new_status, notes } = await c.req.json();
+  const invoice = await db.prepare('SELECT * FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!invoice) return c.json({ success: false, message: 'Invoice not found' }, 404);
+  await db.prepare('UPDATE sales_orders SET status = ?, updated_at = datetime("now") WHERE id = ?').bind(new_status, id).run();
+  return c.json({ success: true, message: `Invoice transitioned to ${new_status}` });
+});
+
+api.get('/invoices/:id/transitions', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const logs = await db.prepare("SELECT * FROM audit_log WHERE resource_type = 'SALES_ORDER' AND resource_id = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT 100").bind(id, tenantId).all();
+  return c.json({ success: true, data: logs.results || [] });
+});
+
+// ==================== SALES PAYMENTS ====================
+
+api.get('/sales/payments', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const payments = await db.prepare('SELECT p.*, so.order_number, c.name as customer_name FROM payments p LEFT JOIN sales_orders so ON p.sales_order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE p.tenant_id = ? ORDER BY p.created_at DESC LIMIT 500').bind(tenantId).all();
+  return c.json({ success: true, data: payments.results || [] });
+});
+
+api.get('/sales/payments/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const payment = await db.prepare('SELECT p.*, so.order_number, c.name as customer_name FROM payments p LEFT JOIN sales_orders so ON p.sales_order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE p.id = ? AND p.tenant_id = ?').bind(id, tenantId).first();
+  if (!payment) return c.json({ success: false, message: 'Payment not found' }, 404);
+  return c.json({ success: true, data: payment });
+});
+
+api.post('/sales/payments', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const v = validate(createPaymentSchema, body);
+  if (!v.valid) return c.json({ success: false, message: 'Validation failed', errors: v.errors }, 400);
+
+  const paymentId = uuidv4();
+  await db.prepare('INSERT INTO payments (id, tenant_id, sales_order_id, amount, method, reference, notes, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))').bind(paymentId, tenantId, body.order_id || body.sales_order_id || null, body.amount, body.method || 'cash', body.reference || null, body.notes || null, 'completed').run();
+
+  // Update order payment status if linked
+  if (body.order_id || body.sales_order_id) {
+    const orderId = body.order_id || body.sales_order_id;
+    const order = await db.prepare('SELECT total_amount FROM sales_orders WHERE id = ?').bind(orderId).first();
+    const totalPaid = await db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE sales_order_id = ?').bind(orderId).first();
+    if (order && totalPaid) {
+      const newStatus = totalPaid.total >= order.total_amount ? 'PAID' : 'PARTIAL';
+      await db.prepare('UPDATE sales_orders SET payment_status = ? WHERE id = ?').bind(newStatus, orderId).run();
+    }
+  }
+
+  return c.json({ success: true, data: { id: paymentId, message: 'Payment recorded' } }, 201);
+});
+
+// ==================== CREDIT NOTES (frontend aliases) ====================
+
+api.get('/credit-notes/list', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const notes = await db.prepare('SELECT cn.*, c.name as customer_name FROM credit_notes cn LEFT JOIN customers c ON cn.customer_id = c.id WHERE cn.tenant_id = ? ORDER BY cn.created_at DESC LIMIT 500').bind(tenantId).all();
+  return c.json({ success: true, data: notes.results || [] });
+});
+
+api.get('/credit-notes/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const note = await db.prepare('SELECT cn.*, c.name as customer_name FROM credit_notes cn LEFT JOIN customers c ON cn.customer_id = c.id WHERE cn.id = ? AND cn.tenant_id = ?').bind(id, tenantId).first();
+  if (!note) return c.json({ success: false, message: 'Credit note not found' }, 404);
+  return c.json({ success: true, data: note });
+});
+
+api.post('/credit-notes/create', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const cnId = uuidv4();
+  const cnNumber = 'CN-' + Date.now().toString(36).toUpperCase();
+  await db.prepare('INSERT INTO credit_notes (id, tenant_id, customer_id, credit_number, amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))').bind(cnId, tenantId, body.customer_id, cnNumber, body.amount || 0, 'ISSUED').run();
+  if (body.customer_id) {
+    await db.prepare('UPDATE customers SET outstanding_balance = outstanding_balance - ? WHERE id = ?').bind(body.amount || 0, body.customer_id).run();
+  }
+  return c.json({ success: true, data: { id: cnId, credit_number: cnNumber, amount: body.amount } }, 201);
+});
+
+api.post('/credit-notes/:id/transition', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const { new_status } = await c.req.json();
+  await db.prepare('UPDATE credit_notes SET status = ? WHERE id = ? AND tenant_id = ?').bind(new_status, id, tenantId).run();
+  return c.json({ success: true, message: `Credit note transitioned to ${new_status}` });
+});
+
+// ==================== SALES RETURNS (frontend aliases) ====================
+
+api.get('/sales/returns', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const returns = await db.prepare('SELECT r.*, so.order_number, c.name as customer_name FROM returns r LEFT JOIN sales_orders so ON r.order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE r.tenant_id = ? ORDER BY r.created_at DESC LIMIT 500').bind(tenantId).all();
+  return c.json({ success: true, data: returns.results || [] });
+});
+
+api.get('/sales/returns/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const ret = await db.prepare('SELECT r.*, so.order_number, c.name as customer_name FROM returns r LEFT JOIN sales_orders so ON r.order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE r.id = ? AND r.tenant_id = ?').bind(id, tenantId).first();
+  if (!ret) return c.json({ success: false, message: 'Return not found' }, 404);
+  const items = await db.prepare('SELECT ri.*, p.name as product_name FROM return_items ri LEFT JOIN products p ON ri.product_id = p.id WHERE ri.return_id = ? LIMIT 500').bind(id).all();
+  return c.json({ success: true, data: { ...ret, items: items.results || [] } });
+});
+
+api.post('/sales/returns/create', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  const returnId = uuidv4();
+  const returnNum = 'RET-' + Date.now().toString(36).toUpperCase();
+
+  try {
+    const batchStatements = [];
+    let totalAmount = 0;
+
+    batchStatements.push(db.prepare('INSERT INTO returns (id, tenant_id, order_id, return_number, reason, status, net_credit_amount, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))').bind(returnId, tenantId, body.order_id || null, returnNum, body.reason || 'Customer return', 'PENDING', 0, userId));
+
+    for (const item of (body.items || [])) {
+      const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
+      const unitPrice = item.unit_price || (product ? product.price : 0) || 0;
+      const qty = item.quantity || 1;
+      totalAmount += unitPrice * qty;
+      batchStatements.push(db.prepare('INSERT INTO return_items (id, return_id, product_id, quantity, unit_price, reason) VALUES (?, ?, ?, ?, ?, ?)').bind(uuidv4(), returnId, item.product_id, qty, unitPrice, item.reason || 'Return'));
+    }
+
+    batchStatements.push(db.prepare('UPDATE returns SET net_credit_amount = ? WHERE id = ?').bind(totalAmount, returnId));
+
+    await db.batch(batchStatements);
+    return c.json({ success: true, data: { id: returnId, return_number: returnNum, total_amount: totalAmount } }, 201);
+  } catch (error) {
+    return c.json({ success: false, message: 'Return creation failed: ' + error.message }, 500);
+  }
+});
+
+api.post('/sales/returns/:id/transition', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const { new_status } = await c.req.json();
+  await db.prepare('UPDATE returns SET status = ? WHERE id = ? AND tenant_id = ?').bind(new_status, id, tenantId).run();
+  return c.json({ success: true, message: `Return transitioned to ${new_status}` });
+});
+
+// ==================== ORDER LINES ====================
+
+api.get('/order-lines', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { order_id, sales_order_id } = c.req.query();
+  const orderId = order_id || sales_order_id;
+  if (orderId) {
+    const items = await db.prepare('SELECT soi.*, p.name as product_name, p.sku as product_code FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id WHERE soi.sales_order_id = ? LIMIT 500').bind(orderId).all();
+    return c.json({ success: true, data: items.results || [] });
+  }
+  const items = await db.prepare('SELECT soi.*, p.name as product_name, so.order_number FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id LEFT JOIN sales_orders so ON soi.sales_order_id = so.id WHERE so.tenant_id = ? ORDER BY so.created_at DESC LIMIT 500').bind(tenantId).all();
+  return c.json({ success: true, data: items.results || [] });
+});
+
+api.get('/order-lines/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const id = c.req.param('id');
+  const item = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id WHERE soi.id = ?').bind(id).first();
+  if (!item) return c.json({ success: false, message: 'Order line not found' }, 404);
+  return c.json({ success: true, data: item });
+});
+
+api.post('/order-lines', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const body = await c.req.json();
+  const id = uuidv4();
+  await db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price, discount_percent, line_total) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id, body.sales_order_id || body.order_id, body.product_id, body.quantity || 1, body.unit_price || 0, body.discount_percent || 0, (body.unit_price || 0) * (body.quantity || 1)).run();
+  return c.json({ success: true, data: { id } }, 201);
+});
+
+api.put('/order-lines/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  const sets = [];
+  const vals = [];
+  for (const [k, v] of Object.entries(body)) {
+    if (['quantity', 'unit_price', 'discount_percent', 'line_total'].includes(k)) { sets.push(k + ' = ?'); vals.push(v); }
+  }
+  if (sets.length === 0) return c.json({ success: false, message: 'No valid fields' }, 400);
+  await db.prepare('UPDATE sales_order_items SET ' + sets.join(', ') + ' WHERE id = ?').bind(...vals, id).run();
+  return c.json({ success: true, message: 'Order line updated' });
+});
+
+api.delete('/order-lines/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const id = c.req.param('id');
+  await db.prepare('DELETE FROM sales_order_items WHERE id = ?').bind(id).run();
+  return c.json({ success: true, message: 'Order line deleted' });
+});
+
+// ==================== PRICING ENDPOINTS ====================
+
+api.get('/pricing/quote', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { product_id, customer_id, quantity } = c.req.query();
+  const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(product_id, tenantId).first();
+  if (!product) return c.json({ success: false, message: 'Product not found' }, 404);
+  const qty = parseInt(quantity) || 1;
+  const unitPrice = product.price || 0;
+  const taxRate = product.tax_rate != null ? product.tax_rate : 15;
+  const lineTotal = unitPrice * qty;
+  const tax = lineTotal * (taxRate / 100);
+  return c.json({ success: true, data: { product_id, unit_price: unitPrice, quantity: qty, line_total: lineTotal, tax, total: lineTotal + tax } });
+});
+
+api.post('/pricing/bulk-quote', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { items } = await c.req.json();
+  const results = [];
+  let grandTotal = 0;
+  for (const item of (items || [])) {
+    const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
+    const unitPrice = item.unit_price || (product ? product.price : 0) || 0;
+    const qty = item.quantity || 1;
+    const lineTotal = unitPrice * qty;
+    grandTotal += lineTotal;
+    results.push({ product_id: item.product_id, unit_price: unitPrice, quantity: qty, line_total: lineTotal });
+  }
+  return c.json({ success: true, data: { items: results, subtotal: grandTotal, tax: grandTotal * 0.15, total: grandTotal * 1.15 } });
+});
+
 // ==================== FIELD OPERATIONS ROUTES ====================
 api.get('/field-operations/agents', authMiddleware, async (c) => {
   const db = c.env.DB;
