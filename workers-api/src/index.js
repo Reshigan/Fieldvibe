@@ -3257,22 +3257,7 @@ api.get('/field-ops/drill-down/:userId', authMiddleware, async (c) => {
 });
 
 // ==================== FIELD OPERATIONS: COMPANY AUTH ====================
-api.post('/field-ops/company-auth/login', async (c) => {
-  const db = c.env.DB;
-  const { email, password } = await c.req.json();
-  if (!email || !password) return c.json({ message: 'Email and password required' }, 400);
-  try {
-    const login = await db.prepare("SELECT cl.*, fc.name as company_name, fc.tenant_id FROM company_logins cl JOIN field_companies fc ON cl.company_id = fc.id WHERE cl.email = ? AND cl.is_active = 1").bind(email).first();
-    if (!login) return c.json({ message: 'Invalid credentials' }, 401);
-    const passwordValid = await bcrypt.compare(password, login.password_hash);
-    if (!passwordValid) return c.json({ message: 'Invalid credentials' }, 401);
-    await db.prepare("UPDATE company_logins SET last_login = CURRENT_TIMESTAMP WHERE id = ?").bind(login.id).run();
-    const token = generateToken({ id: login.id, tenantId: login.tenant_id, role: 'company_' + login.role, companyId: login.company_id }, c.env.JWT_SECRET || 'fieldvibe-secret');
-    return c.json({ token, company_id: login.company_id, company_name: login.company_name, role: login.role, name: login.name });
-  } catch (e) {
-    return c.json({ message: 'Login failed' }, 500);
-  }
-});
+// NOTE: Company login is registered on the `app` router (public, no authMiddleware) — see below app.post('/api/field-ops/company-auth/login', ...)
 
 api.get('/field-ops/company-dashboard', authMiddleware, async (c) => {
   const db = c.env.DB;
@@ -6988,6 +6973,24 @@ api.post('/visits/:id/checkout-enhanced', async (c) => {
     body.outcome || 'completed', body.notes || null, id, tenantId).run();
 
   return c.json({ success: true, message: 'Visit checked out successfully' });
+});
+
+// ==================== FIELD OPERATIONS: COMPANY AUTH (PUBLIC - no authMiddleware) ====================
+app.post('/api/field-ops/company-auth/login', async (c) => {
+  const db = c.env.DB;
+  const { email, password } = await c.req.json();
+  if (!email || !password) return c.json({ message: 'Email and password required' }, 400);
+  try {
+    const login = await db.prepare("SELECT cl.*, fc.name as company_name, fc.tenant_id FROM company_logins cl JOIN field_companies fc ON cl.company_id = fc.id WHERE cl.email = ? AND cl.is_active = 1").bind(email).first();
+    if (!login) return c.json({ message: 'Invalid credentials' }, 401);
+    const passwordValid = await bcrypt.compare(password, login.password_hash);
+    if (!passwordValid) return c.json({ message: 'Invalid credentials' }, 401);
+    await db.prepare("UPDATE company_logins SET last_login = CURRENT_TIMESTAMP WHERE id = ?").bind(login.id).run();
+    const token = await generateToken({ userId: login.id, tenantId: login.tenant_id, role: 'company_' + login.role, companyId: login.company_id }, c.env.JWT_SECRET || 'fieldvibe-secret');
+    return c.json({ token, company_id: login.company_id, company_name: login.company_name, role: login.role, name: login.name });
+  } catch (e) {
+    return c.json({ message: 'Login failed' }, 500);
+  }
 });
 
 // ==================== MOUNT AND EXPORT ====================
