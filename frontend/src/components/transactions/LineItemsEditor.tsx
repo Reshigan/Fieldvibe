@@ -226,7 +226,7 @@ export default function LineItemsEditor({
                       <select
                         value={item.product_id}
                         onChange={(e) => updateLineItem(index, 'product_id', e.target.value)}
-                        className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                        className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white"
                       >
                         <option value="">Select product</option>
                         {products.map((product) => (
