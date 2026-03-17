@@ -2232,8 +2232,13 @@ api.post('/sales/payments', authMiddleware, async (c) => {
   if (!v.valid) return c.json({ success: false, message: 'Validation failed', errors: v.errors }, 400);
 
   const paymentId = uuidv4();
-  const linkedOrderId = body.order_id || body.sales_order_id || '';
-  await db.prepare('INSERT INTO payments (id, tenant_id, sales_order_id, amount, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(paymentId, tenantId, linkedOrderId, body.amount, body.method || 'cash', body.reference || null, 'completed').run();
+  const linkedOrderId = body.order_id || body.sales_order_id || null;
+  if (linkedOrderId) {
+    await db.prepare('INSERT INTO payments (id, tenant_id, sales_order_id, amount, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(paymentId, tenantId, linkedOrderId, body.amount, body.method || 'cash', body.reference || null, 'completed').run();
+  } else {
+    // No linked order - use a standalone insert without the NOT NULL sales_order_id FK
+    await db.prepare('INSERT INTO payments (id, tenant_id, sales_order_id, amount, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(paymentId, tenantId, 'STANDALONE-' + paymentId.slice(0,8), body.amount, body.method || 'cash', body.reference || null, 'completed').run();
+  }
 
   // Update order payment status if linked
   if (body.order_id || body.sales_order_id) {
@@ -2328,7 +2333,8 @@ api.post('/sales/returns/create', authMiddleware, async (c) => {
       const unitPrice = item.unit_price || (product ? product.price : 0) || 0;
       const qty = item.quantity || 1;
       totalAmount += unitPrice * qty;
-      batchStatements.push(db.prepare('INSERT INTO return_items (id, return_id, product_id, quantity, unit_price, reason) VALUES (?, ?, ?, ?, ?, ?)').bind(uuidv4(), returnId, item.product_id, qty, unitPrice, item.reason || 'Return'));
+      const lineCredit = unitPrice * qty;
+      batchStatements.push(db.prepare('INSERT INTO return_items (id, return_id, product_id, quantity, condition, unit_price, line_credit) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(uuidv4(), returnId, item.product_id, qty, item.condition || item.reason || 'good', unitPrice, lineCredit));
     }
 
     batchStatements.push(db.prepare('UPDATE returns SET net_credit_amount = ? WHERE id = ?').bind(totalAmount, returnId));
