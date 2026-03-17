@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Star, Camera, MapPin } from 'lucide-react'
+import { compressPhoto } from '../../utils/photo-compression'
 
 export type QuestionType = 'boolean' | 'rating' | 'text' | 'number' | 'select' | 'multi_select' | 'photo' | 'barcode_scan' | 'gps' | 'signature' | 'slider' | 'date'
 
@@ -104,12 +105,19 @@ export default function SurveyRenderer({ questions, onSubmit, onCancel, loading 
           <button onClick={() => {
             const input = document.createElement('input')
             input.type = 'file'; input.accept = 'image/*'; input.capture = 'environment'
-            input.onchange = (e: any) => {
+            input.onchange = async (e: any) => {
               const file = e.target.files?.[0]
               if (file) {
-                const reader = new FileReader()
-                reader.onload = (ev) => updateAnswer(q.id, ev.target?.result)
-                reader.readAsDataURL(file)
+                try {
+                  const { compressed } = await compressPhoto(file)
+                  const reader = new FileReader()
+                  reader.onload = (ev) => updateAnswer(q.id, ev.target?.result)
+                  reader.readAsDataURL(compressed)
+                } catch {
+                  const reader = new FileReader()
+                  reader.onload = (ev) => updateAnswer(q.id, ev.target?.result)
+                  reader.readAsDataURL(file)
+                }
               }
             }
             input.click()

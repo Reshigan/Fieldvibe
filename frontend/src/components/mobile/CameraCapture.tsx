@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { Camera, X, Check, Loader2 } from 'lucide-react'
 import MobileButton from './MobileButton'
+import { compressPhoto } from '../../utils/photo-compression'
 
 interface CameraCaptureProps {
   onPhotoCapture: (photoDataUrl: string) => void
@@ -24,6 +25,8 @@ export default function CameraCapture({
     setLoading(true)
 
     try {
+      // Compress the photo before reading
+      const { compressed } = await compressPhoto(file)
       const reader = new FileReader()
       reader.onloadend = () => {
         const result = reader.result as string
@@ -31,7 +34,7 @@ export default function CameraCapture({
         onPhotoCapture(result)
         setLoading(false)
       }
-      reader.readAsDataURL(file)
+      reader.readAsDataURL(compressed)
     } catch (error) {
       console.error('Error reading file:', error)
       setLoading(false)

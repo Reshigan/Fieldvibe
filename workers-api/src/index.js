@@ -6975,6 +6975,153 @@ api.post('/visits/:id/checkout-enhanced', async (c) => {
   return c.json({ success: true, message: 'Visit checked out successfully' });
 });
 
+// ==================== COMPANY PORTAL AUTH MIDDLEWARE ====================
+const companyAuthMiddleware = async (c, next) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return c.json({ success: false, message: 'Unauthorized' }, 401);
+    }
+    const token = authHeader.substring(7);
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return c.json({ success: false, message: 'Malformed token' }, 401);
+    }
+    const jwtSecret = c.env.JWT_SECRET || 'fieldvibe-secret';
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw', encoder.encode(jwtSecret),
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
+    );
+    const signatureBytes = Uint8Array.from(
+      atob(parts[2].replace(/-/g, '+').replace(/_/g, '/')),
+      ch => ch.charCodeAt(0)
+    );
+    const valid = await crypto.subtle.verify(
+      'HMAC', key, signatureBytes, encoder.encode(parts[0] + '.' + parts[1])
+    );
+    if (!valid) {
+      return c.json({ success: false, message: 'Invalid token' }, 401);
+    }
+    const payload = JSON.parse(atob(parts[1]));
+    if (payload.exp < Math.floor(Date.now() / 1000)) {
+      return c.json({ success: false, message: 'Token expired' }, 401);
+    }
+    // Company tokens have companyId in payload
+    if (!payload.companyId) {
+      return c.json({ success: false, message: 'Not a company token' }, 403);
+    }
+    c.set('userId', payload.userId);
+    c.set('tenantId', payload.tenantId);
+    c.set('companyId', payload.companyId);
+    c.set('role', payload.role);
+    await next();
+  } catch (error) {
+    return c.json({ success: false, message: 'Invalid token' }, 401);
+  }
+};
+
+// ==================== COMPANY PORTAL ENDPOINTS (company_token auth) ====================
+// Company Dashboard — company users only see their own company data
+app.get('/api/field-ops/company-portal/dashboard', companyAuthMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const companyId = c.get('companyId');
+  const today = new Date().toISOString().split('T')[0];
+  const monthStart = today.substring(0, 7) + '-01';
+  try {
+    const [company, agentCount, todayVisits, monthVisits, totalRegs, totalConvs, recentRegs] = await Promise.all([
+      db.prepare('SELECT * FROM field_companies WHERE id = ? AND tenant_id = ?').bind(companyId, tenantId).first(),
+      db.prepare('SELECT COUNT(*) as count FROM agent_company_links WHERE company_id = ? AND tenant_id = ? AND is_active = 1').bind(companyId, tenantId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE acl.company_id = ? AND v.visit_date = ? AND v.tenant_id = ?").bind(companyId, today, tenantId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE acl.company_id = ? AND v.visit_date >= ? AND v.tenant_id = ?").bind(companyId, monthStart, tenantId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE company_id = ? AND tenant_id = ?").bind(companyId, tenantId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE company_id = ? AND tenant_id = ? AND converted = 1").bind(companyId, tenantId).first(),
+      db.prepare("SELECT ir.*, u.first_name || ' ' || u.last_name as agent_name FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id WHERE ir.company_id = ? AND ir.tenant_id = ? ORDER BY ir.created_at DESC LIMIT 10").bind(companyId, tenantId).all()
+    ]);
+    return c.json({ company, agents: agentCount?.count || 0, today_visits: todayVisits?.count || 0, month_visits: monthVisits?.count || 0, total_registrations: totalRegs?.count || 0, total_conversions: totalConvs?.count || 0, conversion_rate: (totalRegs?.count || 0) > 0 ? Math.round(((totalConvs?.count || 0) / (totalRegs?.count || 1)) * 100) : 0, recent_registrations: recentRegs.results || [] });
+  } catch (e) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
+// Company Brand Insights (SSReports-style deep analytics) — company isolated
+app.get('/api/field-ops/company-portal/brand-insights', companyAuthMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const companyId = c.get('companyId');
+  const { start_date, end_date } = c.req.query();
+  const today = new Date().toISOString().split('T')[0];
+  const startD = start_date || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const endD = end_date || today;
+  try {
+    const baseParams = [tenantId, startD, endD, companyId];
+    // Visits by day
+    const visitsByDay = await db.prepare("SELECT v.visit_date, COUNT(*) as count FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? AND acl.company_id = ? GROUP BY v.visit_date ORDER BY v.visit_date").bind(...baseParams).all();
+    // Visits by hour
+    const visitsByHour = await db.prepare("SELECT CAST(substr(v.check_in_time, 12, 2) AS INTEGER) as hour, COUNT(*) as count FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? AND acl.company_id = ? AND v.check_in_time IS NOT NULL GROUP BY hour ORDER BY hour").bind(...baseParams).all();
+    // Agent performance
+    const agentPerf = await db.prepare("SELECT v.agent_id, u.first_name || ' ' || u.last_name as agent_name, COUNT(*) as visit_count, SUM(CASE WHEN v.status = 'completed' THEN 1 ELSE 0 END) as completed FROM visits v JOIN users u ON v.agent_id = u.id JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? AND acl.company_id = ? GROUP BY v.agent_id ORDER BY visit_count DESC LIMIT 20").bind(...baseParams).all();
+    // Registration stats
+    const regParams = [tenantId, startD + 'T00:00:00', endD + 'T23:59:59', companyId];
+    const regStats = await db.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN converted = 1 THEN 1 ELSE 0 END) as converted FROM individual_registrations ir WHERE ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? AND ir.company_id = ?").bind(...regParams).first();
+    // Conversions by day
+    const convByDay = await db.prepare("SELECT DATE(ir.created_at) as day, COUNT(*) as registrations, SUM(CASE WHEN ir.converted = 1 THEN 1 ELSE 0 END) as conversions FROM individual_registrations ir WHERE ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? AND ir.company_id = ? GROUP BY day ORDER BY day").bind(...regParams).all();
+    // Visits by day of week
+    const visitsByDayOfWeek = await db.prepare("SELECT CASE CAST(strftime('%w', v.visit_date) AS INTEGER) WHEN 0 THEN 'Sun' WHEN 1 THEN 'Mon' WHEN 2 THEN 'Tue' WHEN 3 THEN 'Wed' WHEN 4 THEN 'Thu' WHEN 5 THEN 'Fri' WHEN 6 THEN 'Sat' END as day_name, CAST(strftime('%w', v.visit_date) AS INTEGER) as day_num, COUNT(*) as count FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id WHERE v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? AND acl.company_id = ? GROUP BY day_num ORDER BY day_num").bind(...baseParams).all();
+    // Daily targets vs actuals
+    const targetVsActual = await db.prepare("SELECT dt.target_visits, dt.target_registrations, dt.target_conversions, u.first_name || ' ' || u.last_name as agent_name, (SELECT COUNT(*) FROM visits v2 WHERE v2.agent_id = dt.agent_id AND v2.visit_date = ? AND v2.tenant_id = ?) as actual_visits, (SELECT COUNT(*) FROM individual_registrations ir2 WHERE ir2.agent_id = dt.agent_id AND ir2.company_id = dt.company_id AND DATE(ir2.created_at) = ? AND ir2.tenant_id = ?) as actual_registrations FROM daily_targets dt JOIN users u ON dt.agent_id = u.id WHERE dt.company_id = ? AND dt.tenant_id = ?").bind(today, tenantId, today, tenantId, companyId, tenantId).all();
+    // Recent individual registrations
+    const recentRegs = await db.prepare("SELECT ir.*, u.first_name || ' ' || u.last_name as agent_name FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id WHERE ir.company_id = ? AND ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? ORDER BY ir.created_at DESC LIMIT 20").bind(companyId, tenantId, startD + 'T00:00:00', endD + 'T23:59:59').all();
+    // KPIs
+    const totalVisits = (visitsByDay.results || []).reduce((s, d) => s + (d.count || 0), 0);
+    const totalAgents = (agentPerf.results || []).length;
+    return c.json({
+      kpis: { total_visits: totalVisits, active_agents: totalAgents, total_registrations: regStats?.total || 0, total_conversions: regStats?.converted || 0, conversion_rate: (regStats?.total || 0) > 0 ? Math.round(((regStats?.converted || 0) / (regStats?.total || 1)) * 100) : 0 },
+      visits_by_day: visitsByDay.results || [],
+      visits_by_hour: visitsByHour.results || [],
+      visits_by_day_of_week: visitsByDayOfWeek.results || [],
+      agent_performance: agentPerf.results || [],
+      conversions_by_day: convByDay.results || [],
+      target_vs_actual: targetVsActual.results || [],
+      recent_registrations: recentRegs.results || [],
+      period: { start: startD, end: endD }
+    });
+  } catch (e) {
+    return c.json({ error: e.message, kpis: {}, visits_by_day: [], visits_by_hour: [], visits_by_day_of_week: [], agent_performance: [], conversions_by_day: [], target_vs_actual: [], recent_registrations: [] }, 500);
+  }
+});
+
+// Company Portal: Export data (CSV)
+app.get('/api/field-ops/company-portal/export', companyAuthMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const companyId = c.get('companyId');
+  const { type, start_date, end_date } = c.req.query();
+  const today = new Date().toISOString().split('T')[0];
+  const startD = start_date || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const endD = end_date || today;
+  try {
+    let rows = [];
+    let headers = [];
+    if (type === 'registrations') {
+      headers = ['Name', 'ID Number', 'Phone', 'Agent', 'Status', 'Date'];
+      const result = await db.prepare("SELECT ir.first_name, ir.last_name, ir.id_number, ir.phone, u.first_name || ' ' || u.last_name as agent_name, CASE WHEN ir.converted = 1 THEN 'Converted' ELSE 'Pending' END as status, ir.created_at FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id WHERE ir.company_id = ? AND ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? ORDER BY ir.created_at DESC").bind(companyId, tenantId, startD + 'T00:00:00', endD + 'T23:59:59').all();
+      rows = (result.results || []).map(r => [r.first_name + ' ' + r.last_name, r.id_number || '', r.phone || '', r.agent_name || '', r.status, r.created_at]);
+    } else {
+      headers = ['Date', 'Agent', 'Status', 'Check In', 'Check Out', 'Notes'];
+      const result = await db.prepare("SELECT v.visit_date, u.first_name || ' ' || u.last_name as agent_name, v.status, v.check_in_time, v.check_out_time, v.notes FROM visits v JOIN agent_company_links acl ON v.agent_id = acl.agent_id LEFT JOIN users u ON v.agent_id = u.id WHERE acl.company_id = ? AND v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? ORDER BY v.visit_date DESC").bind(companyId, tenantId, startD, endD).all();
+      rows = (result.results || []).map(r => [r.visit_date, r.agent_name || '', r.status || '', r.check_in_time || '', r.check_out_time || '', (r.notes || '').replace(/,/g, ';')]);
+    }
+    const csvLines = [headers.join(','), ...rows.map(r => r.map(v => String(v).includes(',') ? `"${v}"` : v).join(','))];
+    return new Response(csvLines.join('\n'), {
+      headers: { 'Content-Type': 'text/csv', 'Content-Disposition': `attachment; filename="${type || 'visits'}_export_${startD}_to_${endD}.csv"` }
+    });
+  } catch (e) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 // ==================== FIELD OPERATIONS: COMPANY AUTH (PUBLIC - no authMiddleware) ====================
 app.post('/api/field-ops/company-auth/login', async (c) => {
   const db = c.env.DB;

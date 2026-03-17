@@ -786,6 +786,44 @@ class FieldOperationsService extends ApiService {
     return response.data || response
   }
 
+  // ==================== COMPANY PORTAL ENDPOINTS (company_token auth) ====================
+  private async companyPortalGet(path: string) {
+    const { default: axios } = await import('axios')
+    const { API_CONFIG } = await import('../config/api.config')
+    const token = localStorage.getItem('company_token')
+    const response = await axios.get(`${API_CONFIG.BASE_URL}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    return response.data || response
+  }
+
+  async getCompanyPortalDashboard() {
+    return this.companyPortalGet('/field-ops/company-portal/dashboard')
+  }
+
+  async getCompanyPortalBrandInsights(filter: { start_date?: string; end_date?: string } = {}) {
+    const params = new URLSearchParams()
+    Object.entries(filter).forEach(([key, value]) => {
+      if (value) params.append(key, String(value))
+    })
+    return this.companyPortalGet(`/field-ops/company-portal/brand-insights?${params.toString()}`)
+  }
+
+  async exportCompanyPortalData(type: 'visits' | 'registrations', startDate?: string, endDate?: string) {
+    const { default: axios } = await import('axios')
+    const { API_CONFIG } = await import('../config/api.config')
+    const token = localStorage.getItem('company_token')
+    const params = new URLSearchParams()
+    params.append('type', type)
+    if (startDate) params.append('start_date', startDate)
+    if (endDate) params.append('end_date', endDate)
+    const response = await axios.get(`${API_CONFIG.BASE_URL}/field-ops/company-portal/export?${params.toString()}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      responseType: 'blob',
+    })
+    return response.data
+  }
+
   // ==================== FIELD OPS: BRAND INSIGHTS ====================
   async getBrandInsights(filter: { company_id?: string; start_date?: string; end_date?: string } = {}) {
     const params = new URLSearchParams()
