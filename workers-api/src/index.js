@@ -2823,20 +2823,25 @@ api.post('/inventory/issues/create', authMiddleware, async (c) => {
   const userId = c.get('userId');
   const body = await c.req.json();
   const items = body.items || [{ product_id: body.product_id, quantity: body.quantity, unit_cost: body.unit_cost }];
-  const refId = 'ISS-' + Date.now();
-  const ids = [];
-  for (const item of items) {
-    if (!item.product_id || !item.quantity) continue;
+  const validItems = items.filter(item => item.product_id && item.quantity);
+  // Validation pass: check all items have sufficient stock before writing anything
+  for (const item of validItems) {
     const existing = await db.prepare('SELECT quantity FROM stock_levels WHERE tenant_id = ? AND product_id = ? AND warehouse_id = ?').bind(tenantId, item.product_id, body.warehouse_id).first();
-    if (existing && existing.quantity < item.quantity) {
+    if (!existing) {
+      return c.json({ error: 'No stock record for product ' + item.product_id + ' in this warehouse. Receive stock first.' }, 400);
+    }
+    if (existing.quantity < item.quantity) {
       return c.json({ error: 'Insufficient stock for product ' + item.product_id + '. Available: ' + existing.quantity + ', Requested: ' + item.quantity }, 400);
     }
+  }
+  // Write pass: all items validated, now commit
+  const refId = 'ISS-' + Date.now();
+  const ids = [];
+  for (const item of validItems) {
     const id = uuidv4();
     ids.push(id);
     await db.prepare("INSERT INTO stock_movements (id, tenant_id, product_id, warehouse_id, movement_type, quantity, reference_type, reference_id, notes, created_by, created_at) VALUES (?, ?, ?, ?, 'out', ?, 'issue', ?, ?, ?, CURRENT_TIMESTAMP)").bind(id, tenantId, item.product_id, body.warehouse_id, item.quantity, refId, body.notes || '', userId).run();
-    if (existing) {
-      await db.prepare('UPDATE stock_levels SET quantity = MAX(0, quantity - ?), updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND product_id = ? AND warehouse_id = ?').bind(item.quantity, tenantId, item.product_id, body.warehouse_id).run();
-    }
+    await db.prepare('UPDATE stock_levels SET quantity = MAX(0, quantity - ?), updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND product_id = ? AND warehouse_id = ?').bind(item.quantity, tenantId, item.product_id, body.warehouse_id).run();
   }
   return c.json({ ids, message: 'Issue created' }, 201);
 });
