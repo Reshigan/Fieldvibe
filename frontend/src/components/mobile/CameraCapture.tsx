@@ -36,8 +36,16 @@ export default function CameraCapture({
       }
       reader.readAsDataURL(compressed)
     } catch (error) {
-      console.error('Error reading file:', error)
-      setLoading(false)
+      console.error('Error compressing file:', error)
+      // Fallback to uncompressed if compression fails
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const result = reader.result as string
+        setPhoto(result)
+        onPhotoCapture(result)
+        setLoading(false)
+      }
+      reader.readAsDataURL(file)
     }
   }
 
