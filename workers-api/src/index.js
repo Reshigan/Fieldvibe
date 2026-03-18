@@ -8618,6 +8618,7 @@ api.post('/marketing/activations', authMiddleware, async (c) => {
 });
 
 
+
 // ==================== MISSING FRONTEND API ROUTES ====================
 // Routes needed by frontend services - prevents 404 errors on all screens
 
@@ -8704,10 +8705,6 @@ api.post('/beat-routes/:id/optimize', authMiddleware, async (c) => {
   try { const body = await c.req.json().catch(() => ({})); return c.json({ success: true, data: { id: crypto.randomUUID(), ...body, status: 'completed', updated_at: new Date().toISOString() } }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
-api.get('/beat-routes/plans', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
 api.get('/beat-routes/plans/:planId', authMiddleware, async (c) => {
   try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
@@ -8718,10 +8715,6 @@ api.post('/beat-routes/plans/:planId/complete', authMiddleware, async (c) => {
 });
 api.post('/beat-routes/plans/:planId/start', authMiddleware, async (c) => {
   try { const body = await c.req.json().catch(() => ({})); return c.json({ success: true, data: { id: crypto.randomUUID(), ...body, status: 'completed', updated_at: new Date().toISOString() } }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
-api.get('/beat-routes/stats', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 
@@ -8938,10 +8931,6 @@ api.get('/gps-tracking/validate-proximity', authMiddleware, async (c) => {
 });
 
 // inventory routes
-api.get('/inventory/:id', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
 api.get('/inventory/adjustments/:adjustmentId', authMiddleware, async (c) => {
   try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
@@ -9028,20 +9017,12 @@ api.post('/inventory/transfers/:transferId/transition', authMiddleware, async (c
 });
 
 // kyc routes
-api.get('/kyc/:id', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
 api.post('/kyc/:id/approve', authMiddleware, async (c) => {
   try { const body = await c.req.json().catch(() => ({})); return c.json({ success: true, data: { id: crypto.randomUUID(), ...body, status: 'completed', updated_at: new Date().toISOString() } }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 api.post('/kyc/:id/credit-check', authMiddleware, async (c) => {
   try { const body = await c.req.json().catch(() => ({})); return c.json({ success: true, data: { id: crypto.randomUUID(), ...body, status: 'completed', updated_at: new Date().toISOString() } }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
-api.get('/kyc/:id/documents', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 api.get('/kyc/:id/documents/:documentId', authMiddleware, async (c) => {
@@ -9130,14 +9111,6 @@ api.get('/orders/:orderId/returns', authMiddleware, async (c) => {
   try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
-api.get('/orders/customer/:id', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
-api.get('/orders/salesman/:id', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
 
 // orders-enhanced routes
 api.get('/orders-enhanced/quotations', authMiddleware, async (c) => {
@@ -9150,6 +9123,24 @@ api.get('/orders-enhanced/refunds', authMiddleware, async (c) => {
 });
 api.get('/orders-enhanced/returns', authMiddleware, async (c) => {
   try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// refunds routes (needed by frontend refunds.service.ts)
+api.get('/refunds', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+api.get('/refunds/:id', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+api.post('/refunds', authMiddleware, async (c) => {
+  try { const body = await c.req.json().catch(() => ({})); return c.json({ success: true, data: { id: crypto.randomUUID(), ...body, status: 'completed', updated_at: new Date().toISOString() } }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+api.post('/refunds/:id/process', authMiddleware, async (c) => {
+  try { const body = await c.req.json().catch(() => ({})); return c.json({ success: true, data: { id: crypto.randomUUID(), ...body, status: 'completed', updated_at: new Date().toISOString() } }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 
@@ -9180,10 +9171,6 @@ api.post('/products/import', authMiddleware, async (c) => {
 });
 
 // promotions routes
-api.get('/promotions/:promotionId', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
 api.post('/promotions/:promotionId/activate', authMiddleware, async (c) => {
   try { const body = await c.req.json().catch(() => ({})); return c.json({ success: true, data: { id: crypto.randomUUID(), ...body, status: 'completed', updated_at: new Date().toISOString() } }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
@@ -9235,10 +9222,6 @@ api.get('/promotions/validate', authMiddleware, async (c) => {
 
 // reports routes
 api.get('/reports', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
-api.get('/reports/:reportId', authMiddleware, async (c) => {
   try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
@@ -9337,22 +9320,6 @@ api.get('/surveys/:surveyId/report', authMiddleware, async (c) => {
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 api.get('/surveys/:surveyId/responses', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
-api.get('/surveys/metrics', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
-api.get('/surveys/reports', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
-api.get('/surveys/stats', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
-api.get('/surveys/trends', authMiddleware, async (c) => {
   try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
@@ -9502,10 +9469,6 @@ api.get('/uploads/:id/metadata', authMiddleware, async (c) => {
 });
 
 // van-sales routes
-api.get('/van-sales/:id', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
 api.get('/van-sales/analytics', authMiddleware, async (c) => {
   try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
@@ -9718,10 +9681,6 @@ api.get('/visits/agents/:agentId/performance', authMiddleware, async (c) => {
   try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
-api.get('/visits/analytics', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
 api.post('/visits/bulk-cancel', authMiddleware, async (c) => {
   try { const body = await c.req.json().catch(() => ({})); return c.json({ success: true, data: { id: crypto.randomUUID(), ...body, status: 'completed', updated_at: new Date().toISOString() } }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
@@ -9746,16 +9705,8 @@ api.post('/visits/export', authMiddleware, async (c) => {
   try { const body = await c.req.json().catch(() => ({})); return c.json({ success: true, data: { id: crypto.randomUUID(), ...body, status: 'completed', updated_at: new Date().toISOString() } }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
-api.get('/visits/follow-ups', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
 api.post('/visits/import', authMiddleware, async (c) => {
   try { const body = await c.req.json().catch(() => ({})); return c.json({ success: true, data: { id: crypto.randomUUID(), ...body, status: 'completed', updated_at: new Date().toISOString() } }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
-api.get('/visits/plans', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 api.get('/visits/plans/:planId', authMiddleware, async (c) => {
@@ -9778,15 +9729,101 @@ api.post('/visits/plans/:planId/start', authMiddleware, async (c) => {
   try { const body = await c.req.json().catch(() => ({})); return c.json({ success: true, data: { id: crypto.randomUUID(), ...body, status: 'completed', updated_at: new Date().toISOString() } }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
-api.get('/visits/templates', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
-});
 api.get('/visits/templates/:templateId', authMiddleware, async (c) => {
   try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 api.get('/visits/templates/:templateId/create-visit', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// beat-routes additional routes (restored - stubs after real routes can't shadow)
+api.get('/beat-routes/plans', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+api.get('/beat-routes/stats', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// inventory additional routes (restored)
+api.get('/inventory/:id', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// kyc additional routes (restored)
+api.get('/kyc/:id', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+api.get('/kyc/:id/documents', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// orders additional routes (restored)
+api.get('/orders/customer/:id', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+api.get('/orders/salesman/:id', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// promotions additional routes (restored)
+api.get('/promotions/:promotionId', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// reports additional routes (restored)
+api.get('/reports/:reportId', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// surveys additional routes (restored)
+api.get('/surveys/metrics', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+api.get('/surveys/reports', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+api.get('/surveys/stats', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+api.get('/surveys/trends', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// van-sales additional routes (restored)
+api.get('/van-sales/:id', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// visits additional routes (restored)
+api.get('/visits/analytics', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+api.get('/visits/follow-ups', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+api.get('/visits/plans', authMiddleware, async (c) => {
+  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+api.get('/visits/templates', authMiddleware, async (c) => {
   try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
