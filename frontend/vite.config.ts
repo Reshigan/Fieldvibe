@@ -86,6 +86,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    // T-20: Strip console.log/warn from production builds
+    minify: 'esbuild',
     rollupOptions: {
       output: {
         manualChunks: {
@@ -99,6 +101,10 @@ export default defineConfig({
       }
     },
     chunkSizeWarningLimit: 1000
+  },
+  esbuild: {
+    // T-20: Drop console.log and console.warn in production
+    drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : [],
   },
   optimizeDeps: {
     include: ['react', 'react-dom', 'react-router-dom']
