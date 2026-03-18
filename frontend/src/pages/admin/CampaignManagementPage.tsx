@@ -21,7 +21,7 @@ const CampaignManagementPage: React.FC = () => {
 
   const saveCampaign = async () => {
     try {
-      const url = editing ? `/api/admin/campaigns/${editing}` : `${apiClient.defaults.baseURL}/admin/campaigns`;
+      const url = editing ? `${apiClient.defaults.baseURL}/admin/campaigns/${editing}` : `${apiClient.defaults.baseURL}/admin/campaigns`;
       const res = await fetch(url, {
         method: editing ? 'PUT' : 'POST',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },

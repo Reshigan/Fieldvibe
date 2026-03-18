@@ -21,7 +21,7 @@ const POSLibraryPage: React.FC = () => {
 
   const saveMaterial = async () => {
     try {
-      const url = editing ? `/api/admin/pos-library/${editing}` : `${apiClient.defaults.baseURL}/admin/pos-library`;
+      const url = editing ? `${apiClient.defaults.baseURL}/admin/pos-library/${editing}` : `${apiClient.defaults.baseURL}/admin/pos-library`;
       const res = await fetch(url, {
         method: editing ? 'PUT' : 'POST',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },

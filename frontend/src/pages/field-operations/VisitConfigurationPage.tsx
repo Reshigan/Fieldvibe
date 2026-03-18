@@ -312,7 +312,7 @@ function ConfigurationModal({ config, brands, surveys, boards, onClose, onSucces
   const saveMutation = useMutation({
     mutationFn: async (data: any) => {
       const url = config
-        ? `/api/visit-configurations/${config.id}`
+        ? `${apiClient.defaults.baseURL}/visit-configurations/${config.id}`
         : `${apiClient.defaults.baseURL}/visit-configurations`
       const response = await fetch(url, {
         method: config ? 'PUT' : 'POST',

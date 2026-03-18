@@ -20,7 +20,7 @@ const TerritoryManagementPage: React.FC = () => {
 
   const saveTerritory = async () => {
     try {
-      const url = editing ? `/api/admin/territories/${editing}` : `${apiClient.defaults.baseURL}/admin/territories`;
+      const url = editing ? `${apiClient.defaults.baseURL}/admin/territories/${editing}` : `${apiClient.defaults.baseURL}/admin/territories`;
       const res = await fetch(url, {
         method: editing ? 'PUT' : 'POST',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },

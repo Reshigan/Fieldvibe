@@ -21,7 +21,7 @@ const BoardManagementPage: React.FC = () => {
 
   const saveBoard = async () => {
     try {
-      const url = editing ? `/api/admin/boards/${editing}` : `${apiClient.defaults.baseURL}/admin/boards`;
+      const url = editing ? `${apiClient.defaults.baseURL}/admin/boards/${editing}` : `${apiClient.defaults.baseURL}/admin/boards`;
       const res = await fetch(url, {
         method: editing ? 'PUT' : 'POST',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
