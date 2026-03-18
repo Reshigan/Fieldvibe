@@ -37,7 +37,7 @@ export interface Activation {
 }
 
 class TradeMarketingService {
-  private readonly baseUrl = '/field-marketing'
+  private readonly baseUrl = '/trade-marketing'
 
   async getCampaigns(filter?: any): Promise<{ data: Campaign[], total: number }> {
     try {
