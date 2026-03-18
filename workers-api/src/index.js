@@ -254,7 +254,7 @@ app.post('/api/auth/register', rateLimiter(3, 3600000), async (c) => {
     // Section 5: Batch user creation + audit log
     await db.batch([
       db.prepare('INSERT INTO users (id, tenant_id, email, phone, password_hash, first_name, last_name, role, status, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)').bind(userId, tenantId, email, phone || null, hashedPassword, firstName, lastName, 'admin', 'active'),
-      db.prepare('INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, details) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(uuidv4(), tenantId, userId, 'CREATE', 'user', userId, JSON.stringify({ email, role: 'admin' })),
+      db.prepare('INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, new_values) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(uuidv4(), tenantId, userId, 'CREATE', 'user', userId, JSON.stringify({ email, role: 'admin' })),
     ]);
     const jwtSecret = c.env.JWT_SECRET;
     const accessToken = await generateToken({ userId, tenantId, role: 'admin' }, jwtSecret);
