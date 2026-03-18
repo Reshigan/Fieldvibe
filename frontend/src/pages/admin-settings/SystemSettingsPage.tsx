@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useToast } from '../../components/ui/Toast'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../../services/api.service'
+import SearchableSelect from '../../components/ui/SearchableSelect'
 
 interface SystemSettings {
   general: {
@@ -198,69 +199,57 @@ export const SystemSettingsPage: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
-                <select
+                <SearchableSelect
+                  options={[
+                    { value: 'Africa/Johannesburg', label: 'Africa/Johannesburg (SAST)' },
+                    { value: 'UTC', label: 'UTC' },
+                    { value: 'America/New_York', label: 'America/New_York (EST)' },
+                    { value: 'Europe/London', label: 'Europe/London (GMT)' },
+                  ]}
                   value={settings.general.timezone}
-                  onChange={(e) => setSettings({
-                    ...settings,
-                    general: { ...settings.general, timezone: e.target.value }
-                  })}
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                >
-                  <option value="Africa/Johannesburg">Africa/Johannesburg (SAST)</option>
-                  <option value="UTC">UTC</option>
-                  <option value="America/New_York">America/New_York (EST)</option>
-                  <option value="Europe/London">Europe/London (GMT)</option>
-                </select>
+                  placeholder="Africa/Johannesburg (SAST)"
+                />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
-                <select
+                <SearchableSelect
+                  options={[
+                    { value: 'ZAR', label: 'ZAR - South African Rand' },
+                    { value: 'USD', label: 'USD - US Dollar' },
+                    { value: 'EUR', label: 'EUR - Euro' },
+                    { value: 'GBP', label: 'GBP - British Pound' },
+                  ]}
                   value={settings.general.currency}
-                  onChange={(e) => setSettings({
-                    ...settings,
-                    general: { ...settings.general, currency: e.target.value }
-                  })}
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                >
-                  <option value="ZAR">ZAR - South African Rand</option>
-                  <option value="USD">USD - US Dollar</option>
-                  <option value="EUR">EUR - Euro</option>
-                  <option value="GBP">GBP - British Pound</option>
-                </select>
+                  placeholder="ZAR - South African Rand"
+                />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date Format</label>
-                <select
+                <SearchableSelect
+                  options={[
+                    { value: 'DD/MM/YYYY', label: 'DD/MM/YYYY' },
+                    { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY' },
+                    { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD' },
+                  ]}
                   value={settings.general.date_format}
-                  onChange={(e) => setSettings({
-                    ...settings,
-                    general: { ...settings.general, date_format: e.target.value }
-                  })}
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                >
-                  <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-                  <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-                  <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-                </select>
+                  placeholder="DD/MM/YYYY"
+                />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Language</label>
-                <select
+                <SearchableSelect
+                  options={[
+                    { value: 'en', label: 'English' },
+                    { value: 'af', label: 'Afrikaans' },
+                    { value: 'zu', label: 'Zulu' },
+                    { value: 'xh', label: 'Xhosa' },
+                  ]}
                   value={settings.general.language}
-                  onChange={(e) => setSettings({
-                    ...settings,
-                    general: { ...settings.general, language: e.target.value }
-                  })}
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                >
-                  <option value="en">English</option>
-                  <option value="af">Afrikaans</option>
-                  <option value="zu">Zulu</option>
-                  <option value="xh">Xhosa</option>
-                </select>
+                  placeholder="English"
+                />
               </div>
             </div>
           )}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, MapPin, Package, QrCode, Search, Calendar, CheckCircle2, AlertCircle, Upload, Download } from 'lucide-react';
 import { useToast } from '../components/ui/Toast'
+import SearchableSelect from '../components/ui/SearchableSelect'
 
 interface POSMaterial {
   id: number;
@@ -395,17 +396,17 @@ const POSMaterialTrackerPage: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Material Condition *
                     </label>
-                    <select
+                    <SearchableSelect
+                      options={[
+                        { value: 'excellent', label: 'Excellent' },
+                        { value: 'good', label: 'Good' },
+                        { value: 'fair', label: 'Fair' },
+                        { value: 'poor', label: 'Poor' },
+                        { value: 'damaged', label: 'Damaged' },
+                      ]}
                       value={formData.condition}
-                      onChange={(e) => setFormData({ ...formData, condition: e.target.value as any })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-                    >
-                      <option value="excellent">Excellent</option>
-                      <option value="good">Good</option>
-                      <option value="fair">Fair</option>
-                      <option value="poor">Poor</option>
-                      <option value="damaged">Damaged</option>
-                    </select>
+                      placeholder="Excellent"
+                    />
                   </div>
 
                   {/* QR Code Scan */}

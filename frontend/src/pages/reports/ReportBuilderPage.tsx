@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { BarChart3, Download, Calendar, Filter } from 'lucide-react';
+import SearchableSelect from '../../components/ui/SearchableSelect'
 
 const ReportBuilderPage: React.FC = () => {
   const [config, setConfig] = useState({ type: 'sales', dateFrom: '', dateTo: '', groupBy: 'day', filters: {} });
@@ -44,21 +45,29 @@ const ReportBuilderPage: React.FC = () => {
       <div className="bg-white p-6 rounded-lg shadow-lg mb-6">
         <h2 className="text-xl font-semibold mb-4">Report Configuration</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <select value={config.type} onChange={e => setConfig({...config, type: e.target.value})} className="px-4 py-2 border rounded">
-            <option value="sales">Sales Report</option>
-            <option value="commission">Commission Report</option>
-            <option value="visits">Visits Report</option>
-            <option value="inventory">Inventory Report</option>
-            <option value="performance">Performance Report</option>
-          </select>
+          <SearchableSelect
+            options={[
+              { value: 'sales', label: 'Sales Report' },
+              { value: 'commission', label: 'Commission Report' },
+              { value: 'visits', label: 'Visits Report' },
+              { value: 'inventory', label: 'Inventory Report' },
+              { value: 'performance', label: 'Performance Report' },
+            ]}
+            value={config.type}
+            placeholder="Sales Report"
+          />
           <input type="date" value={config.dateFrom} onChange={e => setConfig({...config, dateFrom: e.target.value})} className="px-4 py-2 border rounded" placeholder="From Date" />
           <input type="date" value={config.dateTo} onChange={e => setConfig({...config, dateTo: e.target.value})} className="px-4 py-2 border rounded" placeholder="To Date" />
-          <select value={config.groupBy} onChange={e => setConfig({...config, groupBy: e.target.value})} className="px-4 py-2 border rounded">
-            <option value="day">Daily</option>
-            <option value="week">Weekly</option>
-            <option value="month">Monthly</option>
-            <option value="quarter">Quarterly</option>
-          </select>
+          <SearchableSelect
+            options={[
+              { value: 'day', label: 'Daily' },
+              { value: 'week', label: 'Weekly' },
+              { value: 'month', label: 'Monthly' },
+              { value: 'quarter', label: 'Quarterly' },
+            ]}
+            value={config.groupBy}
+            placeholder="Daily"
+          />
         </div>
         <div className="flex gap-2 mt-4">
           <button onClick={generateReport} disabled={loading} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400">

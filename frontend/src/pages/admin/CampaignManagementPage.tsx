@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Calendar } from 'lucide-react';
+import SearchableSelect from '../../components/ui/SearchableSelect'
 
 interface Campaign { id: number; name: string; startDate: string; endDate: string; budget: number; status: string; target: number; }
 
@@ -63,12 +64,16 @@ const CampaignManagementPage: React.FC = () => {
             <input type="date" placeholder="End Date" value={form.endDate || ''} onChange={e => setForm({...form, endDate: e.target.value})} className="px-4 py-2 border rounded" />
             <input type="number" placeholder="Budget (₹)" value={form.budget || ''} onChange={e => setForm({...form, budget: +e.target.value})} className="px-4 py-2 border rounded" />
             <input type="number" placeholder="Target (units)" value={form.target || ''} onChange={e => setForm({...form, target: +e.target.value})} className="px-4 py-2 border rounded" />
-            <select value={form.status} onChange={e => setForm({...form, status: e.target.value})} className="px-4 py-2 border rounded col-span-2">
-              <option value="planned">Planned</option>
-              <option value="active">Active</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
+            <SearchableSelect
+              options={[
+                { value: 'planned', label: 'Planned' },
+                { value: 'active', label: 'Active' },
+                { value: 'completed', label: 'Completed' },
+                { value: 'cancelled', label: 'Cancelled' },
+              ]}
+              value={form.status}
+              placeholder="Planned"
+            />
           </div>
           <div className="flex gap-2 mt-4">
             <button onClick={saveCampaign} className="px-4 py-2 bg-green-600 text-white rounded">Save</button>

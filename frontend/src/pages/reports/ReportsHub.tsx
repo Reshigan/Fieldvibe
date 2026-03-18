@@ -5,6 +5,7 @@ import {
   FileSpreadsheet, Building2, ClipboardList, RefreshCw
 } from 'lucide-react';
 import { apiService } from '../../services/api.service';
+import SearchableSelect from '../../components/ui/SearchableSelect'
 
 interface Report {
   id: string;
@@ -301,17 +302,17 @@ const ReportsHub: React.FC = () => {
                       <Filter className="w-4 h-4 inline mr-1" />
                       Status
                     </label>
-                    <select
-                      value={filters.status}
-                      onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">All Statuses</option>
-                      <option value="active">Active</option>
-                      <option value="completed">Completed</option>
-                      <option value="pending">Pending</option>
-                      <option value="cancelled">Cancelled</option>
-                    </select>
+                    <SearchableSelect
+                      options={[
+                        { value: '', label: 'All Statuses' },
+                        { value: 'active', label: 'Active' },
+                        { value: 'completed', label: 'Completed' },
+                        { value: 'pending', label: 'Pending' },
+                        { value: 'cancelled', label: 'Cancelled' },
+                      ]}
+                      value={filters.status || null}
+                      placeholder="All Statuses"
+                    />
                   </div>
                   <div className="flex items-end">
                     <button
