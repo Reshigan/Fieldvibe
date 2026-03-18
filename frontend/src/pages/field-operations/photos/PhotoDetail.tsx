@@ -22,11 +22,6 @@ export default function PhotoDetail() {
     },
   })
 
-  const oldPhoto = {
-      id: photoId,
-      visit_id: visitId,
-      photo_url: '/placeholder-photo.jpg',
-      photo_type: 'board_placement',
       caption: 'Coca-Cola promotional board installed at store entrance',
       taken_at: '2024-01-20T09:35:00Z',
       taken_by: 'John Field Agent',
