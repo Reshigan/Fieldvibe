@@ -27,7 +27,7 @@ const ProductDistributionFormPage: React.FC = () => {
 
   useEffect(() => {
     if (!visit || !customer) {
-      navigate('/field-marketing');
+      navigate('/field-operations');
       return;
     }
     getCurrentLocation();
