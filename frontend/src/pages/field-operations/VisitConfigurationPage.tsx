@@ -239,7 +239,8 @@ export default function VisitConfigurationPage() {
                         </button>
                         <button
                           onClick={() => {
-                            if (confirm('Delete this configuration?')) {
+                            // TODO: Replace with ConfirmDialog
+            if (confirm('Delete this configuration?')) {
                               deleteMutation.mutate(config.id)
                             }
                           }}

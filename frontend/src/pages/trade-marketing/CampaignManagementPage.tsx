@@ -5,6 +5,8 @@ import { Plus, Edit, Trash2, TrendingUp, Calendar, Target } from 'lucide-react'
 import SearchableSelect from '../../components/ui/SearchableSelect'
 
 export default function CampaignManagementPage() {
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
   const [filter, setFilter] = useState({ page: 1, limit: 20, status: '' })
   const queryClient = useQueryClient()
 
@@ -109,7 +111,7 @@ export default function CampaignManagementPage() {
                     <td className="px-6 py-4"><div className="text-sm text-gray-900">{new Date(campaign.start_date).toLocaleDateString()}</div><div className="text-sm text-gray-500">to {new Date(campaign.end_date).toLocaleDateString()}</div></td>
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">{formatCurrency(campaign.budget || 0)}</td>
                     <td className="px-6 py-4">{getStatusBadge(campaign.status)}</td>
-                    <td className="px-6 py-4"><div className="flex space-x-2"><button className="text-blue-600 hover:text-blue-900"><Edit className="h-4 w-4" /></button><button onClick={() => {if(confirm('Delete?')) deleteMutation.mutate(campaign.id)}} className="text-red-600 hover:text-red-900"><Trash2 className="h-4 w-4" /></button></div></td>
+                    <td className="px-6 py-4"><div className="flex space-x-2"><button className="text-blue-600 hover:text-blue-900"><Edit className="h-4 w-4" /></button><button onClick={() => {setDeleteConfirmId(campaign.id)}} className="text-red-600 hover:text-red-900"><Trash2 className="h-4 w-4" /></button></div></td>
                   </tr>
                 ))
               )}
@@ -127,6 +129,16 @@ export default function CampaignManagementPage() {
           </div>
         </div>
       )}
+    
+      <ConfirmDialog
+        isOpen={deleteConfirmId !== null}
+        onClose={() => setDeleteConfirmId(null)}
+        onConfirm={() => { if (deleteConfirmId) { deleteMutation.mutate(deleteConfirmId); setDeleteConfirmId(null); } }}
+        title="Confirm Delete"
+        message="Delete?"
+        confirmLabel="Confirm"
+        variant="danger"
+      />
     </div>
   )
 }

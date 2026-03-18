@@ -7,6 +7,8 @@ import LiveVisitMap from '../../components/maps/LiveVisitMap'
 import SearchableSelect from '../../components/ui/SearchableSelect'
 
 export default function VisitManagementPage() {
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
   const [filter, setFilter] = useState({ page: 1, limit: 20, status: '' })
   const [showMap, setShowMap] = useState(false)
   const queryClient = useQueryClient()
@@ -117,7 +119,7 @@ export default function VisitManagementPage() {
                     <td className="px-6 py-4"><div className="text-sm text-gray-900">{new Date(visit.visit_date).toLocaleDateString()}</div><div className="text-sm text-gray-500">{visit.check_in_time ? new Date(visit.check_in_time).toLocaleTimeString() : 'Not started'}</div></td>
                     <td className="px-6 py-4 text-sm text-gray-900">{visit.visit_type}</td>
                     <td className="px-6 py-4">{getStatusBadge(visit.status)}</td>
-                    <td className="px-6 py-4"><div className="flex space-x-2"><button className="text-blue-600 hover:text-blue-900"><Edit className="h-4 w-4" /></button><button onClick={() => {if(confirm('Delete?')) deleteMutation.mutate(visit.id)}} className="text-red-600 hover:text-red-900"><Trash2 className="h-4 w-4" /></button></div></td>
+                    <td className="px-6 py-4"><div className="flex space-x-2"><button className="text-blue-600 hover:text-blue-900"><Edit className="h-4 w-4" /></button><button onClick={() => {setDeleteConfirmId(visit.id)}} className="text-red-600 hover:text-red-900"><Trash2 className="h-4 w-4" /></button></div></td>
                   </tr>
                 ))
               )}
@@ -135,6 +137,16 @@ export default function VisitManagementPage() {
           </div>
         </div>
       )}
+    
+      <ConfirmDialog
+        isOpen={deleteConfirmId !== null}
+        onClose={() => setDeleteConfirmId(null)}
+        onConfirm={() => { if (deleteConfirmId) { deleteMutation.mutate(deleteConfirmId); setDeleteConfirmId(null); } }}
+        title="Confirm Delete"
+        message="Delete?"
+        confirmLabel="Confirm"
+        variant="danger"
+      />
     </div>
   )
 }
