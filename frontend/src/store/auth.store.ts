@@ -216,7 +216,7 @@ export const getCurrentUser = () => {
 
 export const hasRole = (role: string) => {
   const user = getCurrentUser()
-  return user?.role === role || user?.role === 'admin' || user?.role === 'super_admin'
+  return user?.role === role || user?.role === 'super_admin' || (user?.role === 'admin' && role !== 'super_admin')
 }
 
 export const hasPermission = (permission: string) => {
