@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useToast } from '../../components/ui/Toast'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiClient } from '../../services/api.service'
 
 interface SystemSettings {
   general: {
@@ -34,46 +35,102 @@ interface SystemSettings {
   }
 }
 
+const defaultSettings: SystemSettings = {
+  general: {
+    company_name: 'FieldVibe',
+    timezone: 'Africa/Johannesburg',
+    currency: 'ZAR',
+    date_format: 'DD/MM/YYYY',
+    language: 'en'
+  },
+  email: {
+    smtp_host: 'smtp.example.com',
+    smtp_port: 587,
+    smtp_username: 'noreply@example.com',
+    smtp_from_email: 'noreply@example.com',
+    smtp_from_name: 'FieldVibe'
+  },
+  security: {
+    session_timeout: 30,
+    password_min_length: 8,
+    password_require_uppercase: true,
+    password_require_lowercase: true,
+    password_require_numbers: true,
+    password_require_special: true,
+    two_factor_enabled: false
+  },
+  features: {
+    enable_notifications: true,
+    enable_analytics: true,
+    enable_api_access: true,
+    enable_mobile_app: true
+  }
+}
+
 export const SystemSettingsPage: React.FC = () => {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<'general' | 'email' | 'security' | 'features'>('general')
 
-  const mockSettings: SystemSettings = {
-    general: {
-      company_name: 'FieldVibe',
-      timezone: 'Africa/Johannesburg',
-      currency: 'ZAR',
-      date_format: 'DD/MM/YYYY',
-      language: 'en'
-    },
-    email: {
-      smtp_host: 'smtp.example.com',
-      smtp_port: 587,
-      smtp_username: 'noreply@example.com',
-      smtp_from_email: 'noreply@example.com',
-      smtp_from_name: 'FieldVibe'
-    },
-    security: {
-      session_timeout: 30,
-      password_min_length: 8,
-      password_require_uppercase: true,
-      password_require_lowercase: true,
-      password_require_numbers: true,
-      password_require_special: true,
-      two_factor_enabled: false
-    },
-    features: {
-      enable_notifications: true,
-      enable_analytics: true,
-      enable_api_access: true,
-      enable_mobile_app: true
+  const { toast } = useToast()
+  const [settings, setSettings] = useState<SystemSettings>(defaultSettings)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    loadSettings()
+  }, [])
+
+  const loadSettings = async () => {
+    try {
+      const res = await apiClient.get('/settings')
+      const data = res.data?.data?.settings || res.data?.data || res.data
+      if (data && typeof data === 'object') {
+        // Map flat settings to structured format
+        setSettings(prev => ({
+          general: {
+            company_name: data['company.name']?.value || data.company_name || prev.general.company_name,
+            timezone: data['locale.timezone']?.value || data.timezone || prev.general.timezone,
+            currency: data['locale.currency']?.value || data.currency || prev.general.currency,
+            date_format: data['locale.date_format']?.value || data.date_format || prev.general.date_format,
+            language: data['locale.language']?.value || data.language || prev.general.language
+          },
+          email: {
+            smtp_host: data['email.smtp_host']?.value || data.smtp_host || prev.email.smtp_host,
+            smtp_port: parseInt(data['email.smtp_port']?.value || data.smtp_port) || prev.email.smtp_port,
+            smtp_username: data['email.smtp_username']?.value || data.smtp_username || prev.email.smtp_username,
+            smtp_from_email: data['email.from_email']?.value || data.smtp_from_email || prev.email.smtp_from_email,
+            smtp_from_name: data['email.from_name']?.value || data.smtp_from_name || prev.email.smtp_from_name
+          },
+          security: prev.security,
+          features: prev.features
+        }))
+      }
+    } catch {
+      // Use defaults if API fails
     }
   }
 
-  const { toast } = useToast()
-  const [settings, setSettings] = useState(mockSettings)
-
-  const handleSave = () => {
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const flatSettings: Record<string, string> = {
+        'company.name': settings.general.company_name,
+        'locale.timezone': settings.general.timezone,
+        'locale.currency': settings.general.currency,
+        'locale.date_format': settings.general.date_format,
+        'locale.language': settings.general.language,
+        'email.smtp_host': settings.email.smtp_host,
+        'email.smtp_port': String(settings.email.smtp_port),
+        'email.smtp_username': settings.email.smtp_username,
+        'email.from_email': settings.email.smtp_from_email,
+        'email.from_name': settings.email.smtp_from_name
+      }
+      await apiClient.put('/settings', { settings: flatSettings })
+      toast.success('Settings saved successfully')
+    } catch {
+      toast.error('Failed to save settings to server. Changes may be lost on refresh.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const tabs = [
@@ -94,9 +151,10 @@ export const SystemSettingsPage: React.FC = () => {
         </div>
         <button
           onClick={handleSave}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+          disabled={saving}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
         >
-          Save Changes
+          {saving ? 'Saving...' : 'Save Changes'}
         </button>
       </div>
 
