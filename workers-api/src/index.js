@@ -2089,7 +2089,7 @@ api.get('/orders/:id', authMiddleware, async (c) => {
   const id = c.req.param('id');
   const order = await db.prepare('SELECT so.*, c.name as customer_name FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id WHERE so.id = ? AND so.tenant_id = ?').bind(id, tenantId).first();
   if (!order) return c.json({ success: false, message: 'Order not found' }, 404);
-  const items = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id WHERE soi.sales_order_id = ? LIMIT 500').bind(id).all();
+  const items = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi JOIN sales_orders so ON soi.sales_order_id = so.id LEFT JOIN products p ON soi.product_id = p.id WHERE soi.sales_order_id = ? AND so.tenant_id = ? LIMIT 500').bind(id, tenantId).all();
   return c.json({ success: true, data: { ...order, items: items.results || [] } });
 });
 
@@ -2234,7 +2234,7 @@ api.get('/sales/orders/:id', authMiddleware, async (c) => {
   const id = c.req.param('id');
   const order = await db.prepare('SELECT so.*, c.name as customer_name FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id WHERE so.id = ? AND so.tenant_id = ?').bind(id, tenantId).first();
   if (!order) return c.json({ success: false, message: 'Order not found' }, 404);
-  const items = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id WHERE soi.sales_order_id = ? LIMIT 500').bind(id).all();
+  const items = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi JOIN sales_orders so ON soi.sales_order_id = so.id LEFT JOIN products p ON soi.product_id = p.id WHERE soi.sales_order_id = ? AND so.tenant_id = ? LIMIT 500').bind(id, tenantId).all();
   return c.json({ success: true, data: { ...order, items: items.results || [] } });
 });
 
@@ -2306,7 +2306,7 @@ api.get('/invoices/:id', authMiddleware, async (c) => {
   const id = c.req.param('id');
   const invoice = await db.prepare('SELECT so.*, c.name as customer_name FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id WHERE so.id = ? AND so.tenant_id = ?').bind(id, tenantId).first();
   if (!invoice) return c.json({ success: false, message: 'Invoice not found' }, 404);
-  const items = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id WHERE soi.sales_order_id = ? LIMIT 500').bind(id).all();
+  const items = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi JOIN sales_orders so ON soi.sales_order_id = so.id LEFT JOIN products p ON soi.product_id = p.id WHERE soi.sales_order_id = ? AND so.tenant_id = ? LIMIT 500').bind(id, tenantId).all();
   return c.json({ success: true, data: { ...invoice, items: items.results || [] } });
 });
 
@@ -2486,7 +2486,7 @@ api.get('/sales/returns/:id', authMiddleware, async (c) => {
   const id = c.req.param('id');
   const ret = await db.prepare('SELECT r.*, so.order_number, c.name as customer_name FROM returns r LEFT JOIN sales_orders so ON r.original_order_id = so.id LEFT JOIN customers c ON so.customer_id = c.id WHERE r.id = ? AND r.tenant_id = ?').bind(id, tenantId).first();
   if (!ret) return c.json({ success: false, message: 'Return not found' }, 404);
-  const items = await db.prepare('SELECT ri.*, p.name as product_name FROM return_items ri LEFT JOIN products p ON ri.product_id = p.id WHERE ri.return_id = ? LIMIT 500').bind(id).all();
+  const items = await db.prepare('SELECT ri.*, p.name as product_name FROM return_items ri JOIN returns r ON ri.return_id = r.id LEFT JOIN products p ON ri.product_id = p.id WHERE ri.return_id = ? AND r.tenant_id = ? LIMIT 500').bind(id, tenantId).all();
   return c.json({ success: true, data: { ...ret, items: items.results || [] } });
 });
 
@@ -3393,8 +3393,8 @@ api.get('/finance/invoices/:id', authMiddleware, async (c) => {
   const id = c.req.param('id');
   const invoice = await db.prepare("SELECT so.*, c.name as customer_name, u.first_name || ' ' || u.last_name as agent_name FROM sales_orders so LEFT JOIN customers c ON so.customer_id = c.id LEFT JOIN users u ON so.agent_id = u.id WHERE so.id = ? AND so.tenant_id = ?").bind(id, tenantId).first();
   if (!invoice) return c.json({ success: false, message: 'Invoice not found' }, 404);
-  const items = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi LEFT JOIN products p ON soi.product_id = p.id WHERE soi.sales_order_id = ?').bind(id).all();
-  const payments = await db.prepare('SELECT * FROM payments WHERE sales_order_id = ? ORDER BY created_at DESC').bind(id).all();
+  const items = await db.prepare('SELECT soi.*, p.name as product_name FROM sales_order_items soi JOIN sales_orders so ON soi.sales_order_id = so.id LEFT JOIN products p ON soi.product_id = p.id WHERE soi.sales_order_id = ? AND so.tenant_id = ? LIMIT 500').bind(id, tenantId).all();
+  const payments = await db.prepare('SELECT * FROM payments WHERE sales_order_id = ? AND tenant_id = ? ORDER BY created_at DESC').bind(id, tenantId).all();
   return c.json({ success: true, data: { ...invoice, items: items.results || [], payments: payments.results || [] } });
 });
 
@@ -4789,7 +4789,7 @@ api.delete('/price-lists/:id', requireRole('admin'), async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const { id } = c.req.param();
-  await db.prepare('DELETE FROM price_list_items WHERE price_list_id = ?').bind(id).run();
+  await db.prepare('DELETE FROM price_list_items WHERE price_list_id = ? AND price_list_id IN (SELECT id FROM price_lists WHERE tenant_id = ?)').bind(id, tenantId).run();
   await db.prepare('DELETE FROM price_lists WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
   return c.json({ success: true, message: 'Price list deleted' });
 });
@@ -5859,9 +5859,9 @@ api.get('/trade-promotions/:id', async (c) => {
   const { id } = c.req.param();
   const promo = await db.prepare('SELECT * FROM trade_promotions WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
   if (!promo) return c.json({ success: false, message: 'Trade promotion not found' }, 404);
-  const enrollments = await db.prepare("SELECT tpe.*, c.name as customer_name FROM trade_promotion_enrollments tpe LEFT JOIN customers c ON tpe.customer_id = c.id WHERE tpe.promotion_id = ?").bind(id).all();
-  const claims = await db.prepare("SELECT tpc.*, c.name as customer_name FROM trade_promotion_claims tpc LEFT JOIN customers c ON tpc.customer_id = c.id WHERE tpc.promotion_id = ?").bind(id).all();
-  const audits = await db.prepare("SELECT * FROM trade_promotion_audits WHERE promotion_id = ? ORDER BY audit_date DESC").bind(id).all();
+  const enrollments = await db.prepare("SELECT tpe.*, c.name as customer_name FROM trade_promotion_enrollments tpe LEFT JOIN customers c ON tpe.customer_id = c.id JOIN trade_promotions tp ON tpe.promotion_id = tp.id WHERE tpe.promotion_id = ? AND tp.tenant_id = ?").bind(id, tenantId).all();
+  const claims = await db.prepare("SELECT tpc.*, c.name as customer_name FROM trade_promotion_claims tpc LEFT JOIN customers c ON tpc.customer_id = c.id JOIN trade_promotions tp ON tpc.promotion_id = tp.id WHERE tpc.promotion_id = ? AND tp.tenant_id = ?").bind(id, tenantId).all();
+  const audits = await db.prepare("SELECT tpa.* FROM trade_promotion_audits tpa JOIN trade_promotions tp ON tpa.promotion_id = tp.id WHERE tpa.promotion_id = ? AND tp.tenant_id = ? ORDER BY tpa.audit_date DESC").bind(id, tenantId).all();
   return c.json({ success: true, data: { ...promo, config: promo.config ? JSON.parse(promo.config) : {}, enrollments: enrollments.results || [], claims: claims.results || [], audits: audits.results || [] } });
 });
 
@@ -5932,7 +5932,8 @@ api.post('/trade-promotions/:id/enroll', async (c) => {
 api.get('/trade-promotions/:id/enrollments', async (c) => {
   const db = c.env.DB;
   const { id } = c.req.param();
-  const enrollments = await db.prepare("SELECT tpe.*, c.name as customer_name FROM trade_promotion_enrollments tpe LEFT JOIN customers c ON tpe.customer_id = c.id WHERE tpe.promotion_id = ? ORDER BY tpe.created_at DESC").bind(id).all();
+  const tenantId = c.get('tenantId');
+  const enrollments = await db.prepare("SELECT tpe.*, c.name as customer_name FROM trade_promotion_enrollments tpe LEFT JOIN customers c ON tpe.customer_id = c.id JOIN trade_promotions tp ON tpe.promotion_id = tp.id WHERE tpe.promotion_id = ? AND tp.tenant_id = ? ORDER BY tpe.created_at DESC").bind(id, tenantId).all();
   return c.json({ success: true, data: enrollments.results || [] });
 });
 
@@ -5965,7 +5966,7 @@ api.put('/trade-promotion-claims/:id/approve', requireRole('admin', 'manager'), 
   const userId = c.get('userId');
   const { id } = c.req.param();
 
-  const claim = await db.prepare('SELECT * FROM trade_promotion_claims WHERE id = ?').bind(id).first();
+  const claim = await db.prepare('SELECT tpc.* FROM trade_promotion_claims tpc JOIN trade_promotions tp ON tpc.promotion_id = tp.id WHERE tpc.id = ? AND tp.tenant_id = ?').bind(id, tenantId).first();
   if (!claim) return c.json({ success: false, message: 'Claim not found' }, 404);
 
   await db.prepare("UPDATE trade_promotion_claims SET status = 'APPROVED', approved_by = ?, approved_at = datetime('now') WHERE id = ?").bind(userId, id).run();
@@ -7109,7 +7110,7 @@ api.get('/webhooks/:id/deliveries', requireRole('admin'), async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const { id } = c.req.param();
-  const deliveries = await db.prepare('SELECT * FROM webhook_deliveries WHERE webhook_id = ? ORDER BY created_at DESC LIMIT 50').bind(id).all();
+  const deliveries = await db.prepare('SELECT wd.* FROM webhook_deliveries wd JOIN webhooks w ON wd.webhook_id = w.id WHERE wd.webhook_id = ? AND w.tenant_id = ? ORDER BY wd.created_at DESC LIMIT 50').bind(id, tenantId).all();
   return c.json({ success: true, data: deliveries.results || [] });
 });
 
@@ -7635,7 +7636,7 @@ api.post('/activations/:id/start', async (c) => {
   await db.prepare(`UPDATE activations SET status = 'in_progress', actual_start = datetime('now'),
     start_latitude = ?, start_longitude = ?, updated_at = datetime('now') WHERE id = ?`).bind(
     body.latitude || null, body.longitude || null, id).run();
-  const tasks = await db.prepare('SELECT * FROM activation_tasks WHERE activation_id = ? ORDER BY sequence_order').bind(id).all();
+  const tasks = await db.prepare('SELECT at2.* FROM activation_tasks at2 JOIN activations a ON at2.activation_id = a.id WHERE at2.activation_id = ? AND a.tenant_id = ? ORDER BY at2.sequence_order').bind(id, tenantId).all();
   return c.json({ success: true, data: { activation_id: id, status: 'in_progress', tasks: tasks.results || [] } });
 });
 
@@ -7645,6 +7646,9 @@ api.post('/activations/:id/tasks/:taskId/complete', async (c) => {
   const userId = c.get('userId');
   const { id, taskId } = c.req.param();
   const body = await c.req.json();
+  // Verify activation belongs to tenant
+  const act = await db.prepare('SELECT id FROM activations WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!act) return c.json({ success: false, message: 'Activation not found' }, 404);
   await db.prepare(`UPDATE activation_tasks SET status = 'completed', completed_at = datetime('now'),
     completed_by = ?, photo_ids = ?, quantity_value = ?, notes = ? WHERE id = ? AND activation_id = ?`).bind(
     userId, body.photo_ids ? JSON.stringify(body.photo_ids) : null,
@@ -7656,7 +7660,7 @@ api.post('/activations/:id/submit', async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const { id } = c.req.param();
-  const pendingTasks = await db.prepare("SELECT COUNT(*) as count FROM activation_tasks WHERE activation_id = ? AND status != 'completed'").bind(id).first() || { count: 0 };
+  const pendingTasks = await db.prepare("SELECT COUNT(*) as count FROM activation_tasks at2 JOIN activations a ON at2.activation_id = a.id WHERE at2.activation_id = ? AND a.tenant_id = ? AND at2.status != 'completed'").bind(id, tenantId).first() || { count: 0 };
   if (pendingTasks?.count > 0) {
     return c.json({ success: false, message: `${pendingTasks.count} task(s) still pending` }, 400);
   }
@@ -7670,7 +7674,7 @@ api.get('/activations/:id/summary', async (c) => {
   const { id } = c.req.param();
   const [activation, tasks, photos] = await Promise.all([
     db.prepare('SELECT a.*, c.name as customer_name, camp.name as campaign_name FROM activations a LEFT JOIN customers c ON a.customer_id = c.id LEFT JOIN campaigns camp ON a.campaign_id = camp.id WHERE a.id = ? AND a.tenant_id = ?').bind(id, tenantId).first(),
-    db.prepare('SELECT * FROM activation_tasks WHERE activation_id = ? ORDER BY sequence_order').bind(id).all(),
+    db.prepare('SELECT at2.* FROM activation_tasks at2 JOIN activations a ON at2.activation_id = a.id WHERE at2.activation_id = ? AND a.tenant_id = ? ORDER BY at2.sequence_order').bind(id, tenantId).all(),
     db.prepare('SELECT vp.* FROM visit_photos vp WHERE vp.visit_id IN (SELECT visit_id FROM activations WHERE id = ?) AND vp.tenant_id = ? ORDER BY vp.created_at DESC LIMIT 100').bind(id, tenantId).all(),
   ]);
   if (!activation) return c.json({ success: false, message: 'Activation not found' }, 404);
