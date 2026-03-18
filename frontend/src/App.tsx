@@ -106,6 +106,7 @@ const CreditNoteCreate = lazy(() => import('./pages/sales/credit-notes/CreditNot
 const CreditNoteDetail = lazy(() => import('./pages/sales/credit-notes/CreditNoteDetail'))
 const CreditNotesList = lazy(() => import('./pages/sales/credit-notes/CreditNotesList'))
 const CustomerCreatePage = lazy(() => import('./pages/customers/CustomerCreatePage'))
+const CreditManagementPage = lazy(() => import('./pages/customers/CreditManagementPage'))
 const CustomerDashboard = lazy(() => import('./pages/customers/CustomerDashboard'))
 const CustomerDetailsPage = lazy(() => import('./pages/customers/CustomerDetailsPage'))
 const CustomerEditPage = lazy(() => import('./pages/customers/CustomerEditPage'))
@@ -558,6 +559,9 @@ function App() {
             <Route path="inventory/stock-count/:id" element={<PageLoader><StockCountDetail /></PageLoader>} />
             <Route path="inventory/management" element={<PageLoader><InventoryManagement /></PageLoader>} />
             <Route path="inventory/reports" element={<PageLoader><InventoryReports /></PageLoader>} />
+            <Route path="inventory/stock-levels" element={<PageLoader><InventoryManagement /></PageLoader>} />
+            <Route path="inventory/movements" element={<PageLoader><InventoryReports /></PageLoader>} />
+            <Route path="inventory/warehouses" element={<PageLoader><InventoryManagement /></PageLoader>} />
             <Route path="inventory/adjustments" element={<PageLoader><AdjustmentsList /></PageLoader>} />
             <Route path="inventory/adjustments/create" element={<PageLoader><AdjustmentCreate /></PageLoader>} />
             <Route path="inventory/adjustments/:id" element={<PageLoader><AdjustmentDetail /></PageLoader>} />
@@ -613,6 +617,7 @@ function App() {
             <Route path="customers/:id/visits" element={<PageLoader><CustomerVisits /></PageLoader>} />
             <Route path="customers/:id/payments" element={<PageLoader><CustomerPayments /></PageLoader>} />
             <Route path="customers/:id/surveys" element={<PageLoader><CustomerSurveys /></PageLoader>} />
+            <Route path="customers/credit" element={<PageLoader><CreditManagementPage /></PageLoader>} />
             <Route path="customers/:id/kyc" element={<PageLoader><CustomerKYC /></PageLoader>} />
             <Route path="orders" element={<PageLoader><OrdersPage /></PageLoader>} />
             <Route path="orders/dashboard" element={<PageLoader><OrderDashboard /></PageLoader>} />
@@ -654,6 +659,7 @@ function App() {
 
             {/* Sales Routes */}
             <Route path="sales" element={<PageLoader><SalesDashboard /></PageLoader>} />
+            <Route path="sales/dashboard" element={<PageLoader><SalesDashboard /></PageLoader>} />
             <Route path="sales/orders" element={<PageLoader><SalesOrdersList /></PageLoader>} />
             <Route path="sales/orders/create" element={<PageLoader><SalesOrderCreate /></PageLoader>} />
             <Route path="sales/orders/:id" element={<PageLoader><SalesOrderDetail /></PageLoader>} />
@@ -691,6 +697,7 @@ function App() {
 
             {/* Finance Routes */}
             <Route path="finance" element={<PageLoader><FinanceDashboard /></PageLoader>} />
+            <Route path="finance/dashboard" element={<PageLoader><FinanceDashboard /></PageLoader>} />
             <Route path="finance/invoices" element={<PageLoader><InvoiceManagementPage /></PageLoader>} />
             <Route path="finance/invoices/create" element={<PageLoader><FinanceInvoiceCreate /></PageLoader>} />
             <Route path="finance/invoices/:id" element={<PageLoader><FinanceInvoiceDetail /></PageLoader>} />
