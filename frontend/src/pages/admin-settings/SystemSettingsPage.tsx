@@ -127,7 +127,7 @@ export const SystemSettingsPage: React.FC = () => {
       await apiClient.put('/settings', { settings: flatSettings })
       toast.success('Settings saved successfully')
     } catch {
-      toast.success('Settings saved locally')
+      toast.error('Failed to save settings to server. Changes may be lost on refresh.')
     } finally {
       setSaving(false)
     }

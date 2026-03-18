@@ -189,13 +189,12 @@ export default function DataImportExportPage() {
         loadImportHistory()
       }, 500)
     } catch {
-      // Fallback: show success for UX (file was selected)
-      setImportProgress(100)
+      clearInterval(progressInterval)
+      setImportProgress(0)
       setTimeout(() => {
         setImporting(false)
-        setUploadedFile(null)
         setImportProgress(0)
-        toast.success(`Import of ${uploadedFile.name} queued for processing`)
+        toast.error(`Failed to import ${uploadedFile.name}. Please try again.`)
       }, 500)
     }
   }
@@ -216,8 +215,18 @@ export default function DataImportExportPage() {
         content = JSON.stringify(data, null, 2)
         mimeType = 'application/json'
         ext = 'json'
+      } else if (format === 'csv') {
+        if (Array.isArray(data) && data.length > 0) {
+          const headers = Object.keys(data[0])
+          const rows = data.map((row: any) => headers.map(h => JSON.stringify(row[h] ?? '')).join(','))
+          content = [headers.join(','), ...rows].join('\n')
+        } else {
+          content = 'No data available'
+        }
+        mimeType = 'text/csv'
+        ext = 'csv'
       } else {
-        // CSV export
+        // XLSX not supported natively - export as CSV with .xlsx extension note
         if (Array.isArray(data) && data.length > 0) {
           const headers = Object.keys(data[0])
           const rows = data.map((row: any) => headers.map(h => JSON.stringify(row[h] ?? '')).join(','))
@@ -242,7 +251,7 @@ export default function DataImportExportPage() {
       toast.success(`${selectedType} data exported as ${format.toUpperCase()}`)
       loadExportJobs()
     } catch {
-      toast.info(`Export started! You'll be notified when the ${format.toUpperCase()} file is ready.`)
+      toast.error(`Failed to export ${selectedType} data as ${format.toUpperCase()}. Please try again.`)
     } finally {
       setExporting(false)
     }
