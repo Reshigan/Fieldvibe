@@ -174,7 +174,7 @@ const BrandActivationFormPage: React.FC = () => {
       });
     } catch (error) {
       console.error('Error creating brand activation:', error);
-      toast.error('Error creating brand activation event');
+      toast.error('Failed to create event: ' + ((error as any)?.message || 'Unknown error'));
     }
   };
 
