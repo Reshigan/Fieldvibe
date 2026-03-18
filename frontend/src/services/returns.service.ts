@@ -33,7 +33,7 @@ export const returnsService = {
 
   async approveReturn(id: string) {
     try {
-      const response = await apiClient.post(`/returns/${id}/approve`)
+      const response = await apiClient.put(`/returns/${id}/approve`)
       return response.data
     } catch (error) {
       console.error('Error approving return:', error)
@@ -43,7 +43,7 @@ export const returnsService = {
 
   async rejectReturn(id: string, reason: string) {
     try {
-      const response = await apiClient.post(`/returns/${id}/reject`, { reason })
+      const response = await apiClient.put(`/returns/${id}/reject`, { reason })
       return response.data
     } catch (error) {
       console.error('Error rejecting return:', error)
