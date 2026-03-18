@@ -155,14 +155,7 @@ const BrandActivationFormPage: React.FC = () => {
     }
 
     try {
-      const response = await fetch(`${apiClient.defaults.baseURL}/trade-marketing-new/brand-activations`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(formData)
-      });
+      const response = await apiClient.post('/trade-marketing-new/brand-activations', formData);
 
       if (response.ok) {
         toast.success('Brand Activation event created successfully!');
@@ -181,7 +174,7 @@ const BrandActivationFormPage: React.FC = () => {
           engagementScore: 7
         });
       } else {
-        const error = await response.json();
+        const error = response.data;
         toast.error('Failed to create event: ' + (error.message || 'Unknown error'));
       }
     } catch (error) {
