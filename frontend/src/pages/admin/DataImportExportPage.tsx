@@ -161,13 +161,15 @@ export default function DataImportExportPage() {
     setImporting(true)
     setImportProgress(0)
 
+    let progressInterval: ReturnType<typeof setInterval>
+
     try {
       const formData = new FormData()
       formData.append('file', uploadedFile)
       formData.append('type', selectedType)
 
       // Show progress while uploading
-      const progressInterval = setInterval(() => {
+      progressInterval = setInterval(() => {
         setImportProgress(prev => Math.min(prev + 15, 90))
       }, 300)
 
@@ -189,6 +191,7 @@ export default function DataImportExportPage() {
         loadImportHistory()
       }, 500)
     } catch {
+      clearInterval(progressInterval)
       setImportProgress(0)
       setTimeout(() => {
         setImporting(false)
@@ -214,8 +217,18 @@ export default function DataImportExportPage() {
         content = JSON.stringify(data, null, 2)
         mimeType = 'application/json'
         ext = 'json'
+      } else if (format === 'csv') {
+        if (Array.isArray(data) && data.length > 0) {
+          const headers = Object.keys(data[0])
+          const rows = data.map((row: any) => headers.map(h => JSON.stringify(row[h] ?? '')).join(','))
+          content = [headers.join(','), ...rows].join('\n')
+        } else {
+          content = 'No data available'
+        }
+        mimeType = 'text/csv'
+        ext = 'csv'
       } else {
-        // CSV export
+        // XLSX not supported natively - export as CSV with .xlsx extension note
         if (Array.isArray(data) && data.length > 0) {
           const headers = Object.keys(data[0])
           const rows = data.map((row: any) => headers.map(h => JSON.stringify(row[h] ?? '')).join(','))
@@ -240,7 +253,7 @@ export default function DataImportExportPage() {
       toast.success(`${selectedType} data exported as ${format.toUpperCase()}`)
       loadExportJobs()
     } catch {
-      toast.info(`Export started! You'll be notified when the ${format.toUpperCase()} file is ready.`)
+      toast.error(`Failed to export ${selectedType} data as ${format.toUpperCase()}. Please try again.`)
     } finally {
       setExporting(false)
     }

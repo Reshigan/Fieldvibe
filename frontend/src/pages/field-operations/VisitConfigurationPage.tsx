@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Edit, Trash2, Calendar, MapPin, CheckSquare, Camera, BarChart3 } from 'lucide-react'
+import SearchableSelect from '../../components/ui/SearchableSelect'
 
 interface VisitConfiguration {
   id: string
@@ -238,7 +239,8 @@ export default function VisitConfigurationPage() {
                         </button>
                         <button
                           onClick={() => {
-                            if (confirm('Delete this configuration?')) {
+                            // TODO: Replace with ConfirmDialog
+            if (confirm('Delete this configuration?')) {
                               deleteMutation.mutate(config.id)
                             }
                           }}
@@ -365,50 +367,45 @@ function ConfigurationModal({ config, brands, surveys, boards, onClose, onSucces
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Target Type *</label>
-              <select
-                required
+              <SearchableSelect
+                options={[
+                  { value: 'all', label: 'All Customers' },
+                  { value: 'brand', label: 'Specific Brand' },
+                  { value: 'customer_type', label: 'Customer Type' },
+                ]}
                 value={formData.target_type}
-                onChange={e => setFormData({ ...formData, target_type: e.target.value as any })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2"
-              >
-                <option value="all">All Customers</option>
-                <option value="brand">Specific Brand</option>
-                <option value="customer_type">Customer Type</option>
-              </select>
+                placeholder="All Customers"
+              />
             </div>
 
             {formData.target_type === 'brand' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Brand *</label>
-                <select
-                  required
-                  value={formData.brand_id}
-                  onChange={e => setFormData({ ...formData, brand_id: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                >
-                  <option value="">Select Brand</option>
-                  {brands.map(brand => (
-                    <option key={brand.id} value={brand.id}>{brand.name}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'Select Brand' },
+                    { value: 'brand.id', label: '{brand.name}' },
+                  ]}
+                  value={formData.brand_id || null}
+                  placeholder="Select Brand"
+                />
               </div>
             )}
 
             {formData.target_type === 'customer_type' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Customer Type *</label>
-                <select
-                  required
-                  value={formData.customer_type}
-                  onChange={e => setFormData({ ...formData, customer_type: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                >
-                  <option value="">Select Type</option>
-                  <option value="spaza">Spaza Shop</option>
-                  <option value="retail">Retail</option>
-                  <option value="wholesale">Wholesale</option>
-                  <option value="distributor">Distributor</option>
-                </select>
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'Select Type' },
+                    { value: 'spaza', label: 'Spaza Shop' },
+                    { value: 'retail', label: 'Retail' },
+                    { value: 'wholesale', label: 'Wholesale' },
+                    { value: 'distributor', label: 'Distributor' },
+                  ]}
+                  value={formData.customer_type || null}
+                  placeholder="Select Type"
+                />
               </div>
             )}
           </div>
@@ -441,16 +438,14 @@ function ConfigurationModal({ config, brands, surveys, boards, onClose, onSucces
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Survey</label>
-                <select
-                  value={formData.survey_id}
-                  onChange={e => setFormData({ ...formData, survey_id: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                >
-                  <option value="">No Survey</option>
-                  {surveys.map(survey => (
-                    <option key={survey.id} value={survey.id}>{survey.title}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'No Survey' },
+                    { value: 'survey.id', label: '{survey.title}' },
+                  ]}
+                  value={formData.survey_id || null}
+                  placeholder="No Survey"
+                />
               </div>
               {formData.survey_id && (
                 <label className="flex items-center space-x-2">
@@ -482,16 +477,14 @@ function ConfigurationModal({ config, brands, surveys, boards, onClose, onSucces
                 <>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Board</label>
-                    <select
-                      value={formData.board_id}
-                      onChange={e => setFormData({ ...formData, board_id: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    >
-                      <option value="">Any Board</option>
-                      {boards.map(board => (
-                        <option key={board.id} value={board.id}>{board.name}</option>
-                      ))}
-                    </select>
+                    <SearchableSelect
+                      options={[
+                        { value: '', label: 'Any Board' },
+                        { value: 'board.id', label: '{board.name}' },
+                      ]}
+                      value={formData.board_id || null}
+                      placeholder="Any Board"
+                    />
                   </div>
                   <label className="flex items-center space-x-2">
                     <input

@@ -55,7 +55,7 @@ export interface FinanceStats {
 class FinanceService {
   private readonly baseUrl = '/finance'
   // Build full URL using centralized config
-  private paymentsUrl = '/api/payments'
+  private paymentsUrl = '/payments'
 
   // Invoices
   async getInvoices(filter?: any): Promise<{ invoices: Invoice[], total: number }> {

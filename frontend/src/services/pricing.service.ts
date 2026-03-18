@@ -49,7 +49,7 @@ export interface PriceListFilter {
 class PricingService {
   async getPriceLists(filter?: PriceListFilter): Promise<PriceList[]> {
     try {
-      const response = await apiClient.get('/api/pricing/price-lists', { params: filter })
+      const response = await apiClient.get('/price-lists', { params: filter })
       return response.data.data || []
     } catch (error) {
       console.error('Failed to fetch price lists:', error)
@@ -69,7 +69,7 @@ class PricingService {
 
   async createPriceList(data: Omit<PriceList, 'id' | 'tenant_id' | 'created_at' | 'updated_at'>): Promise<PriceList> {
     try {
-      const response = await apiClient.post('/api/pricing/price-lists', data)
+      const response = await apiClient.post('/price-lists', data)
       return response.data.data
     } catch (error) {
       console.error('Failed to create price list:', error)
@@ -108,7 +108,7 @@ class PricingService {
 
   async getCustomerPrices(customerId: string): Promise<Array<{ product_id: string; resolved_price: number; source: string }>> {
     try {
-      const response = await apiClient.get('/api/pricing/customer-prices', {
+      const response = await apiClient.get('/pricing/customer-prices', {
         params: { customer_id: customerId }
       })
       return response.data.data || []
@@ -120,7 +120,7 @@ class PricingService {
 
   async getProductPrice(productId: string, customerId?: string, quantity?: number): Promise<any> {
     try {
-      const response = await apiClient.get('/api/pricing/quote', {
+      const response = await apiClient.get('/pricing/quote', {
         params: { product_id: productId, customer_id: customerId, quantity }
       })
       return response.data.data
@@ -132,7 +132,7 @@ class PricingService {
 
   async getBulkPrices(items: Array<{ product_id: string; quantity: number }>, customerId?: string): Promise<any[]> {
     try {
-      const response = await apiClient.post('/api/pricing/bulk-quote', {
+      const response = await apiClient.post('/pricing/bulk-quote', {
         items,
         customer_id: customerId
       })

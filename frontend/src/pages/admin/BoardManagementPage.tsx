@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Save, X } from 'lucide-react';
+import SearchableSelect from '../../components/ui/SearchableSelect'
 
 interface Board { id: number; name: string; type: string; width: number; height: number; commissionRate: number; installCost: number; }
 
@@ -54,12 +55,16 @@ const BoardManagementPage: React.FC = () => {
           <h2 className="text-xl font-semibold mb-4">{editing ? 'Edit Board' : 'New Board'}</h2>
           <div className="grid grid-cols-2 gap-4">
             <input placeholder="Board Name" value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} className="px-4 py-2 border rounded" />
-            <select value={form.type || ''} onChange={e => setForm({...form, type: e.target.value})} className="px-4 py-2 border rounded">
-              <option value="">Select Type</option>
-              <option value="billboard">Billboard</option>
-              <option value="standee">Standee</option>
-              <option value="banner">Banner</option>
-            </select>
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Select Type' },
+                { value: 'billboard', label: 'Billboard' },
+                { value: 'standee', label: 'Standee' },
+                { value: 'banner', label: 'Banner' },
+              ]}
+              value={form.type || '' || null}
+              placeholder="Select Type"
+            />
             <input type="number" placeholder="Width (cm)" value={form.width || ''} onChange={e => setForm({...form, width: +e.target.value})} className="px-4 py-2 border rounded" />
             <input type="number" placeholder="Height (cm)" value={form.height || ''} onChange={e => setForm({...form, height: +e.target.value})} className="px-4 py-2 border rounded" />
             <input type="number" placeholder="Commission (₹)" value={form.commissionRate || ''} onChange={e => setForm({...form, commissionRate: +e.target.value})} className="px-4 py-2 border rounded" />
