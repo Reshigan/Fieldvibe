@@ -459,6 +459,11 @@ class KYCService extends ApiService {
     const response = await this.get(`${this.baseUrl}/stats`)
     return response.data
   }
+
+  // Alias for getKYCSubmissions (called by CustomerKYC tab)
+  async getKYCRecords(filter: KYCFilter = {}) {
+    return this.getKYCSubmissions(filter)
+  }
 }
 
 export const kycService = new KYCService()
