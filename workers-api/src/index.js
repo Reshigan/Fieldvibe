@@ -6769,7 +6769,7 @@ api.get('/process/audit', requireRole('admin'), async (c) => {
 // ==================== Q. SUPER ADMIN PLATFORM MANAGEMENT ====================
 
 // Q.1 Tenant Management — List all tenants (super_admin sees all, admin sees own)
-api.get('/tenants', async (c) => {
+api.get('/tenants', requireRole('admin'), async (c) => {
   const db = c.env.DB;
   const role = c.get('role');
   const tenantId = c.get('tenantId');
@@ -6783,7 +6783,7 @@ api.get('/tenants', async (c) => {
 });
 
 // Alias: platform/tenants -> tenants
-api.get('/platform/tenants', async (c) => {
+api.get('/platform/tenants', requireRole('admin'), async (c) => {
   const db = c.env.DB;
   const role = c.get('role');
   const tenantId = c.get('tenantId');
