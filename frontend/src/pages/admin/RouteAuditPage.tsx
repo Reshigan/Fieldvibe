@@ -57,7 +57,7 @@ export default function RouteAuditPage() {
     ))
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 100))
+      
       
       setRoutes(prev => prev.map((r, i) => 
         i === index ? { ...r, status: 'success' } : r
