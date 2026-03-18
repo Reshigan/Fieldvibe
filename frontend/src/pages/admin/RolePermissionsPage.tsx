@@ -4,6 +4,7 @@ import { useToast } from '../../components/ui/Toast'
 import { apiClient } from '../../services/api.service'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
 import ErrorState from '../../components/ui/ErrorState'
+import SearchableSelect from '../../components/ui/SearchableSelect'
 
 interface Permission {
   id: string
@@ -508,16 +509,14 @@ export default function RolePermissionsPage() {
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold text-gray-900">Permissions</h3>
-                    <select
+                    <SearchableSelect
+                      options={[
+                        { value: 'all', label: 'All Modules' },
+                        { value: 'module', label: '{module}' },
+                      ]}
                       value={filterModule}
-                      onChange={(e) => setFilterModule(e.target.value)}
-                      className="input w-auto"
-                    >
-                      <option value="all">All Modules</option>
-                      {modules.map(module => (
-                        <option key={module} value={module}>{module}</option>
-                      ))}
-                    </select>
+                      placeholder="All Modules"
+                    />
                   </div>
 
                   <div className="space-y-4">

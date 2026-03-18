@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Calculator } from 'lucide-react';
+import SearchableSelect from '../../components/ui/SearchableSelect'
 
 interface Rule { id: number; name: string; boardType: string; minQty: number; maxQty: number; rate: number; bonusRate: number; }
 
@@ -49,13 +50,17 @@ const CommissionRuleBuilderPage: React.FC = () => {
         <h2 className="text-xl font-semibold mb-4">Create New Rule</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <input placeholder="Rule Name" value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} className="px-4 py-2 border rounded" />
-          <select value={form.boardType || ''} onChange={e => setForm({...form, boardType: e.target.value})} className="px-4 py-2 border rounded">
-            <option value="">Board Type</option>
-            <option value="billboard">Billboard</option>
-            <option value="standee">Standee</option>
-            <option value="banner">Banner</option>
-            <option value="all">All Types</option>
-          </select>
+          <SearchableSelect
+            options={[
+              { value: '', label: 'Board Type' },
+              { value: 'billboard', label: 'Billboard' },
+              { value: 'standee', label: 'Standee' },
+              { value: 'banner', label: 'Banner' },
+              { value: 'all', label: 'All Types' },
+            ]}
+            value={form.boardType || '' || null}
+            placeholder="Board Type"
+          />
           <input type="number" placeholder="Min Quantity" value={form.minQty || ''} onChange={e => setForm({...form, minQty: +e.target.value})} className="px-4 py-2 border rounded" />
           <input type="number" placeholder="Max Quantity" value={form.maxQty || ''} onChange={e => setForm({...form, maxQty: +e.target.value})} className="px-4 py-2 border rounded" />
           <input type="number" placeholder="Base Rate (₹)" value={form.rate || ''} onChange={e => setForm({...form, rate: +e.target.value})} className="px-4 py-2 border rounded" />

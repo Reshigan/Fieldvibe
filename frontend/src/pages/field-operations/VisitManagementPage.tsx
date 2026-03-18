@@ -4,6 +4,7 @@ import { fieldOperationsService } from '../../services/field-operations.service'
 import { Plus, Edit, Trash2, MapPin, Calendar, Map, Settings } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import LiveVisitMap from '../../components/maps/LiveVisitMap'
+import SearchableSelect from '../../components/ui/SearchableSelect'
 
 export default function VisitManagementPage() {
   const [filter, setFilter] = useState({ page: 1, limit: 20, status: '' })
@@ -78,13 +79,17 @@ export default function VisitManagementPage() {
 
       <div className="bg-white rounded-lg shadow p-4">
         <div className="flex flex-wrap gap-4">
-          <select value={filter.status} onChange={e => setFilter({...filter, status: e.target.value, page: 1})} className="border border-gray-300 rounded-lg px-3 py-2">
-            <option value="">All Statuses</option>
-            <option value="planned">Planned</option>
-            <option value="in_progress">In Progress</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          <SearchableSelect
+            options={[
+              { value: '', label: 'All Statuses' },
+              { value: 'planned', label: 'Planned' },
+              { value: 'in_progress', label: 'In Progress' },
+              { value: 'completed', label: 'Completed' },
+              { value: 'cancelled', label: 'Cancelled' },
+            ]}
+            value={filter.status || null}
+            placeholder="All Statuses"
+          />
         </div>
       </div>
 
