@@ -24,7 +24,7 @@ const VisitWorkflowPage: React.FC = () => {
 
   useEffect(() => {
     if (!customer || !gpsLocation) {
-      navigate('/field-operations/customer-selection');
+      navigate('/customer-selection');
       return;
     }
     createVisit();
@@ -61,13 +61,13 @@ const VisitWorkflowPage: React.FC = () => {
   };
 
   const addBoardPlacement = () => {
-    navigate('/field-operations/board-placement', {
+    navigate(`/field-operations/visits/${visit.id}/board-placement`, {
       state: { visit, customer, boards }
     });
   };
 
   const addProductDistribution = () => {
-    navigate('/field-operations/product-distribution', {
+    navigate(`/field-operations/visits/${visit.id}/product-distribution`, {
       state: { visit, customer }
     });
   };

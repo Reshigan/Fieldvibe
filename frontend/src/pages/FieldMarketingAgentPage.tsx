@@ -46,7 +46,7 @@ const FieldMarketingAgentPage: React.FC = () => {
   };
 
   const startNewVisit = () => {
-    navigate('/field-operations/customer-selection');
+    navigate('/customer-selection');
   };
 
   return (
