@@ -41,6 +41,17 @@ class AuditService {
       return null
     }
   }
+
+  // Generic audit log listing (called by AuditLogPage)
+  async getLogs(params?: any): Promise<AuditEntry[]> {
+    try {
+      const response = await apiClient.get('/audit-log', { params })
+      return response.data.data || response.data || []
+    } catch (error) {
+      console.error('Failed to fetch audit logs:', error)
+      return []
+    }
+  }
 }
 
 export const auditService = new AuditService()

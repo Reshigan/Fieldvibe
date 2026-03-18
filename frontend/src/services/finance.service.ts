@@ -348,6 +348,11 @@ class FinanceService {
       throw error
     }
   }
+
+  // Alias for getInvoices (called by pages expecting getInvoicesList)
+  async getInvoicesList(filter?: any): Promise<{ invoices: Invoice[], total: number }> {
+    return this.getInvoices(filter)
+  }
 }
 
 export const financeService = new FinanceService()
