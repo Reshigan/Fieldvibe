@@ -36,46 +36,6 @@ export default function PhotoEvidence() {
     },
   })
 
-  const oldEvidence = {
-      visit_id: visitId,
-      total_photos: 5,
-      verified_photos: 5,
-      gps_verified: 5,
-      timestamp_verified: 5,
-      evidence_items: [
-        {
-          id: '1',
-          evidence_type: 'board_installation',
-          photo_url: '/placeholder-photo.jpg',
-          caption: 'Board installation complete',
-          verification_status: 'verified',
-          gps_match: true,
-          timestamp_match: true,
-          taken_at: '2024-01-20T09:35:00Z',
-        },
-        {
-          id: '2',
-          evidence_type: 'product_distribution',
-          photo_url: '/placeholder-photo.jpg',
-          caption: 'Products distributed to customer',
-          verification_status: 'verified',
-          gps_match: true,
-          timestamp_match: true,
-          taken_at: '2024-01-20T09:50:00Z',
-        },
-        {
-          id: '3',
-          evidence_type: 'customer_signature',
-          photo_url: '/placeholder-photo.jpg',
-          caption: 'Customer signature captured',
-          verification_status: 'verified',
-          gps_match: true,
-          timestamp_match: true,
-          taken_at: '2024-01-20T10:15:00Z',
-        },
-      ],
-    }
-
   if (isLoading) {
     return <div className="p-6"><LoadingSpinner size="md" /></div>
   }
