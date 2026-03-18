@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { tradeMarketingService } from '../../services/tradeMarketing.service'
 import { Plus, Edit, Trash2, TrendingUp, Calendar, Target } from 'lucide-react'
 import SearchableSelect from '../../components/ui/SearchableSelect'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 
 export default function CampaignManagementPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)

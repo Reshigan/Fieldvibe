@@ -5,6 +5,7 @@ import { Plus, Edit, Trash2, MapPin, Calendar, Map, Settings } from 'lucide-reac
 import { useNavigate } from 'react-router-dom'
 import LiveVisitMap from '../../components/maps/LiveVisitMap'
 import SearchableSelect from '../../components/ui/SearchableSelect'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 
 export default function VisitManagementPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
