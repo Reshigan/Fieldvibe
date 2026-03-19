@@ -901,7 +901,7 @@ class FieldOperationsService extends ApiService {
   }
 
   // ==================== FIELD OPS: MONTHLY TARGETS ====================
-  async getMonthlyTargets(filter: { agent_id?: string; company_id?: string; month?: string; status?: string } = {}) {
+  async getMonthlyTargets(filter: { agent_id?: string; company_id?: string; target_month?: string; status?: string } = {}) {
     const params = new URLSearchParams()
     Object.entries(filter).forEach(([key, value]) => {
       if (value) params.append(key, String(value))

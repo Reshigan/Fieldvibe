@@ -103,8 +103,9 @@ export default function UserManagementPage() {
 
       const response = await apiClient.get(`/users?${params.toString()}`)
       const respData = response.data?.data || response.data || {}
-      const userData = respData.users || respData || []
-      setUsers(Array.isArray(userData) ? userData : [])
+      const rawData = respData.users || respData || []
+      const userData = Array.isArray(rawData) ? rawData : []
+      setUsers(userData)
 
       // Calculate stats
       setStats({

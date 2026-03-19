@@ -4141,7 +4141,7 @@ api.post('/field-ops/working-days', authMiddleware, async (c) => {
   const tenantId = c.get('tenantId');
   const body = await c.req.json();
   const id = uuidv4();
-  await db.prepare('INSERT INTO working_days_config (id, tenant_id, company_id, agent_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, public_holidays, effective_from, effective_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(id, tenantId, body.company_id || null, body.agent_id || null, body.monday ?? 1, body.tuesday ?? 1, body.wednesday ?? 1, body.thursday ?? 1, body.friday ?? 1, body.saturday ?? 0, body.sunday ?? 0, JSON.stringify(body.public_holidays || []), body.effective_from || null, body.effective_to || null).run();
+  await db.prepare('INSERT INTO working_days_config (id, tenant_id, company_id, agent_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, public_holidays, effective_from, effective_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(id, tenantId, body.company_id || null, body.agent_id || null, body.monday ?? 1, body.tuesday ?? 1, body.wednesday ?? 1, body.thursday ?? 1, body.friday ?? 1, body.saturday ?? 0, body.sunday ?? 0, typeof body.public_holidays === 'string' ? body.public_holidays : JSON.stringify(body.public_holidays || []), body.effective_from || null, body.effective_to || null).run();
   return c.json({ id, message: 'Working days config created' }, 201);
 });
 
@@ -4154,7 +4154,7 @@ api.put('/field-ops/working-days/:id', authMiddleware, async (c) => {
   const vals = [];
   for (const [k, v] of Object.entries(body)) {
     if (['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'company_id', 'agent_id', 'effective_from', 'effective_to'].includes(k)) { sets.push(k + ' = ?'); vals.push(v); }
-    if (k === 'public_holidays') { sets.push('public_holidays = ?'); vals.push(JSON.stringify(v)); }
+    if (k === 'public_holidays') { sets.push('public_holidays = ?'); vals.push(typeof v === 'string' ? v : JSON.stringify(v)); }
   }
   if (sets.length === 0) return c.json({ success: false, message: 'No valid fields' }, 400);
   sets.push('updated_at = CURRENT_TIMESTAMP');
