@@ -170,6 +170,7 @@ export const ProductListPage: React.FC = () => {
                 { value: 'cat', label: '{cat}' },
               ]}
               value={categoryFilter}
+              onChange={(val) => setCategoryFilter(val)}
               placeholder="All Categories"
             />
             <SearchableSelect
@@ -180,6 +181,7 @@ export const ProductListPage: React.FC = () => {
                 { value: 'discontinued', label: 'Discontinued' },
               ]}
               value={statusFilter}
+              onChange={(val) => setStatusFilter(val)}
               placeholder="All Status"
             />
           </div>

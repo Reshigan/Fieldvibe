@@ -62,6 +62,7 @@ const POSLibraryPage: React.FC = () => {
                 { value: 'Wobbler', label: 'Wobbler' },
               ]}
               value={form.type || '' || null}
+              onChange={(val) => setForm(prev => ({...prev, type: val}))}
               placeholder="Type"
             />
             <input placeholder="Brand" value={form.brand || ''} onChange={e => setForm({...form, brand: e.target.value})} className="px-4 py-2 border rounded" />

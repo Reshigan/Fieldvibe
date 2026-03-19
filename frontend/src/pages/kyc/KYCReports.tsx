@@ -219,6 +219,7 @@ export default function KYCReports() {
                 { value: 'agent.id', label: '{agent.name}' },
               ]}
               value={filter.agent_id || '' || null}
+              onChange={(val) => setFilter(prev => ({...prev, agent_id: val}))}
               placeholder="All Agents"
             />
           </div>
@@ -237,6 +238,7 @@ export default function KYCReports() {
                 { value: 'requires_update', label: 'Requires Update' },
               ]}
               value={filter.status || '' || null}
+              onChange={(val) => setFilter(prev => ({...prev, status: val}))}
               placeholder="All Statuses"
             />
           </div>
@@ -253,6 +255,7 @@ export default function KYCReports() {
                 { value: 'high', label: 'High Risk' },
               ]}
               value={filter.risk_level || '' || null}
+              onChange={(val) => setFilter(prev => ({...prev, risk_level: val}))}
               placeholder="All Risk Levels"
             />
           </div>

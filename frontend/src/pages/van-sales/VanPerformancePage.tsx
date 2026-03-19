@@ -35,6 +35,7 @@ export default function VanPerformancePage() {
                 { value: 'year', label: 'This Year' },
               ]}
               value={filter.period}
+              onChange={(val) => setFilter(prev => ({...prev, period: val}))}
               placeholder="Today"
             />
           </div>

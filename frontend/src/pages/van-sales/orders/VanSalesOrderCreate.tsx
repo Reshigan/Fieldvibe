@@ -164,6 +164,7 @@ export default function VanSalesOrderCreate() {
                     { value: 'customer.id', label: '{customer.name}' },
                   ]}
                   value={selectedCustomer || null}
+                  onChange={(val) => setSelectedCustomer(val || '')}
                   placeholder="Select a customer"
                 />
               </div>
@@ -175,6 +176,7 @@ export default function VanSalesOrderCreate() {
                     { value: 'route.id', label: '{route.name}' },
                   ]}
                   value={selectedRoute || null}
+                  onChange={(val) => setSelectedRoute(val || '')}
                   placeholder="Select a route"
                 />
               </div>
@@ -195,6 +197,7 @@ export default function VanSalesOrderCreate() {
                     { value: 'mobile_money', label: 'Mobile Money' },
                   ]}
                   value={paymentMethod}
+              onChange={(val) => setPaymentMethod(val)}
                   placeholder="Cash"
                 />
               </div>

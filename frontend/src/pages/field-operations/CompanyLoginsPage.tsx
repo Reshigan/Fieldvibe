@@ -88,6 +88,7 @@ export default function CompanyLoginsPage() {
                   { value: 'c.id', label: '{c.name}' },
                 ]}
                 value={form.company_id || null}
+              onChange={(val) => setForm(prev => ({...prev, company_id: val}))}
                 placeholder="Select Company"
               />
             </div>
@@ -111,6 +112,7 @@ export default function CompanyLoginsPage() {
                   { value: 'admin', label: 'Admin' },
                 ]}
                 value={form.role}
+              onChange={(val) => setForm(prev => ({...prev, role: val}))}
                 placeholder="Viewer"
               />
             </div>
@@ -139,6 +141,7 @@ export default function CompanyLoginsPage() {
             { value: 'c.id', label: '{c.name}' },
           ]}
           value={filterCompany || null}
+          onChange={(val) => setFilterCompany(val || '')}
           placeholder="All Companies"
         />
       </div>

@@ -157,6 +157,7 @@ export default function ReceiptCreate() {
                     { value: 'warehouse.id', label: '{warehouse.name}' },
                   ]}
                   value={selectedWarehouse || null}
+              onChange={(val) => setSelectedWarehouse(val || '')}
                   placeholder="Select a warehouse"
                 />
               </div>
@@ -168,6 +169,7 @@ export default function ReceiptCreate() {
                     { value: 'supplier.id', label: '{supplier.name}' },
                   ]}
                   value={selectedSupplier || null}
+              onChange={(val) => setSelectedSupplier(val || '')}
                   placeholder="Select a supplier"
                 />
               </div>

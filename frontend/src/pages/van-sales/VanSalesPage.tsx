@@ -389,6 +389,7 @@ export default function VanSalesPage() {
                     { value: 'maintenance', label: 'Maintenance' },
                   ]}
                   value={newVanData.status}
+              onChange={(val) => setNewVanData(prev => ({...prev, status: val}))}
                   placeholder="Active"
                 />
               </div>

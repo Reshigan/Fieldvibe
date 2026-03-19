@@ -90,6 +90,7 @@ export default function VanOrderCreatePage() {
                   { value: 'mobile_money', label: 'Mobile Money' },
                 ]}
                 value={formData.payment_method}
+              onChange={(val) => setFormData(prev => ({...prev, payment_method: val}))}
                 placeholder="Cash"
               />
             </div>

@@ -3,7 +3,6 @@ import { Settings, DollarSign, Bell, Lock, Mail, FileText, Globe, Zap, Save, Ale
 import CurrencySettings from '../../components/settings/CurrencySettings'
 import api from '../../services/api'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
-import SearchableSelect from '../../components/ui/SearchableSelect'
 
 interface Setting {
   key: string
@@ -61,7 +60,7 @@ export default function SystemSettingsPage() {
     try {
       const response = await api.get('/settings')
       if (response.data?.success) {
-        setSettings(response.data.data.settings || {})
+        setSettings(response.data.settings || response.data.data?.settings || {})
       }
     } catch (error) {
       console.error('Failed to load settings:', error)
@@ -162,13 +161,15 @@ export default function SystemSettingsPage() {
       
       case 'select':
         return (
-          <SearchableSelect
-            options={[
-              { value: 'opt', label: '{opt}' },
-            ]}
+          <select
             value={value}
-            placeholder="{opt}"
-          />
+            onChange={(e) => handleSettingChange(setting.key, e.target.value)}
+            className="input w-full"
+          >
+            {setting.options?.map(opt => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
         )
       
       case 'textarea':

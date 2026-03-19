@@ -11,7 +11,7 @@ export interface SearchableSelectOption {
 interface SearchableSelectProps<T extends SearchableSelectOption = SearchableSelectOption> {
   options: T[]
   value: string | null
-  onChange: (value: string | null, option: T | null) => void
+  onChange?: (value: string | null, option: T | null) => void
   placeholder?: string
   label?: string
   searchPlaceholder?: string
@@ -28,7 +28,7 @@ interface SearchableSelectProps<T extends SearchableSelectOption = SearchableSel
 export default function SearchableSelect<T extends SearchableSelectOption = SearchableSelectOption>({
   options,
   value,
-  onChange,
+  onChange = () => {},
   placeholder = 'Select...',
   label,
   searchPlaceholder = 'Type to search...',
@@ -70,13 +70,13 @@ export default function SearchableSelect<T extends SearchableSelectOption = Sear
   }, [])
 
   const handleSelect = useCallback((option: T) => {
-    onChange(option.value, option)
+    onChange?.(option.value, option)
     handleClose()
   }, [onChange, handleClose])
 
   const handleClear = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
-    onChange(null, null)
+    onChange?.(null, null)
   }, [onChange])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {

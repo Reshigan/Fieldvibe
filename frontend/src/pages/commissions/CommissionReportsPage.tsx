@@ -121,6 +121,7 @@ export const CommissionReportsPage: React.FC = () => {
                 { value: 'period', label: 'Time Period' },
               ]}
               value={groupBy}
+              onChange={(val) => setGroupBy(val)}
               placeholder="Agent"
             />
           </div>

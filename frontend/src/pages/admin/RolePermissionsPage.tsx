@@ -515,6 +515,7 @@ export default function RolePermissionsPage() {
                         { value: 'module', label: '{module}' },
                       ]}
                       value={filterModule}
+              onChange={(val) => setFilterModule(val)}
                       placeholder="All Modules"
                     />
                   </div>

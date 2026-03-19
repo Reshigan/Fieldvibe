@@ -493,6 +493,7 @@ export default function SurveysManagement() {
                   { value: 'archived', label: 'Archived' },
                 ]}
                 value={filter.status || '' || null}
+              onChange={(val) => setFilter(prev => ({...prev, status: val}))}
                 placeholder="All Statuses"
               />
             </div>
@@ -511,6 +512,7 @@ export default function SurveysManagement() {
                   { value: 'other', label: 'Other' },
                 ]}
                 value={filter.type || '' || null}
+              onChange={(val) => setFilter(prev => ({...prev, type: val}))}
                 placeholder="All Types"
               />
             </div>

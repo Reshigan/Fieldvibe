@@ -46,6 +46,7 @@ const ReportBuilderPage: React.FC = () => {
               { value: 'performance', label: 'Performance Report' },
             ]}
             value={config.type}
+              onChange={(val) => setConfig(prev => ({...prev, type: val}))}
             placeholder="Sales Report"
           />
           <input type="date" value={config.dateFrom} onChange={e => setConfig({...config, dateFrom: e.target.value})} className="px-4 py-2 border rounded" placeholder="From Date" />
@@ -58,6 +59,7 @@ const ReportBuilderPage: React.FC = () => {
               { value: 'quarter', label: 'Quarterly' },
             ]}
             value={config.groupBy}
+              onChange={(val) => setConfig(prev => ({...prev, groupBy: val}))}
             placeholder="Daily"
           />
         </div>

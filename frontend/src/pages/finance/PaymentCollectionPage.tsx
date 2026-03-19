@@ -197,6 +197,7 @@ export default function PaymentCollectionPage() {
                 { value: 'refunded', label: 'Refunded' },
               ]}
               value={statusFilter}
+              onChange={(val) => setStatusFilter(val)}
               placeholder="All Status"
             />
           </div>
@@ -213,6 +214,7 @@ export default function PaymentCollectionPage() {
                 { value: 'mobile', label: 'Mobile Payment' },
               ]}
               value={methodFilter}
+              onChange={(val) => setMethodFilter(val)}
               placeholder="All Methods"
             />
           </div>

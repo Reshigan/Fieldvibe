@@ -149,6 +149,7 @@ export default function AdjustmentCreate() {
                     { value: 'warehouse.id', label: '{warehouse.name}' },
                   ]}
                   value={selectedWarehouse || null}
+              onChange={(val) => setSelectedWarehouse(val || '')}
                   placeholder="Select a warehouse"
                 />
               </div>
@@ -168,6 +169,7 @@ export default function AdjustmentCreate() {
                     { value: 'recount', label: 'Recount' },
                   ]}
                   value={adjustmentType || null}
+              onChange={(val) => setAdjustmentType(val || '')}
                   placeholder="Select type"
                 />
               </div>

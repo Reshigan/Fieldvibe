@@ -555,6 +555,7 @@ const ActivationWorkflowPage: React.FC = () => {
                       { value: '56+', label: '56+' },
                     ]}
                     value={recipientInfo.age_group || null}
+              onChange={(val) => setRecipientInfo(prev => ({...prev, age_group: val}))}
                     placeholder="Select Age Group"
                   />
                   <SearchableSelect
@@ -566,6 +567,7 @@ const ActivationWorkflowPage: React.FC = () => {
                       { value: 'prefer_not_to_say', label: 'Prefer not to say' },
                     ]}
                     value={recipientInfo.gender || null}
+              onChange={(val) => setRecipientInfo(prev => ({...prev, gender: val}))}
                     placeholder="Select Gender"
                   />
                   <textarea

@@ -486,6 +486,7 @@ export default function KYCManagement() {
                   { value: 'requires_update', label: 'Requires Update' },
                 ]}
                 value={filter.status || '' || null}
+              onChange={(val) => setFilter(prev => ({...prev, status: val}))}
                 placeholder="All Statuses"
               />
             </div>
@@ -502,6 +503,7 @@ export default function KYCManagement() {
                   { value: 'high', label: 'High Risk' },
                 ]}
                 value={filter.risk_level || '' || null}
+              onChange={(val) => setFilter(prev => ({...prev, risk_level: val}))}
                 placeholder="All Risk Levels"
               />
             </div>

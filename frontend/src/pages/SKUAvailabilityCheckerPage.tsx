@@ -184,6 +184,7 @@ const SKUAvailabilityCheckerPage: React.FC = () => {
                 { value: 'bottom', label: 'Bottom Shelf' },
               ]}
               value={formData.shelfPosition}
+              onChange={(val) => setFormData(prev => ({...prev, shelfPosition: val}))}
               placeholder="Top Shelf"
             />
           </div>

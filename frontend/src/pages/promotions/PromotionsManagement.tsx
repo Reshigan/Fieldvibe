@@ -510,6 +510,7 @@ export default function PromotionsManagement() {
                   { value: 'scheduled', label: 'Scheduled' },
                 ]}
                 value={filter.status || '' || null}
+              onChange={(val) => setFilter(prev => ({...prev, status: val}))}
                 placeholder="All Statuses"
               />
             </div>
@@ -528,6 +529,7 @@ export default function PromotionsManagement() {
                   { value: 'loyalty', label: 'Loyalty' },
                 ]}
                 value={filter.type || '' || null}
+              onChange={(val) => setFilter(prev => ({...prev, type: val}))}
                 placeholder="All Types"
               />
             </div>

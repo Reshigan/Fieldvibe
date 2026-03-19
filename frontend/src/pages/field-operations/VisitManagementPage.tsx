@@ -154,6 +154,7 @@ export default function VisitManagementPage({ visitType }: VisitManagementPagePr
               { value: 'cancelled', label: 'Cancelled' },
             ]}
             value={filter.status || null}
+              onChange={(val) => setFilter(prev => ({...prev, status: val}))}
             placeholder="All Statuses"
           />
         </div>

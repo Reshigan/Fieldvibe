@@ -352,6 +352,7 @@ function ConfigurationModal({ config, brands, surveys, boards, onClose, onSucces
                   { value: 'customer_type', label: 'Customer Type' },
                 ]}
                 value={formData.target_type}
+              onChange={(val) => setFormData(prev => ({...prev, target_type: val}))}
                 placeholder="All Customers"
               />
             </div>
@@ -365,6 +366,7 @@ function ConfigurationModal({ config, brands, surveys, boards, onClose, onSucces
                     { value: 'brand.id', label: '{brand.name}' },
                   ]}
                   value={formData.brand_id || null}
+              onChange={(val) => setFormData(prev => ({...prev, brand_id: val}))}
                   placeholder="Select Brand"
                 />
               </div>
@@ -382,6 +384,7 @@ function ConfigurationModal({ config, brands, surveys, boards, onClose, onSucces
                     { value: 'distributor', label: 'Distributor' },
                   ]}
                   value={formData.customer_type || null}
+              onChange={(val) => setFormData(prev => ({...prev, customer_type: val}))}
                   placeholder="Select Type"
                 />
               </div>
@@ -528,6 +531,7 @@ function ConfigurationModal({ config, brands, surveys, boards, onClose, onSucces
                         { value: 'board.id', label: '{board.name}' },
                       ]}
                       value={formData.board_id || null}
+              onChange={(val) => setFormData(prev => ({...prev, board_id: val}))}
                       placeholder="Any Board"
                     />
                   </div>

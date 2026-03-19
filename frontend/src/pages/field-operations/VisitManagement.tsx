@@ -312,6 +312,7 @@ const VisitManagement: React.FC = () => {
                 { value: 'cancelled', label: 'Cancelled' },
               ]}
               value={filterStatus}
+              onChange={(val) => setFilterStatus(val)}
               placeholder="All Status"
             />
           </div>
@@ -324,6 +325,7 @@ const VisitManagement: React.FC = () => {
                 { value: 'agent.id', label: '{agent.first_name} {agent.last_name}' },
               ]}
               value={filterAgent}
+              onChange={(val) => setFilterAgent(val)}
               placeholder="All Agents"
             />
           </div>
@@ -339,6 +341,7 @@ const VisitManagement: React.FC = () => {
                 { value: 'delivery', label: 'Delivery' },
               ]}
               value={filterType}
+              onChange={(val) => setFilterType(val)}
               placeholder="All Types"
             />
           </div>
@@ -477,6 +480,7 @@ const VisitManagement: React.FC = () => {
                         { value: 'agent.id', label: '{agent.first_name} {agent.last_name}' },
                       ]}
                       value={formData.agent_id || null}
+              onChange={(val) => setFormData(prev => ({...prev, agent_id: val}))}
                       placeholder="Select Agent"
                     />
                   </div>
@@ -492,6 +496,7 @@ const VisitManagement: React.FC = () => {
                         { value: 'customer.id', label: '{customer.name} {customer.business_name ? `(${customer.business_name})` : \'\'}' },
                       ]}
                       value={formData.customer_id || null}
+              onChange={(val) => setFormData(prev => ({...prev, customer_id: val}))}
                       placeholder="Select Customer"
                     />
                   </div>
@@ -525,6 +530,7 @@ const VisitManagement: React.FC = () => {
                         { value: 'survey', label: 'Survey' },
                       ]}
                       value={formData.visit_type}
+              onChange={(val) => setFormData(prev => ({...prev, visit_type: val}))}
                       placeholder="Routine"
                     />
                   </div>
@@ -583,6 +589,7 @@ const VisitManagement: React.FC = () => {
                         { value: 'agent.id', label: '{agent.first_name} {agent.last_name}' },
                       ]}
                       value={formData.agent_id || null}
+              onChange={(val) => setFormData(prev => ({...prev, agent_id: val}))}
                       placeholder="Select Agent"
                     />
                   </div>
@@ -595,6 +602,7 @@ const VisitManagement: React.FC = () => {
                         { value: 'customer.id', label: '{customer.name} {customer.business_name ? `(${customer.business_name})` : \'\'}' },
                       ]}
                       value={formData.customer_id || null}
+              onChange={(val) => setFormData(prev => ({...prev, customer_id: val}))}
                       placeholder="Select Customer"
                     />
                   </div>
@@ -622,6 +630,7 @@ const VisitManagement: React.FC = () => {
                         { value: 'survey', label: 'Survey' },
                       ]}
                       value={formData.visit_type}
+              onChange={(val) => setFormData(prev => ({...prev, visit_type: val}))}
                       placeholder="Routine"
                     />
                   </div>
@@ -636,6 +645,7 @@ const VisitManagement: React.FC = () => {
                         { value: 'cancelled', label: 'Cancelled' },
                       ]}
                       value={formData.status}
+              onChange={(val) => setFormData(prev => ({...prev, status: val}))}
                       placeholder="Planned"
                     />
                   </div>

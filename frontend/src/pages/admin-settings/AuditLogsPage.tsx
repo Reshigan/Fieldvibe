@@ -194,6 +194,7 @@ export const AuditLogsPage: React.FC = () => {
                 { value: 'export', label: 'Export' },
               ]}
               value={actionFilter}
+              onChange={(val) => setActionFilter(val)}
               placeholder="All Actions"
             />
           </div>
@@ -209,6 +210,7 @@ export const AuditLogsPage: React.FC = () => {
                 { value: 'setting', label: 'Setting' },
               ]}
               value={entityFilter}
+              onChange={(val) => setEntityFilter(val)}
               placeholder="All Types"
             />
           </div>
