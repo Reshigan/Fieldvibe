@@ -15,12 +15,22 @@ export default function Sidebar({ onNavigate, collapsed = false, onToggleCollaps
   const { user } = useAuthStore()
   const location = useLocation()
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
 
   const toggleExpand = (name: string) => {
     setExpandedItems(prev => {
       const next = new Set(prev)
       if (next.has(name)) next.delete(name)
       else next.add(name)
+      return next
+    })
+  }
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
@@ -116,26 +126,90 @@ export default function Sidebar({ onNavigate, collapsed = false, onToggleCollaps
                     </div>
 
                     {/* Children */}
-                    {hasChildren && expanded && !collapsed && (
-                      <div className="ml-4 mr-2 mt-0.5 mb-1 space-y-0.5">
-                        {item.children!.map((child) => (
-                          <NavLink
-                            key={child.name}
-                            to={child.href}
-                            onClick={onNavigate}
-                            className={({ isActive }) =>
-                              `flex items-center pl-6 pr-2 py-1.5 rounded-md text-[13px] transition-colors ${
-                                isActive
-                                  ? 'text-[#00E87B] bg-[#00E87B]/5 font-medium'
-                                  : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
-                              }`
-                            }
-                          >
-                            <span className="truncate">{child.name}</span>
-                          </NavLink>
-                        ))}
-                      </div>
-                    )}
+                    {hasChildren && expanded && !collapsed && (() => {
+                      const children = item.children!
+                      const hasGroups = children.some(c => c.group)
+
+                      if (!hasGroups) {
+                        return (
+                          <div className="ml-4 mr-2 mt-0.5 mb-1 space-y-0.5">
+                            {children.map((child) => (
+                              <NavLink
+                                key={child.name}
+                                to={child.href}
+                                onClick={onNavigate}
+                                className={({ isActive }) =>
+                                  `flex items-center pl-6 pr-2 py-1.5 rounded-md text-[13px] transition-colors ${
+                                    isActive
+                                      ? 'text-[#00E87B] bg-[#00E87B]/5 font-medium'
+                                      : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                                  }`
+                                }
+                              >
+                                <span className="truncate">{child.name}</span>
+                              </NavLink>
+                            ))}
+                          </div>
+                        )
+                      }
+
+                      // Group children by group name
+                      const groups: Record<string, typeof children> = {}
+                      children.forEach(c => {
+                        const g = c.group || 'Other'
+                        if (!groups[g]) groups[g] = []
+                        groups[g].push(c)
+                      })
+
+                      return (
+                        <div className="ml-4 mr-2 mt-0.5 mb-1">
+                          {Object.entries(groups).map(([groupName, groupChildren]) => {
+                            const groupExpanded = expandedGroups.has(`${item.name}:${groupName}`)
+                            const groupActive = groupChildren.some(c => location.pathname.startsWith(c.href))
+
+                            return (
+                              <div key={groupName} className="mb-0.5">
+                                <button
+                                  onClick={() => toggleGroup(`${item.name}:${groupName}`)}
+                                  className={`w-full flex items-center gap-1 pl-5 pr-2 py-1.5 rounded-md text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+                                    groupActive
+                                      ? 'text-[#00E87B]/70'
+                                      : 'text-gray-600 hover:text-gray-400'
+                                  }`}
+                                >
+                                  {groupExpanded || groupActive ? (
+                                    <ChevronDown className="h-3 w-3 flex-shrink-0 opacity-60" />
+                                  ) : (
+                                    <ChevronRight className="h-3 w-3 flex-shrink-0 opacity-60" />
+                                  )}
+                                  <span>{groupName}</span>
+                                </button>
+                                {(groupExpanded || groupActive) && (
+                                  <div className="space-y-0.5">
+                                    {groupChildren.map((child) => (
+                                      <NavLink
+                                        key={child.name}
+                                        to={child.href}
+                                        onClick={onNavigate}
+                                        className={({ isActive }) =>
+                                          `flex items-center pl-9 pr-2 py-1.5 rounded-md text-[13px] transition-colors ${
+                                            isActive
+                                              ? 'text-[#00E87B] bg-[#00E87B]/5 font-medium'
+                                              : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                                          }`
+                                        }
+                                      >
+                                        <span className="truncate">{child.name}</span>
+                                      </NavLink>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })()}
                   </div>
                 )
               })}

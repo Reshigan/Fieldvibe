@@ -45,7 +45,7 @@ export default function DashboardLayout() {
   }, [sidebarOpen])
 
   return (
-    <div className="min-h-screen bg-[#06090F] text-gray-100 flex">
+    <div className="min-h-screen bg-gray-50 dark:bg-[#06090F] text-gray-900 dark:text-gray-100 flex">
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
@@ -91,7 +91,7 @@ export default function DashboardLayout() {
           </div>
         </main>
 
-        <footer className="border-t border-white/5 py-4">
+        <footer className="border-t border-gray-200 dark:border-white/5 py-4">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-col sm:flex-row items-center justify-between space-y-2 sm:space-y-0">
               <div className="flex items-center space-x-2 text-xs text-gray-500">
