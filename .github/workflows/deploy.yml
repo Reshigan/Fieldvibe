@@ -1,4 +1,4 @@
-name: Deploy
+name: Deploy to Production
 
 on:
   push:
@@ -8,7 +8,9 @@ jobs:
   deploy-frontend:
     name: Deploy Frontend to Cloudflare Pages
     runs-on: ubuntu-latest
-    needs: []
+    permissions:
+      contents: read
+      deployments: write
     defaults:
       run:
         working-directory: frontend
@@ -28,15 +30,19 @@ jobs:
         run: npm run build
 
       - name: Deploy to Cloudflare Pages
-        env:
-          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
-          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler pages deploy dist --project-name=fieldvibe --branch=main
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=fieldvibe --branch=main
+          workingDirectory: frontend
 
   deploy-backend:
     name: Deploy Backend to Cloudflare Workers
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
     defaults:
       run:
         working-directory: workers-api
@@ -53,8 +59,9 @@ jobs:
         run: npm ci
 
       - name: Deploy to Cloudflare Workers
-        env:
-          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
-          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+          workingDirectory: workers-api
