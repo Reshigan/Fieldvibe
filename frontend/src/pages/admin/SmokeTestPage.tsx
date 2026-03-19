@@ -131,10 +131,12 @@ export default function SmokeTestPage() {
     }
   }, [])
 
-  const runApiHealthChecks = async () => {
-    setRunning(true)
-    setProgress(0)
-    setConsoleErrors([])
+  const runApiHealthChecks = async (manageRunning = true) => {
+    if (manageRunning) {
+      setRunning(true)
+      setProgress(0)
+      setConsoleErrors([])
+    }
 
     for (let i = 0; i < apiHealthChecks.length; i++) {
       const check = apiHealthChecks[i]
@@ -166,15 +168,17 @@ export default function SmokeTestPage() {
         ))
       }
 
-      setProgress(((i + 1) / apiHealthChecks.length) * 100)
+      setProgress(((i + 1) / apiHealthChecks.length) * 50)
     }
 
-    setRunning(false)
+    if (manageRunning) setRunning(false)
   }
 
-  const runRouteTests = async () => {
-    setRunning(true)
-    setProgress(0)
+  const runRouteTests = async (manageRunning = true) => {
+    if (manageRunning) {
+      setRunning(true)
+      setProgress(0)
+    }
 
     for (let i = 0; i < tests.length; i++) {
       const test = tests[i]
@@ -214,10 +218,10 @@ export default function SmokeTestPage() {
         ))
       }
 
-      setProgress(((i + 1) / tests.length) * 100)
+      setProgress(50 + ((i + 1) / tests.length) * 50)
     }
 
-    setRunning(false)
+    if (manageRunning) setRunning(false)
   }
 
   const routeSuccessCount = tests.filter(t => t.status === 'success').length
@@ -315,7 +319,17 @@ export default function SmokeTestPage() {
       {/* Actions */}
       <div className="mb-6">
         <button
-          onClick={() => { runApiHealthChecks(); runRouteTests(); }}
+          onClick={async () => {
+            setRunning(true)
+            setProgress(0)
+            setConsoleErrors([])
+            try {
+              await runApiHealthChecks(false)
+              await runRouteTests(false)
+            } finally {
+              setRunning(false)
+            }
+          }}
           disabled={running}
           className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
