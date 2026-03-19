@@ -311,7 +311,7 @@ export default function SmokeTestPage() {
       {/* Actions */}
       <div className="mb-6">
         <button
-          onClick={runTests}
+          onClick={async () => { await runApiHealthChecks(); await runRouteTests(); }}
           disabled={running}
           className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >

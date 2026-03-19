@@ -35,8 +35,22 @@ export default function AuditLogsPage() {
       const params: any = {}
       if (filterAction) params.action = filterAction
       if (filterEntity) params.entity = filterEntity
-      if (dateRange[0]) params.startDate = dateRange[0]
-      if (dateRange[1]) params.endDate = dateRange[1]
+      
+      // Convert dateRange label to actual ISO date strings
+      const now = new Date()
+      const endDate = now.toISOString().split('T')[0]
+      let startDate = endDate
+      if (dateRange === 'today') {
+        startDate = endDate
+      } else if (dateRange === '7days') {
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      } else if (dateRange === '30days') {
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      } else if (dateRange === '90days') {
+        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      }
+      params.startDate = startDate
+      params.endDate = endDate
       
       const response = await api.get('/admin/audit-logs', { params })
       const logsData = response.data.data?.logs || response.data.data || []
