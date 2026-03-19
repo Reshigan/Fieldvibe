@@ -23,7 +23,7 @@ export default function MonthlyTargetsPage() {
 
   const { data: targets, isLoading, isError } = useQuery({
     queryKey: ['monthly-targets', selectedMonth],
-    queryFn: () => fieldOperationsService.getMonthlyTargets({ month: selectedMonth }),
+    queryFn: () => fieldOperationsService.getMonthlyTargets({ target_month: selectedMonth }),
   })
 
   const { data: agents } = useQuery({
@@ -44,7 +44,7 @@ export default function MonthlyTargetsPage() {
   const companies = companiesResp?.data || companiesResp || []
   const agentList = Array.isArray(agents) ? agents : agents?.data || []
   const targetList = targets?.data || targets || []
-  const defaultWorkingDays = effectiveWD?.working_days_count || 22
+  const defaultWorkingDays = effectiveWD?.data?.working_days_count || effectiveWD?.working_days_count || 22
 
   const createMutation = useMutation({
     mutationFn: (data: typeof newTarget) => fieldOperationsService.createMonthlyTarget(data),
