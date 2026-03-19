@@ -6797,6 +6797,15 @@ api.get('/platform/tenants', requireRole('admin'), async (c) => {
   return c.json({ success: true, data: tenants.results || [] });
 });
 
+// Q.1a2 Get single tenant (super_admin)
+api.get('/tenants/:id', requireSuperAdmin, async (c) => {
+  const db = c.env.DB;
+  const { id } = c.req.param();
+  const tenant = await db.prepare('SELECT t.*, (SELECT COUNT(*) FROM users WHERE tenant_id = t.id) as user_count FROM tenants t WHERE t.id = ?').bind(id).first();
+  if (!tenant) return c.json({ success: false, message: 'Tenant not found' }, 404);
+  return c.json({ success: true, data: tenant });
+});
+
 // Q.1b Create tenant with admin user (super_admin only)
 api.post('/tenants', requireSuperAdmin, async (c) => {
   const db = c.env.DB;

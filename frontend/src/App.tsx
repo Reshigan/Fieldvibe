@@ -993,8 +993,6 @@ function App() {
             <Route path="field-operations/product-distributions" element={<PageLoader><ProductDistributionsList /></PageLoader>} />
             <Route path="field-operations/product-distributions/create" element={<PageLoader><ProductDistributionCreate /></PageLoader>} />
             <Route path="field-operations/product-distributions/:id" element={<PageLoader><ProductDistributionDetail /></PageLoader>} />
-            <Route path="field-operations/commission" element={<PageLoader><CommissionLedgerList /></PageLoader>} />
-            <Route path="field-operations/commission/:id" element={<PageLoader><CommissionLedgerDetail /></PageLoader>} />
             <Route path="agent/dashboard" element={<PageLoader><AgentDashboard /></PageLoader>} />
             <Route path="van-sales/route-management" element={<PageLoader><RouteManagementPage /></PageLoader>} />
             <Route path="van-sales/orders-list" element={<PageLoader><VanOrdersListPage /></PageLoader>} />
