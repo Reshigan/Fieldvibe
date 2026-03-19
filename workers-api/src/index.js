@@ -233,12 +233,23 @@ app.post('/api/auth/login', rateLimiter(5, 900000), async (c) => {
 app.post('/api/auth/mobile-login', rateLimiter(10, 900000), async (c) => {
   try {
     const body = await c.req.json();
-    const { phone, pin } = body;
+    const { phone, pin, tenant_code } = body;
     if (!phone || !pin) return c.json({ success: false, message: 'Phone number and PIN are required' }, 400);
     if (pin.length < 4 || pin.length > 6) return c.json({ success: false, message: 'PIN must be 4-6 digits' }, 400);
     const db = c.env.DB;
-    // Find agent by phone number
-    const user = await db.prepare("SELECT * FROM users WHERE phone = ? AND is_active = 1 AND role IN ('agent', 'team_lead', 'field_agent', 'sales_rep')").bind(phone).first();
+    // Resolve tenant_id from tenant_code (or X-Tenant-Code header) for multi-tenant scoping
+    let tenantFilter = '';
+    let tenantBinds = [phone];
+    const tCode = tenant_code || c.req.header('X-Tenant-Code');
+    if (tCode) {
+      const tenant = await db.prepare('SELECT id FROM tenants WHERE code = ?').bind(tCode).first();
+      if (tenant) {
+        tenantFilter = ' AND tenant_id = ?';
+        tenantBinds.push(tenant.id);
+      }
+    }
+    // Find agent by phone number (scoped to tenant if provided)
+    const user = await db.prepare(`SELECT * FROM users WHERE phone = ? AND is_active = 1 AND role IN ('agent', 'team_lead', 'field_agent', 'sales_rep')${tenantFilter}`).bind(...tenantBinds).first();
     if (!user) return c.json({ success: false, message: 'Invalid phone number or PIN' }, 401);
     // Verify PIN (stored as pin_hash, fallback to password_hash for backward compat)
     const pinHash = user.pin_hash || user.password_hash;
@@ -286,7 +297,7 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
       db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND agent_id = ? AND DATE(created_at) >= ?").bind(tenantId, userId, monthStart).first(),
       db.prepare("SELECT v.id, v.visit_date, v.visit_type, v.status, v.check_in_time, c.name as customer_name, v.individual_name FROM visits v LEFT JOIN customers c ON v.customer_id = c.id WHERE v.tenant_id = ? AND v.agent_id = ? ORDER BY v.created_at DESC LIMIT 10").bind(tenantId, userId).all(),
       db.prepare("SELECT fc.id, fc.name, fc.code FROM agent_company_links acl JOIN field_companies fc ON acl.company_id = fc.id WHERE acl.agent_id = ? AND acl.tenant_id = ? AND acl.is_active = 1 AND fc.status = 'active'").bind(userId, tenantId).all(),
-      db.prepare("SELECT dt.*, fc.name as company_name FROM daily_targets dt LEFT JOIN field_companies fc ON dt.company_id = fc.id WHERE dt.tenant_id = ? AND dt.agent_id = ? AND dt.target_date = ?").bind(tenantId, userId, today).all(),
+      db.prepare("SELECT dt.*, fc.name as company_name, (SELECT COUNT(*) FROM visits v2 WHERE v2.agent_id = dt.agent_id AND v2.company_id = dt.company_id AND v2.visit_date = dt.target_date AND v2.tenant_id = dt.tenant_id) as actual_visits, (SELECT COUNT(*) FROM individual_registrations ir2 WHERE ir2.agent_id = dt.agent_id AND ir2.company_id = dt.company_id AND DATE(ir2.created_at) = dt.target_date AND ir2.tenant_id = dt.tenant_id) as actual_registrations FROM daily_targets dt LEFT JOIN field_companies fc ON dt.company_id = fc.id WHERE dt.tenant_id = ? AND dt.agent_id = ? AND dt.target_date = ?").bind(tenantId, userId, today).all(),
     ]);
 
     return c.json({
