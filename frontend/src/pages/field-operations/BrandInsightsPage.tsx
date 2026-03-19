@@ -304,7 +304,7 @@ export default function BrandInsightsPage() {
       )}
 
       {/* Empty State */}
-      {!dailyTrends.length && !topAgents.length && !conversionsByDay.length && !surveyInsights?.total_responses && (
+      {!dailyTrends.length && !topAgents.length && !conversionsByDay.length && !surveyInsights?.total_responses && !surveyInsights?.total_active_surveys && !(surveyInsights?.survey_configs || []).length && (
         <div className="text-center py-12">
           <BarChart3 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 text-lg font-medium">No brand insights data available</p>

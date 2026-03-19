@@ -100,6 +100,13 @@ export default function VisitCreate() {
   const preselectedType = searchParams.get('type') as 'individual' | 'store' | null
   const [visitTargetType, setVisitTargetType] = useState<'individual' | 'store' | ''>(preselectedType || '')
 
+  // Sync visitTargetType if URL param changes without unmounting
+  useEffect(() => {
+    if (preselectedType && preselectedType !== visitTargetType) {
+      setVisitTargetType(preselectedType)
+    }
+  }, [preselectedType])
+
   // Step 3: Details
   const [companies, setCompanies] = useState<Company[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
