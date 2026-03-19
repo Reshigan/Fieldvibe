@@ -249,6 +249,9 @@ const ProductPromotions = lazy(() => import('./pages/products/tabs/ProductPromot
 const ProductSales = lazy(() => import('./pages/products/tabs/ProductSales'))
 const ProductTypeBuilderPage = lazy(() => import('./pages/admin/ProductTypeBuilderPage'))
 const ProductsPage = lazy(() => import('./pages/products/ProductsPage'))
+const PromoterCreate = lazy(() => import('./pages/trade-marketing/promoters/PromoterCreate'))
+const PromoterDetail = lazy(() => import('./pages/trade-marketing/promoters/PromoterDetail'))
+const PromoterEdit = lazy(() => import('./pages/trade-marketing/promoters/PromoterEdit'))
 const PromoterManagementPage = lazy(() => import('./pages/trade-marketing/PromoterManagementPage'))
 const PromotionCreate = lazy(() => import('./pages/marketing/promotions/PromotionCreate'))
 const PromotionDetail = lazy(() => import('./pages/marketing/promotions/PromotionDetail'))
@@ -333,6 +336,9 @@ const TenantManagement = lazy(() => import('./pages/superadmin/TenantManagement'
 const TenantModules = lazy(() => import('./pages/superadmin/TenantModules'))
 const CompanySetupPage = lazy(() => import('./pages/admin/CompanySetupPage'))
 const TerritoryManagementPage = lazy(() => import('./pages/admin/TerritoryManagementPage'))
+const TMCampaignCreate = lazy(() => import('./pages/trade-marketing/campaigns/TMCampaignCreate'))
+const TMCampaignDetail = lazy(() => import('./pages/trade-marketing/campaigns/TMCampaignDetail'))
+const TMCampaignEdit = lazy(() => import('./pages/trade-marketing/campaigns/TMCampaignEdit'))
 const TradeMarketingAgentPage = lazy(() => import('./pages/TradeMarketingAgentPage'))
 const TradeMarketingAnalyticsPage = lazy(() => import('./pages/trade-marketing/TradeMarketingAnalyticsPage'))
 const TradeMarketingPage = lazy(() => import('./pages/trade-marketing/TradeMarketingPage'))
@@ -596,8 +602,14 @@ function App() {
             <Route path="trade-marketing" element={<PageLoader><TradeMarketingPage /></PageLoader>} />
             <Route path="trade-marketing/activation" element={<PageLoader><ActivationWorkflowPage /></PageLoader>} />
             <Route path="trade-marketing/campaigns" element={<PageLoader><CampaignManagementPage /></PageLoader>} />
+            <Route path="trade-marketing/campaigns/create" element={<PageLoader><TMCampaignCreate /></PageLoader>} />
+            <Route path="trade-marketing/campaigns/:id" element={<PageLoader><TMCampaignDetail /></PageLoader>} />
+            <Route path="trade-marketing/campaigns/:id/edit" element={<PageLoader><TMCampaignEdit /></PageLoader>} />
             <Route path="trade-marketing/merchandising" element={<PageLoader><MerchandisingCompliancePage /></PageLoader>} />
             <Route path="trade-marketing/promoters" element={<PageLoader><PromoterManagementPage /></PageLoader>} />
+            <Route path="trade-marketing/promoters/create" element={<PageLoader><PromoterCreate /></PageLoader>} />
+            <Route path="trade-marketing/promoters/:id" element={<PageLoader><PromoterDetail /></PageLoader>} />
+            <Route path="trade-marketing/promoters/:id/edit" element={<PageLoader><PromoterEdit /></PageLoader>} />
             <Route path="trade-marketing/analytics" element={<PageLoader><TradeMarketingAnalyticsPage /></PageLoader>} />
 
             {/* Events Routes */}

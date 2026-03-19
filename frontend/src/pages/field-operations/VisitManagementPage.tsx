@@ -60,7 +60,7 @@ export default function VisitManagementPage() {
             <Map className="h-4 w-4" />
             <span>{showMap ? 'Hide' : 'Show'} Map</span>
           </button>
-          <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"><Plus className="h-4 w-4" /><span>Schedule Visit</span></button>
+          <button onClick={() => navigate('/field-operations/visits/create')} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"><Plus className="h-4 w-4" /><span>Schedule Visit</span></button>
         </div>
       </div>
 
@@ -114,13 +114,13 @@ export default function VisitManagementPage() {
                 <tr><td colSpan={6} className="px-6 py-12 text-center text-gray-500"><Calendar className="h-12 w-12 mx-auto text-gray-400 mb-2" /><p>No visits found</p></td></tr>
               ) : (
                 visits.map(visit => (
-                  <tr key={visit.id} className="hover:bg-surface-secondary">
+                  <tr key={visit.id} className="hover:bg-surface-secondary cursor-pointer" onClick={() => navigate(`/field-operations/visits/${visit.id}`)}>
                     <td className="px-6 py-4"><div className="text-sm font-medium text-gray-900">{visit.customer_name}</div><div className="text-sm text-gray-500">ID: {visit.customer_id?.substring(0,8)}</div></td>
                     <td className="px-6 py-4 text-sm text-gray-900">Agent #{visit.agent_id?.substring(0,8)}</td>
                     <td className="px-6 py-4"><div className="text-sm text-gray-900">{new Date(visit.visit_date).toLocaleDateString()}</div><div className="text-sm text-gray-500">{visit.check_in_time ? new Date(visit.check_in_time).toLocaleTimeString() : 'Not started'}</div></td>
                     <td className="px-6 py-4 text-sm text-gray-900">{visit.visit_type}</td>
                     <td className="px-6 py-4">{getStatusBadge(visit.status)}</td>
-                    <td className="px-6 py-4"><div className="flex space-x-2"><button className="text-blue-600 hover:text-blue-900"><Edit className="h-4 w-4" /></button><button onClick={() => {setDeleteConfirmId(visit.id)}} className="text-red-600 hover:text-red-900"><Trash2 className="h-4 w-4" /></button></div></td>
+                    <td className="px-6 py-4"><div className="flex space-x-2"><button onClick={(e) => { e.stopPropagation(); navigate(`/field-operations/visits/${visit.id}/edit`); }} className="text-blue-600 hover:text-blue-900"><Edit className="h-4 w-4" /></button><button onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(visit.id); }} className="text-red-600 hover:text-red-900"><Trash2 className="h-4 w-4" /></button></div></td>
                   </tr>
                 ))
               )}

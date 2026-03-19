@@ -148,6 +148,36 @@ class TradeMarketingService {
     }
   }
 
+  async getPromoter(id: string): Promise<any> {
+    try {
+      const response = await apiClient.get(`${this.baseUrl}/promoters/${id}`)
+      return response.data.data
+    } catch (error) {
+      console.error('Failed to fetch promoter:', error)
+      throw error
+    }
+  }
+
+  async createPromoter(data: any): Promise<any> {
+    try {
+      const response = await apiClient.post(`${this.baseUrl}/promoters`, data)
+      return response.data.data
+    } catch (error) {
+      console.error('Failed to create promoter:', error)
+      throw error
+    }
+  }
+
+  async updatePromoter(id: string, data: any): Promise<any> {
+    try {
+      const response = await apiClient.put(`${this.baseUrl}/promoters/${id}`, data)
+      return response.data.data
+    } catch (error) {
+      console.error('Failed to update promoter:', error)
+      throw error
+    }
+  }
+
   async deletePromoter(id: string): Promise<void> {
     try {
       await apiClient.delete(`${this.baseUrl}/promoters/${id}`)

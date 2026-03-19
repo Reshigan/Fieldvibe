@@ -2,9 +2,11 @@ import React, { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { vanSalesService } from '../../services/van-sales.service'
 import { Plus, Eye, ShoppingCart, DollarSign } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 export default function VanOrdersListPage() {
   const [filter, setFilter] = useState({ page: 1, limit: 20 })
+  const navigate = useNavigate()
   const { data, isLoading, error } = useQuery({
     queryKey: ['van-orders', filter],
     queryFn: () => vanSalesService.getVanOrders(filter)
@@ -29,7 +31,7 @@ export default function VanOrdersListPage() {
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
         <div><h1 className="text-2xl font-bold text-gray-900">Van Sales Orders</h1><p className="text-sm text-gray-600 mt-1">Manage orders ({total} total)</p></div>
-        <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"><Plus className="h-4 w-4" /><span>Create Order</span></button>
+        <button onClick={() => navigate('/van-sales/orders/create')} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"><Plus className="h-4 w-4" /><span>Create Order</span></button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -46,14 +48,14 @@ export default function VanOrdersListPage() {
             <tbody className="bg-white divide-y divide-gray-200">
               {orders.length === 0 ? <tr><td colSpan={7} className="px-6 py-12 text-center text-gray-500"><ShoppingCart className="h-12 w-12 mx-auto text-gray-400 mb-2" /><p>No orders found</p></td></tr>
               : orders.map(order => (
-                <tr key={order.id} className="hover:bg-surface-secondary">
+                <tr key={order.id} className="hover:bg-surface-secondary cursor-pointer" onClick={() => navigate(`/van-sales/orders/${order.id}`)}>
                   <td className="px-6 py-4 text-sm font-medium">{order.order_number}</td>
                   <td className="px-6 py-4 text-sm">{order.customer_name}</td>
                   <td className="px-6 py-4 text-sm">{new Date(order.order_date).toLocaleDateString()}</td>
                   <td className="px-6 py-4 text-sm font-medium">{formatCurrency(order.total_amount)}</td>
                   <td className="px-6 py-4">{getPaymentBadge(order.payment_status)}<div className="text-xs text-gray-500 mt-1">{order.payment_method}</div></td>
                   <td className="px-6 py-4">{getDeliveryBadge(order.delivery_status)}</td>
-                  <td className="px-6 py-4"><button className="text-blue-600 hover:text-blue-900"><Eye className="h-4 w-4" /></button></td>
+                  <td className="px-6 py-4"><button onClick={(e) => { e.stopPropagation(); navigate(`/van-sales/orders/${order.id}`); }} className="text-blue-600 hover:text-blue-900"><Eye className="h-4 w-4" /></button></td>
                 </tr>
               ))}
             </tbody>
