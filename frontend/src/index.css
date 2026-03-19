@@ -302,6 +302,45 @@
   }
 }
 
+/* ==================== Mobile Responsive ==================== */
+/* Ensure tables scroll horizontally on mobile */
+@media (max-width: 767px) {
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Stack grid items on mobile */
+  .grid-cols-2,
+  .grid-cols-3,
+  .grid-cols-4 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Reduce padding on mobile */
+  .p-6 { padding: 1rem; }
+  .p-8 { padding: 1.25rem; }
+  .px-6 { padding-left: 1rem; padding-right: 1rem; }
+  .px-8 { padding-left: 1.25rem; padding-right: 1.25rem; }
+
+  /* Ensure text doesn't overflow */
+  h1 { font-size: 1.25rem; }
+  h2 { font-size: 1.125rem; }
+
+  /* Make action buttons stack on mobile */
+  .flex.items-center.justify-between {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  /* Ensure modals fit mobile screens */
+  .modal-content {
+    max-width: calc(100vw - 2rem);
+    max-height: calc(100vh - 4rem);
+  }
+}
+
 /* Utility styles */
 @layer utilities {
   /* Text utilities */
@@ -375,9 +414,18 @@
   }
 }
 
-/* ==================== Light Mode Text Contrast Fixes ==================== */
+/* ==================== Light Mode Full Theme ==================== */
+/* Ensure light mode covers the entire screen, not just boxes */
+html:not(.dark) {
+  color-scheme: light;
+}
+
+html:not(.dark) body {
+  background-color: #F9FAFB;
+  color: #111827;
+}
+
 /* Fix unreadable light grey text on white backgrounds */
-/* Use :not(.dark) to avoid circular @apply and ensure light-mode-only override */
 html:not(.dark) [class~="text-gray-300"] {
   color: #6B7280 !important;
 }
@@ -387,23 +435,60 @@ html:not(.dark) [class~="text-gray-400"] {
 }
 
 /* Ensure form inputs have readable text in light mode */
-input, select, textarea {
+html:not(.dark) input,
+html:not(.dark) select,
+html:not(.dark) textarea {
   color: #111827;
+  background-color: #FFFFFF;
+  border-color: #D1D5DB;
 }
 
-input::placeholder, textarea::placeholder {
+html:not(.dark) input::placeholder,
+html:not(.dark) textarea::placeholder {
   color: #9CA3AF;
 }
 
+/* Dark-background input overrides for light mode */
+html:not(.dark) input[class*="dark:bg-night"],
+html:not(.dark) input[class*="dark:bg-"],
+html:not(.dark) select[class*="dark:bg-night"],
+html:not(.dark) select[class*="dark:bg-"],
+html:not(.dark) textarea[class*="dark:bg-night"],
+html:not(.dark) textarea[class*="dark:bg-"] {
+  color: #111827;
+  background-color: #FFFFFF;
+  border-color: #D1D5DB;
+}
+
 /* Ensure all input fields have solid dark text */
-.border-gray-300 input,
-.border-gray-200 input,
-input.border-gray-300,
-input.border-gray-200,
-textarea.border-gray-300,
-textarea.border-gray-200,
-select.border-gray-300,
-select.border-gray-200 {
+html:not(.dark) .border-gray-300 input,
+html:not(.dark) .border-gray-200 input,
+html:not(.dark) input.border-gray-300,
+html:not(.dark) input.border-gray-200,
+html:not(.dark) textarea.border-gray-300,
+html:not(.dark) textarea.border-gray-200,
+html:not(.dark) select.border-gray-300,
+html:not(.dark) select.border-gray-200 {
+  color: #111827;
+  background-color: #FFFFFF;
+}
+
+/* Light mode card/panel styles */
+html:not(.dark) .bg-night-50,
+html:not(.dark) .bg-night-100,
+html:not(.dark) .bg-night,
+html:not(.dark) [class*="bg-night"] {
+  background-color: #FFFFFF;
+}
+
+html:not(.dark) .border-night-50,
+html:not(.dark) .border-night-100,
+html:not(.dark) [class*="border-night"] {
+  border-color: #E5E7EB;
+}
+
+html:not(.dark) .text-night,
+html:not(.dark) [class*="text-night"] {
   color: #111827;
 }
 

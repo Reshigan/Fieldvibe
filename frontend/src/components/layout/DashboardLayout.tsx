@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { X, HelpCircle, Plus, ShoppingCart, MapPin, FileText } from 'lucide-react'
+import { useState } from 'react'
+import { Outlet, useNavigate } from 'react-router-dom'
+import { HelpCircle, Plus, ShoppingCart, MapPin, FileText } from 'lucide-react'
 import Sidebar from './Sidebar'
 import Header from './Header'
 import MobileBottomTabs from './MobileBottomTabs'
@@ -12,10 +12,8 @@ import { useKeyboardShortcuts } from '../ui/KeyboardShortcuts'
 import { FloatingActionButton } from '../mobile/FloatingActionButton'
 
 export default function DashboardLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [helpPanelOpen, setHelpPanelOpen] = useState(false)
-  const location = useLocation()
   const navigate = useNavigate()
 
   // ENH-08: Global keyboard shortcuts
@@ -29,46 +27,9 @@ export default function DashboardLayout() {
     ]
   })
 
-  useEffect(() => {
-    setSidebarOpen(false)
-  }, [location.pathname])
-
-  useEffect(() => {
-    if (sidebarOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = 'unset'
-    }
-    return () => {
-      document.body.style.overflow = 'unset'
-    }
-  }, [sidebarOpen])
-
   return (
-    <div className="min-h-screen bg-[#06090F] text-gray-100 flex">
-      {/* Mobile sidebar overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setSidebarOpen(false)}
-          />
-          <div className="relative flex flex-col max-w-[240px] w-full h-screen overflow-y-auto">
-            <div className="absolute top-2 right-0 -mr-10">
-              <button
-                type="button"
-                className="flex items-center justify-center h-8 w-8 rounded-full bg-white/10 text-white"
-                onClick={() => setSidebarOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <Sidebar onNavigate={() => setSidebarOpen(false)} />
-          </div>
-        </div>
-      )}
-
-      {/* Desktop sidebar */}
+    <div className="min-h-screen bg-gray-50 dark:bg-[#06090F] text-gray-900 dark:text-gray-100 flex">
+      {/* Desktop sidebar - hidden on mobile, bottom tabs used instead */}
       <div className="hidden lg:flex lg:flex-shrink-0">
         <Sidebar 
           collapsed={sidebarCollapsed} 
@@ -78,11 +39,11 @@ export default function DashboardLayout() {
 
       {/* Main content */}
       <div className="flex flex-col flex-1 min-w-0">
-        <Header onMenuClick={() => setSidebarOpen(true)} />
+        <Header />
 
-        <main className="flex-1 pb-20 lg:pb-8">
-          <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-            <div className="mb-4">
+        <main className="flex-1 pb-20 lg:pb-8 overflow-x-hidden">
+          <div className="w-full mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6">
+            <div className="mb-3 sm:mb-4 hidden sm:block">
               <Breadcrumbs />
             </div>
             <PageTransition>
@@ -91,7 +52,7 @@ export default function DashboardLayout() {
           </div>
         </main>
 
-        <footer className="border-t border-white/5 py-4">
+        <footer className="hidden lg:block border-t border-gray-200 dark:border-white/5 py-4">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-col sm:flex-row items-center justify-between space-y-2 sm:space-y-0">
               <div className="flex items-center space-x-2 text-xs text-gray-500">
@@ -108,6 +69,7 @@ export default function DashboardLayout() {
         </footer>
       </div>
       
+      {/* Mobile bottom tabs - only on small screens */}
       <MobileBottomTabs />
       <OfflineIndicator />
 

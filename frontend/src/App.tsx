@@ -410,7 +410,7 @@ function App() {
 
   if (!hydrated || isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#06090F]">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#06090F]">
         <LoadingSpinner size="lg" />
       </div>
     )
@@ -419,7 +419,7 @@ function App() {
   return (
     <ErrorBoundary>
       <ToastContainer />
-      <div className="min-h-screen bg-[#06090F]">
+      <div className="min-h-screen bg-gray-50 dark:bg-[#06090F]">
         <Routes>
           {/* Marketing Landing Page */}
           <Route path="/" element={<PageLoader><LandingPage /></PageLoader>} />
