@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Phone, Lock, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
+import { useAuthStore } from '../../store/auth.store'
 
 const MobileLoginPage: React.FC = () => {
   const navigate = useNavigate()
@@ -13,17 +14,13 @@ const MobileLoginPage: React.FC = () => {
   const pinRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    const token = localStorage.getItem('token')
-    const user = localStorage.getItem('auth-storage')
-    if (token || user) {
-      try {
-        const parsed = user ? JSON.parse(user) : null
-        const role = parsed?.state?.user?.role
-        if (role && ['agent', 'team_lead', 'field_agent', 'sales_rep'].includes(role)) {
-          navigate('/agent/dashboard')
-          return
-        }
-      } catch { /* ignore parse errors */ }
+    const { isAuthenticated, user } = useAuthStore.getState()
+    if (isAuthenticated && user) {
+      const role = user.role
+      if (role && ['agent', 'team_lead', 'field_agent', 'sales_rep'].includes(role)) {
+        navigate('/agent/dashboard')
+        return
+      }
     }
   }, [navigate])
 
@@ -78,15 +75,25 @@ const MobileLoginPage: React.FC = () => {
 
       if (data.success && data.data) {
         const { user, token, access_token, tenant, companies } = data.data
-        localStorage.setItem('token', token || access_token)
-        localStorage.setItem('auth-storage', JSON.stringify({
-          state: {
-            user: { ...user, companies },
-            token: token || access_token,
-            isAuthenticated: true,
-            tenant: tenant || {}
-          }
-        }))
+        const accessToken = token || access_token
+        localStorage.setItem('token', accessToken)
+        // Update zustand auth store so ProtectedRoute recognizes the session
+        useAuthStore.setState({
+          user: {
+            id: user.id,
+            email: user.email || '',
+            first_name: user.firstName || '',
+            last_name: user.lastName || '',
+            role: user.role,
+            phone: user.phone,
+            status: user.status || 'active',
+            permissions: [],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          } as any,
+          tokens: data.data.tokens || { access_token: accessToken, refresh_token: '', expires_in: 86400, token_type: 'Bearer' },
+          isAuthenticated: true,
+        })
         navigate('/agent/dashboard')
       } else {
         setError(data.message || 'Login failed')

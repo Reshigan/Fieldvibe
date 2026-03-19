@@ -343,10 +343,14 @@ app.post('/api/agent/set-pin', authMiddleware, async (c) => {
       return c.json({ success: false, message: 'Only admins, managers, and team leads can set agent PINs' }, 403);
     }
 
-    // If team_lead, verify the agent is in their team
-    if (isTeamLead) {
-      const agent = await db.prepare('SELECT id FROM users WHERE id = ? AND tenant_id = ? AND team_lead_id = ?').bind(agent_id, tenantId, requesterId).first();
-      if (!agent) return c.json({ success: false, message: 'Agent is not in your team' }, 403);
+    // Verify target user exists and has an agent-like role
+    const targetQuery = isTeamLead
+      ? "SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role IN ('agent', 'team_lead', 'field_agent', 'sales_rep') AND team_lead_id = ?"
+      : "SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role IN ('agent', 'team_lead', 'field_agent', 'sales_rep')";
+    const targetBinds = isTeamLead ? [agent_id, tenantId, requesterId] : [agent_id, tenantId];
+    const targetAgent = await db.prepare(targetQuery).bind(...targetBinds).first();
+    if (!targetAgent) {
+      return c.json({ success: false, message: isTeamLead ? 'Agent not found or not in your team' : 'Agent not found' }, 404);
     }
 
     const pinHash = await bcrypt.hash(pin, 10);

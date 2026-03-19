@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { User, Phone, Building2, Shield, Lock, LogOut, ChevronRight, AlertCircle, CheckCircle2, Eye, EyeOff } from 'lucide-react'
+import { useAuthStore } from '../../store/auth.store'
 
 export default function AgentProfile() {
   const navigate = useNavigate()
-  const [user, setUser] = useState<Record<string, string | undefined> | null>(null)
+  const authUser = useAuthStore((s) => s.user)
   const [companies, setCompanies] = useState<Array<{ id: string; name: string }>>([])
   const [showChangePin, setShowChangePin] = useState(false)
   const [currentPin, setCurrentPin] = useState('')
@@ -17,21 +18,14 @@ export default function AgentProfile() {
   const [pinLoading, setPinLoading] = useState(false)
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('auth-storage')
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        setUser(parsed?.state?.user || null)
-        setCompanies(parsed?.state?.user?.companies || [])
-      }
-    } catch { /* ignore */ }
-  }, [])
+    // Companies may be stored as extra data on the user object
+    const u = authUser as any
+    if (u?.companies) setCompanies(u.companies)
+  }, [authUser])
 
   const handleLogout = () => {
+    useAuthStore.getState().logout()
     localStorage.removeItem('token')
-    localStorage.removeItem('auth-storage')
-    localStorage.removeItem('user')
-    localStorage.removeItem('tenant')
     navigate('/auth/mobile-login')
   }
 
@@ -45,7 +39,7 @@ export default function AgentProfile() {
 
     setPinLoading(true)
     try {
-      const token = localStorage.getItem('token')
+      const token = useAuthStore.getState().tokens?.access_token || localStorage.getItem('token')
       const apiUrl = import.meta.env.VITE_API_URL || ''
       const res = await fetch(`${apiUrl}/api/agent/change-pin`, {
         method: 'POST',
@@ -76,15 +70,15 @@ export default function AgentProfile() {
         <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-3 border-2 border-[#00E87B]/30">
           <User className="w-10 h-10 text-[#00E87B]" />
         </div>
-        <h1 className="text-xl font-bold text-white">{user?.name || (user?.firstName && user?.lastName ? user.firstName + ' ' + user.lastName : null) || 'Agent'}</h1>
-        <p className="text-sm text-gray-400 capitalize">{user?.role?.replace('_', ' ') || 'Agent'}</p>
+        <h1 className="text-xl font-bold text-white">{authUser?.first_name && authUser?.last_name ? authUser.first_name + ' ' + authUser.last_name : (authUser as any)?.name || 'Agent'}</h1>
+        <p className="text-sm text-gray-400 capitalize">{(authUser?.role || 'agent').replace('_', ' ')}</p>
       </div>
 
       <div className="px-5 pt-4 space-y-3">
         {/* Info Cards */}
         <div className="bg-white/5 border border-white/10 rounded-xl divide-y divide-white/5">
-          <InfoRow icon={<Phone className="w-4 h-4 text-blue-400" />} label="Phone" value={user?.phone || 'Not set'} />
-          <InfoRow icon={<Shield className="w-4 h-4 text-purple-400" />} label="Role" value={(user?.role || 'agent').replace('_', ' ')} />
+          <InfoRow icon={<Phone className="w-4 h-4 text-blue-400" />} label="Phone" value={authUser?.phone || 'Not set'} />
+          <InfoRow icon={<Shield className="w-4 h-4 text-purple-400" />} label="Role" value={(authUser?.role || 'agent').replace('_', ' ')} />
           <InfoRow icon={<Building2 className="w-4 h-4 text-emerald-400" />} label="Companies" value={companies.length > 0 ? companies.map(c => c.name).join(', ') : 'None assigned'} />
         </div>
 

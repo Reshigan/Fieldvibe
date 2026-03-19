@@ -5,6 +5,7 @@ import {
   Calendar, ChevronRight, RefreshCw, Target, Building2,
   Wifi, WifiOff, LogOut
 } from 'lucide-react'
+import { useAuthStore } from '../../store/auth.store'
 
 interface DashboardData {
   today_visits: number
@@ -36,7 +37,7 @@ export default function AgentDashboard() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [online, setOnline] = useState(navigator.onLine)
-  const [user, setUser] = useState<{ name?: string; firstName?: string; lastName?: string; role?: string; phone?: string } | null>(null)
+  const authUser = useAuthStore((s) => s.user)
 
   useEffect(() => {
     const handleOnline = () => setOnline(true)
@@ -49,22 +50,12 @@ export default function AgentDashboard() {
     }
   }, [])
 
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem('auth-storage')
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        setUser(parsed?.state?.user || null)
-      }
-    } catch { /* ignore */ }
-  }, [])
-
   const fetchDashboard = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
     else setLoading(true)
 
     try {
-      const token = localStorage.getItem('token')
+      const token = useAuthStore.getState().tokens?.access_token || localStorage.getItem('token')
       if (!token) { navigate('/auth/mobile-login'); return }
 
       const apiUrl = import.meta.env.VITE_API_URL || ''
@@ -86,10 +77,8 @@ export default function AgentDashboard() {
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
   const handleLogout = () => {
+    useAuthStore.getState().logout()
     localStorage.removeItem('token')
-    localStorage.removeItem('auth-storage')
-    localStorage.removeItem('user')
-    localStorage.removeItem('tenant')
     navigate('/auth/mobile-login')
   }
 
@@ -100,7 +89,7 @@ export default function AgentDashboard() {
     return 'Good Evening'
   }
 
-  const firstName = user?.name?.split(' ')[0] || user?.firstName || 'Agent'
+  const firstName = authUser?.first_name || (authUser as any)?.firstName || 'Agent'
 
   if (loading) {
     return (
