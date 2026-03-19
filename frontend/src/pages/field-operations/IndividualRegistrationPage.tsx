@@ -129,6 +129,7 @@ export default function IndividualRegistrationPage() {
                   { value: 'c.id', label: '{c.name}' },
                 ]}
                 value={form.company_id || null}
+              onChange={(val) => setForm(prev => ({...prev, company_id: val}))}
                 placeholder="Select Company"
               />
             </div>
@@ -175,6 +176,7 @@ export default function IndividualRegistrationPage() {
             { value: '0', label: 'Not Converted' },
           ]}
           value={filterConverted || null}
+              onChange={(val) => {}}
           placeholder="All Status"
         />
         <SearchableSelect
@@ -183,6 +185,7 @@ export default function IndividualRegistrationPage() {
             { value: 'c.id', label: '{c.name}' },
           ]}
           value={filterCompany || null}
+              onChange={(val) => {}}
           placeholder="All Companies"
         />
       </div>

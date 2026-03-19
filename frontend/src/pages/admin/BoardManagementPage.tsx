@@ -60,6 +60,7 @@ const BoardManagementPage: React.FC = () => {
                 { value: 'banner', label: 'Banner' },
               ]}
               value={form.type || '' || null}
+              onChange={(val) => setForm(prev => ({...prev, type: val}))}
               placeholder="Select Type"
             />
             <input type="number" placeholder="Width (cm)" value={form.width || ''} onChange={e => setForm({...form, width: +e.target.value})} className="px-4 py-2 border rounded" />

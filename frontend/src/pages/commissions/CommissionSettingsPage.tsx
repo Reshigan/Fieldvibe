@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { commissionsService } from '../../services/commissions.service'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
-import SearchableSelect from '../../components/ui/SearchableSelect'
 import toast from 'react-hot-toast'
 
 interface CommissionRule {
@@ -25,10 +24,13 @@ export const CommissionSettingsPage: React.FC = () => {
     status: 'active'
   })
 
-  const { data: rules = [], isLoading, isError } = useQuery({
+  const { data: rulesData = [], isLoading, isError } = useQuery({
     queryKey: ['commission-rules'],
     queryFn: () => commissionsService.getRules()
   })
+
+  // Safely extract array from response (may be nested under .data)
+  const rules: CommissionRule[] = Array.isArray(rulesData) ? rulesData : (rulesData as any)?.data || (rulesData as any)?.rules || []
 
   const createMutation = useMutation({
     mutationFn: (rule: Partial<CommissionRule>) => commissionsService.createRule(rule),
@@ -52,20 +54,20 @@ export const CommissionSettingsPage: React.FC = () => {
   }
 
   const getRuleTypeBadge = (type: string) => {
-    const badges = {
+    const badges: Record<string, string> = {
       percentage: 'bg-blue-100 text-blue-800',
       fixed: 'bg-green-100 text-green-800',
       tiered: 'bg-purple-100 text-purple-800'
     }
-    return badges[type as keyof typeof badges] || 'bg-gray-100 text-gray-800'
+    return badges[type] || 'bg-gray-100 text-gray-800'
   }
 
   const getStatusBadge = (status: string) => {
-    const badges = {
+    const badges: Record<string, string> = {
       active: 'bg-green-100 text-green-800',
       inactive: 'bg-gray-100 text-gray-800'
     }
-    return badges[status as keyof typeof badges] || 'bg-gray-100 text-gray-800'
+    return badges[status] || 'bg-gray-100 text-gray-800'
   }
 
   if (isLoading) {
@@ -196,18 +198,18 @@ export const CommissionSettingsPage: React.FC = () => {
                       <div className="text-sm font-medium text-gray-900">{rule.name}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getRuleTypeBadge(rule.rule_type)}`}>
-                        {rule.rule_type}
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getRuleTypeBadge(rule.rule_type || (rule as any).source_type || '')}`}>
+                        {rule.rule_type || (rule as any).source_type || 'N/A'}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {rule.rule_type === 'percentage' ? `${rule.value}%` : `R ${rule.value}`}
+                        {(rule.rule_type || (rule as any).source_type) === 'percentage' ? `${rule.value ?? (rule as any).rate ?? 0}%` : `R ${rule.value ?? (rule as any).rate ?? 0}`}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadge(rule.status)}`}>
-                        {rule.status}
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadge(rule.status || ((rule as any).is_active ? 'active' : 'inactive'))}`}>
+                        {rule.status || ((rule as any).is_active ? 'active' : 'inactive')}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -254,15 +256,15 @@ export const CommissionSettingsPage: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Rule Type</label>
-                <SearchableSelect
-                  options={[
-                    { value: 'percentage', label: 'Percentage' },
-                    { value: 'fixed', label: 'Fixed Amount' },
-                    { value: 'tiered', label: 'Tiered' },
-                  ]}
+                <select
                   value={newRule.rule_type}
-                  placeholder="Percentage"
-                />
+                  onChange={(e) => setNewRule({ ...newRule, rule_type: e.target.value as 'percentage' | 'fixed' | 'tiered' })}
+                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 py-2 px-3"
+                >
+                  <option value="percentage">Percentage</option>
+                  <option value="fixed">Fixed Amount</option>
+                  <option value="tiered">Tiered</option>
+                </select>
               </div>
 
               <div>
@@ -281,14 +283,14 @@ export const CommissionSettingsPage: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <SearchableSelect
-                  options={[
-                    { value: 'active', label: 'Active' },
-                    { value: 'inactive', label: 'Inactive' },
-                  ]}
+                <select
                   value={newRule.status}
-                  placeholder="Active"
-                />
+                  onChange={(e) => setNewRule({ ...newRule, status: e.target.value as 'active' | 'inactive' })}
+                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 py-2 px-3"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
               </div>
             </div>
 

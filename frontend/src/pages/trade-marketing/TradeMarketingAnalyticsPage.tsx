@@ -31,6 +31,7 @@ export default function TradeMarketingAnalyticsPage() {
             { value: 'year', label: 'This Year' },
           ]}
           value={filter.period}
+              onChange={(val) => setFilter(prev => ({...prev, period: val}))}
           placeholder="This Week"
         />
       </div>

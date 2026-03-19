@@ -175,6 +175,7 @@ export default function InvoiceManagementPage() {
                 { value: 'overdue', label: 'Overdue' },
               ]}
               value={statusFilter}
+              onChange={(val) => setStatusFilter(val)}
               placeholder="All Status"
             />
           </div>

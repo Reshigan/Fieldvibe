@@ -151,6 +151,7 @@ export default function CreditNoteCreate() {
                     { value: 'customer.id', label: '{customer.name}' },
                   ]}
                   value={selectedCustomer || null}
+              onChange={(val) => {}}
                   placeholder="Select a customer"
                 />
               </div>
@@ -170,6 +171,7 @@ export default function CreditNoteCreate() {
                     { value: 'other', label: 'Other' },
                   ]}
                   value={reason || null}
+              onChange={(val) => {}}
                   placeholder="Select a reason"
                 />
               </div>

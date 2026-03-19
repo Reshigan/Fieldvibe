@@ -208,6 +208,7 @@ export const SystemSettingsPage: React.FC = () => {
                     { value: 'Europe/London', label: 'Europe/London (GMT)' },
                   ]}
                   value={settings.general.timezone}
+              onChange={(val) => setSettings(prev => ({...prev, general: val}))}
                   placeholder="Africa/Johannesburg (SAST)"
                 />
               </div>
@@ -222,6 +223,7 @@ export const SystemSettingsPage: React.FC = () => {
                     { value: 'GBP', label: 'GBP - British Pound' },
                   ]}
                   value={settings.general.currency}
+              onChange={(val) => setSettings(prev => ({...prev, general: val}))}
                   placeholder="ZAR - South African Rand"
                 />
               </div>
@@ -235,6 +237,7 @@ export const SystemSettingsPage: React.FC = () => {
                     { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD' },
                   ]}
                   value={settings.general.date_format}
+              onChange={(val) => setSettings(prev => ({...prev, general: val}))}
                   placeholder="DD/MM/YYYY"
                 />
               </div>
@@ -249,6 +252,7 @@ export const SystemSettingsPage: React.FC = () => {
                     { value: 'xh', label: 'Xhosa' },
                   ]}
                   value={settings.general.language}
+              onChange={(val) => setSettings(prev => ({...prev, general: val}))}
                   placeholder="English"
                 />
               </div>

@@ -139,6 +139,7 @@ const ShelfAnalyticsFormPage: React.FC = () => {
                 { value: 'other', label: 'Other' },
               ]}
               value={formData.category}
+              onChange={(val) => setFormData(prev => ({...prev, category: val}))}
               placeholder="Beverages"
             />
           </div>

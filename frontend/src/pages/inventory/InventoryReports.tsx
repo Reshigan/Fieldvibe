@@ -212,6 +212,7 @@ export default function InventoryReports() {
                 { value: 'location.id', label: '{location.name}' },
               ]}
               value={filter.location_id || '' || null}
+              onChange={(val) => setFilter(prev => ({...prev, location_id: val}))}
               placeholder="All Locations"
             />
           </div>
@@ -230,6 +231,7 @@ export default function InventoryReports() {
                 { value: 'household', label: 'Household' },
               ]}
               value={filter.category || '' || null}
+              onChange={(val) => setFilter(prev => ({...prev, category: val}))}
               placeholder="All Categories"
             />
           </div>

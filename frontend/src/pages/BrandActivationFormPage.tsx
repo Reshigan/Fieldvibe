@@ -256,6 +256,7 @@ const BrandActivationFormPage: React.FC = () => {
                       { value: 'exhibition', label: 'Exhibition/Display' },
                     ]}
                     value={formData.eventType}
+              onChange={(val) => setFormData(prev => ({...prev, eventType: val}))}
                     placeholder="Product Sampling"
                   />
                 </div>
@@ -351,6 +352,7 @@ const BrandActivationFormPage: React.FC = () => {
                       { value: 'cancelled', label: 'Cancelled' },
                     ]}
                     value={formData.status}
+              onChange={(val) => setFormData(prev => ({...prev, status: val}))}
                     placeholder="Planned"
                   />
                 </div>

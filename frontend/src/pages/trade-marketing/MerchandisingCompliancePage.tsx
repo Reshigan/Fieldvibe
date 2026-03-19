@@ -66,6 +66,7 @@ export default function MerchandisingCompliancePage() {
             { value: 'partial', label: 'Partial' },
           ]}
           value={filter.compliance_status || null}
+              onChange={(val) => setFilter(prev => ({...prev, compliance_status: val}))}
           placeholder="All Statuses"
         />
       </div>

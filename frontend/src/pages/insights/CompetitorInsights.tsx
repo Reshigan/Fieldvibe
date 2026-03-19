@@ -40,6 +40,7 @@ export default function CompetitorInsights() {
             { value: 'quarter', label: 'Last 90 Days' },
           ]}
           value={period}
+              onChange={(val) => setPeriod(val)}
           placeholder="Last 7 Days"
         />
       </div>

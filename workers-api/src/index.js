@@ -2073,16 +2073,115 @@ api.get('/settings', async (c) => {
   const params = [tenantId];
   if (category) { query += ' AND category = ?'; params.push(category); }
   query += ' ORDER BY key';
-  const settings = await db.prepare(query).bind(...params).all();
-  return c.json({ success: true, data: settings.results || [] });
+  const rows = await db.prepare(query).bind(...params).all();
+  // Return settings as both array and keyed object for frontend compatibility
+  const settingsArray = rows.results || [];
+  const settingsMap = {};
+  for (const s of settingsArray) {
+    settingsMap[s.key] = {
+      key: s.key,
+      value: s.value,
+      label: (s.key || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      type: s.key && (s.key.includes('password') || s.key.includes('secret') || s.key.includes('api_key')) ? 'password'
+        : s.key && (s.key.includes('enabled') || s.key.includes('require') || s.key.includes('auto_')) ? 'boolean'
+        : s.key && (s.key.includes('port') || s.key.includes('rate') || s.key.includes('max_') || s.key.includes('min_') || s.key.includes('days') || s.key.includes('limit') || s.key.includes('timeout')) ? 'number'
+        : s.key && s.key.includes('email') ? 'email'
+        : s.key && (s.key.includes('description') || s.key.includes('address') || s.key.includes('notes') || s.key.includes('footer') || s.key.includes('terms')) ? 'textarea'
+        : 'text',
+      category: s.category || 'general',
+      description: s.key ? `Configure ${s.key.replace(/_/g, ' ')}` : '',
+    };
+  }
+  return c.json({ success: true, data: { settings: settingsMap, raw: settingsArray } });
+});
+
+api.get('/settings-categories', async (c) => {
+  return c.json({ success: true, data: [
+    { id: 'company', name: 'Company Information', icon: 'Building2', description: 'Basic company details and branding' },
+    { id: 'email', name: 'Email Configuration', icon: 'Mail', description: 'SMTP settings for sending emails' },
+    { id: 'sms', name: 'SMS Configuration', icon: 'MessageSquare', description: 'Twilio settings for SMS notifications' },
+    { id: 'locale', name: 'Regional Settings', icon: 'Globe', description: 'Currency, date format, and timezone' },
+    { id: 'orders', name: 'Order Settings', icon: 'ShoppingCart', description: 'Order processing and approval rules' },
+    { id: 'invoices', name: 'Invoice Settings', icon: 'FileText', description: 'Invoice numbering and terms' },
+    { id: 'tax', name: 'Tax Settings', icon: 'Receipt', description: 'Tax rates and calculations' },
+    { id: 'commissions', name: 'Commission Settings', icon: 'DollarSign', description: 'Sales commission configuration' },
+    { id: 'inventory', name: 'Inventory Settings', icon: 'Package', description: 'Stock management rules' },
+    { id: 'visits', name: 'Visit Settings', icon: 'MapPin', description: 'Field visit requirements' },
+    { id: 'notifications', name: 'Notification Settings', icon: 'Bell', description: 'Alert and notification preferences' },
+    { id: 'security', name: 'Security Settings', icon: 'Shield', description: 'Authentication and access control' },
+    { id: 'integrations', name: 'Integration Settings', icon: 'Plug', description: 'Third-party integrations and APIs' },
+  ] });
+});
+
+api.post('/settings/initialize', requireRole('admin'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const defaults = [
+    { key: 'company_name', value: '', category: 'company' },
+    { key: 'company_email', value: '', category: 'company' },
+    { key: 'company_phone', value: '', category: 'company' },
+    { key: 'company_address', value: '', category: 'company' },
+    { key: 'company_logo_url', value: '', category: 'company' },
+    { key: 'company_registration_number', value: '', category: 'company' },
+    { key: 'company_tax_number', value: '', category: 'company' },
+    { key: 'smtp_host', value: '', category: 'email' },
+    { key: 'smtp_port', value: '587', category: 'email' },
+    { key: 'smtp_username', value: '', category: 'email' },
+    { key: 'smtp_password', value: '', category: 'email' },
+    { key: 'smtp_from_email', value: '', category: 'email' },
+    { key: 'sms_provider', value: 'twilio', category: 'sms' },
+    { key: 'sms_api_key', value: '', category: 'sms' },
+    { key: 'sms_api_secret', value: '', category: 'sms' },
+    { key: 'sms_from_number', value: '', category: 'sms' },
+    { key: 'currency_code', value: 'ZAR', category: 'locale' },
+    { key: 'currency_symbol', value: 'R', category: 'locale' },
+    { key: 'date_format', value: 'YYYY-MM-DD', category: 'locale' },
+    { key: 'timezone', value: 'Africa/Johannesburg', category: 'locale' },
+    { key: 'order_auto_approve', value: 'false', category: 'orders' },
+    { key: 'order_require_approval_above', value: '5000', category: 'orders' },
+    { key: 'order_prefix', value: 'ORD', category: 'orders' },
+    { key: 'invoice_prefix', value: 'INV', category: 'invoices' },
+    { key: 'invoice_payment_terms_days', value: '30', category: 'invoices' },
+    { key: 'invoice_footer_text', value: '', category: 'invoices' },
+    { key: 'tax_rate', value: '15', category: 'tax' },
+    { key: 'tax_inclusive', value: 'true', category: 'tax' },
+    { key: 'commission_default_rate', value: '5', category: 'commissions' },
+    { key: 'commission_auto_calculate', value: 'true', category: 'commissions' },
+    { key: 'inventory_low_stock_threshold', value: '10', category: 'inventory' },
+    { key: 'inventory_auto_reorder', value: 'false', category: 'inventory' },
+    { key: 'visit_require_gps', value: 'true', category: 'visits' },
+    { key: 'visit_max_duration_hours', value: '4', category: 'visits' },
+    { key: 'visit_require_photo', value: 'false', category: 'visits' },
+    { key: 'notifications_email_enabled', value: 'true', category: 'notifications' },
+    { key: 'notifications_sms_enabled', value: 'false', category: 'notifications' },
+    { key: 'security_password_min_length', value: '8', category: 'security' },
+    { key: 'security_session_timeout_minutes', value: '60', category: 'security' },
+    { key: 'security_require_2fa', value: 'false', category: 'security' },
+  ];
+  let inserted = 0;
+  for (const d of defaults) {
+    const existing = await db.prepare('SELECT id FROM settings WHERE tenant_id = ? AND key = ?').bind(tenantId, d.key).first();
+    if (!existing) {
+      const id = uuidv4();
+      await db.prepare('INSERT INTO settings (id, tenant_id, key, value, category) VALUES (?, ?, ?, ?, ?)').bind(id, tenantId, d.key, d.value, d.category).run();
+      inserted++;
+    }
+  }
+  return c.json({ success: true, message: `Initialized ${inserted} settings` });
 });
 
 api.put('/settings', requireRole('admin'), async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const body = await c.req.json();
-  if (body.settings && Array.isArray(body.settings)) {
-    for (const s of body.settings) {
+  // Support both formats:
+  // 1. { settings: [{key, value, category}] } (array format)
+  // 2. { settings: {key: value, ...} } (object/Record format from frontend)
+  if (body.settings) {
+    const entries = Array.isArray(body.settings)
+      ? body.settings
+      : Object.entries(body.settings).map(([key, value]) => ({ key, value }));
+    for (const s of entries) {
       const existing = await db.prepare('SELECT id FROM settings WHERE tenant_id = ? AND key = ?').bind(tenantId, s.key).first();
       if (existing) {
         await db.prepare('UPDATE settings SET value = ?, updated_at = datetime("now") WHERE id = ?').bind(s.value, existing.id).run();
@@ -3409,7 +3508,29 @@ api.get('/commissions/rules', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const rules = await db.prepare('SELECT * FROM commission_rules WHERE tenant_id = ? ORDER BY name LIMIT 500').bind(tenantId).all();
-  return c.json({ data: rules.results || [] });
+  return c.json({ success: true, data: rules.results || [] });
+});
+
+api.post('/commissions/rules', requireRole('admin'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const body = await c.req.json();
+  const id = uuidv4();
+  // Accept both frontend format (rule_type, value) and backend format (source_type, rate)
+  const name = body.name;
+  const sourceType = body.source_type || body.rule_type || 'percentage';
+  const rate = body.rate !== undefined ? body.rate : body.value || 0;
+  const isActive = body.status === 'inactive' ? 0 : 1;
+  await db.prepare('INSERT INTO commission_rules (id, tenant_id, name, source_type, rate, min_threshold, max_cap, product_filter, effective_from, effective_to, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(id, tenantId, name, sourceType, rate, body.min_threshold || 0, body.max_cap || null, body.product_filter || null, body.effective_from || null, body.effective_to || null, isActive).run();
+  return c.json({ success: true, data: { id, name, source_type: sourceType, rate, is_active: isActive } }, 201);
+});
+
+api.delete('/commissions/rules/:id', requireRole('admin'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  await db.prepare('DELETE FROM commission_rules WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+  return c.json({ success: true, message: 'Commission rule deleted' });
 });
 
 api.get('/commissions/user/:userId', authMiddleware, async (c) => {

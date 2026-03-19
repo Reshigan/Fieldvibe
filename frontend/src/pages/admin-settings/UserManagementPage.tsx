@@ -213,6 +213,7 @@ export const UserManagementPage: React.FC = () => {
                 { value: 'user', label: 'User' },
               ]}
               value={roleFilter}
+              onChange={(val) => setRoleFilter(val)}
               placeholder="All Roles"
             />
             <SearchableSelect
@@ -223,6 +224,7 @@ export const UserManagementPage: React.FC = () => {
                 { value: 'suspended', label: 'Suspended' },
               ]}
               value={statusFilter}
+              onChange={(val) => setStatusFilter(val)}
               placeholder="All Status"
             />
           </div>

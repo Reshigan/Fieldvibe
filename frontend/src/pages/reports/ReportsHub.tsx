@@ -302,6 +302,7 @@ const ReportsHub: React.FC = () => {
                         { value: 'cancelled', label: 'Cancelled' },
                       ]}
                       value={filters.status || null}
+              onChange={(val) => setFilters(prev => ({...prev, status: val}))}
                       placeholder="All Statuses"
                     />
                   </div>

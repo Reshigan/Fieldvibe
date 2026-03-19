@@ -135,6 +135,7 @@ const ProductDistributionFormPage: React.FC = () => {
                 { value: 'promotional_item', label: 'Promotional Item' },
               ]}
               value={formData.productType}
+              onChange={(val) => setFormData(prev => ({...prev, productType: val}))}
               placeholder="SIM Card"
             />
           </div>

@@ -53,6 +53,7 @@ const CommissionRuleBuilderPage: React.FC = () => {
               { value: 'all', label: 'All Types' },
             ]}
             value={form.boardType || '' || null}
+              onChange={(val) => setForm(prev => ({...prev, boardType: val}))}
             placeholder="Board Type"
           />
           <input type="number" placeholder="Min Quantity" value={form.minQty || ''} onChange={e => setForm({...form, minQty: +e.target.value})} className="px-4 py-2 border rounded" />

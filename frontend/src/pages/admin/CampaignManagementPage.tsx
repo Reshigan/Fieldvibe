@@ -69,6 +69,7 @@ const CampaignManagementPage: React.FC = () => {
                 { value: 'cancelled', label: 'Cancelled' },
               ]}
               value={form.status}
+              onChange={(val) => setForm(prev => ({...prev, status: val}))}
               placeholder="Planned"
             />
           </div>

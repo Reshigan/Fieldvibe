@@ -225,6 +225,7 @@ export default function AuditLogsPage() {
               { value: 'LOGOUT', label: 'Logout' },
             ]}
             value={filterAction}
+              onChange={(val) => setFilterAction(val)}
             placeholder="All Actions"
           />
 
@@ -238,6 +239,7 @@ export default function AuditLogsPage() {
               { value: 'Auth', label: 'Authentication' },
             ]}
             value={filterEntity}
+              onChange={(val) => setFilterEntity(val)}
             placeholder="All Entities"
           />
 
@@ -250,6 +252,7 @@ export default function AuditLogsPage() {
               { value: 'all', label: 'All Time' },
             ]}
             value={dateRange}
+              onChange={(val) => setDateRange(val)}
             placeholder="Today"
           />
         </div>

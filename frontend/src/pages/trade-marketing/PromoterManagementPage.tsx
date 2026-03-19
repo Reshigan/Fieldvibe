@@ -75,6 +75,7 @@ export default function PromoterManagementPage() {
             { value: 'on_leave', label: 'On Leave' },
           ]}
           value={filter.status || null}
+              onChange={(val) => setFilter(prev => ({...prev, status: val}))}
           placeholder="All Statuses"
         />
       </div>

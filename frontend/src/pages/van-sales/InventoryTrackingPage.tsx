@@ -220,6 +220,7 @@ export default function InventoryTrackingPage() {
                   { value: 'out_of_stock', label: 'Out of Stock' },
                 ]}
                 value={filterStatus}
+              onChange={(val) => setFilterStatus(val)}
                 placeholder="All Status"
               />
             </div>

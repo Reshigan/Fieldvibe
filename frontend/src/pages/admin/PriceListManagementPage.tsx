@@ -99,6 +99,7 @@ export default function PriceListManagementPage() {
             { value: 'inactive', label: 'Inactive' },
           ]}
           value={filterActive === undefined ? 'all' : filterActive ? 'active' : 'inactive'}
+              onChange={(val) => {}}
           placeholder="All Status"
         />
       </div>

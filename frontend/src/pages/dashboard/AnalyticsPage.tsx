@@ -333,6 +333,7 @@ export default function AnalyticsPage() {
               { value: '1y', label: 'Last year' },
             ]}
             value={dateRange}
+              onChange={(val) => setDateRange(val)}
             placeholder="Last 7 days"
           />
           
@@ -461,6 +462,7 @@ export default function AnalyticsPage() {
                 { value: 'customers', label: 'Customers' },
               ]}
               value={selectedMetric}
+              onChange={(val) => setSelectedMetric(val)}
               placeholder="Revenue"
             />
           </div>
