@@ -451,6 +451,70 @@ html:not(.dark) [class*="hover\\:bg-white\\/10"]:hover {
   background-color: #F3F4F6 !important;
 }
 
+/* ── Auth layout protection ── */
+/* The auth/login pages are ALWAYS dark regardless of light/dark mode. */
+/* ID selector (#auth-layout) guarantees higher specificity than class/attribute */
+/* selectors used in the light-mode overrides above, so these always win. */
+#auth-layout {
+  background-color: #06090F !important;
+}
+
+#auth-layout [class*="bg-\[#0A0E18\]"] {
+  background-color: #0A0E18 !important;
+}
+
+/* Restore dark bg for elements using bg-[#0A1628] with opacity variants (/80, /50). */
+/* The light mode override at line ~406 sets these to #FFFFFF; this counteracts it. */
+/* We use the base color (fully opaque) since !important overrides Tailwind's rgba(); */
+/* the slight opacity difference is acceptable to keep auth pages dark-themed. */
+#auth-layout [class*="bg-\[#0A1628\]"] {
+  background-color: #0A1628 !important;
+}
+
+#auth-layout [class~="text-white"] {
+  color: #FFFFFF !important;
+}
+
+#auth-layout [class~="text-gray-100"] {
+  color: #F3F4F6 !important;
+}
+
+#auth-layout [class~="text-gray-200"] {
+  color: #E5E7EB !important;
+}
+
+#auth-layout [class~="text-gray-300"],
+#auth-layout [class*="text-slate-300"] {
+  color: #CBD5E1 !important;
+}
+
+#auth-layout [class~="text-gray-400"],
+#auth-layout [class*="text-slate-400"] {
+  color: #94A3B8 !important;
+}
+
+#auth-layout [class*="text-slate-500"] {
+  color: #64748B !important;
+}
+
+#auth-layout [class*="border-white\\/5"],
+#auth-layout [class*="border-white\\/10"] {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+#auth-layout input,
+#auth-layout select,
+#auth-layout textarea {
+  color: #FFFFFF !important;
+  background-color: transparent !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+#auth-layout input::placeholder,
+#auth-layout textarea::placeholder {
+  color: #64748B !important;
+}
+
 /* Light mode card/panel styles for custom theme tokens */
 html:not(.dark) .bg-night-50,
 html:not(.dark) .bg-night-100,
