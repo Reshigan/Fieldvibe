@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Search, Filter, Download, Eye, Calendar, User, Activity, FileText, RefreshCw } from 'lucide-react'
+import { apiClient } from '../../services/api.service'
+import toast from 'react-hot-toast'
 import SearchableSelect from '../../components/ui/SearchableSelect'
 
 
@@ -52,7 +54,7 @@ export default function AuditLogsPage() {
       params.startDate = startDate
       params.endDate = endDate
       
-      const response = await api.get('/admin/audit-logs', { params })
+      const response = await apiClient.get('/admin/audit-logs', { params })
       const logsData = response.data.data?.logs || response.data.data || []
       setLogs(Array.isArray(logsData) ? logsData : [])
     } catch (error) {

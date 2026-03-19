@@ -228,6 +228,10 @@ export default function SmokeTestPage() {
   const apiErrorCount = apiHealthChecks.filter(c => c.status === 'error').length
   const apiPendingCount = apiHealthChecks.filter(c => c.status === 'pending').length
 
+  const successCount = routeSuccessCount + apiSuccessCount
+  const errorCount = routeErrorCount + apiErrorCount
+  const pendingCount = routePendingCount + apiPendingCount
+
   return (
     <div className="p-6">
       <div className="mb-6">
