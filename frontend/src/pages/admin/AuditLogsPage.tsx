@@ -51,8 +51,10 @@ export default function AuditLogsPage() {
       } else if (dateRange === '90days') {
         startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
       }
-      params.startDate = startDate
-      params.endDate = endDate
+      if (dateRange !== 'all') {
+        params.startDate = startDate
+        params.endDate = endDate
+      }
       
       const response = await apiClient.get('/admin/audit-logs', { params })
       const logsData = response.data.data?.logs || response.data.data || []
