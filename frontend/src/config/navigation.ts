@@ -29,6 +29,7 @@ export interface NavigationChild {
   href: string
   permission: string | null
   description?: string
+  group?: string
 }
 
 // Consolidated navigation: 10 top-level items in 4 sections
@@ -71,24 +72,31 @@ export const navigation: NavigationItem[] = [
     section: 'Operations',
     category: 'Operations',
     children: [
-      { name: 'Agent Dashboard', href: '/field-operations/agent-dashboard', permission: null, description: 'Agent performance overview' },
-      { name: 'Performance', href: '/field-operations/performance', permission: null, description: 'Role-based performance metrics' },
-      { name: 'Daily Targets', href: '/field-operations/daily-targets', permission: null, description: 'Daily targets per agent' },
-      { name: 'Individuals', href: '/field-operations/individuals', permission: null, description: 'Individual registrations' },
-      { name: 'Companies', href: '/field-operations/companies', permission: null, description: 'Manage service companies' },
-      { name: 'Hierarchy', href: '/field-operations/hierarchy', permission: null, description: 'Agent hierarchy management' },
-      { name: 'Brand Insights', href: '/field-operations/brand-insights', permission: null, description: 'Brand analytics & reporting' },
-      { name: 'Company Logins', href: '/field-operations/company-logins', permission: null, description: 'Company portal logins' },
-      { name: 'Visits', href: '/field-operations/visits', permission: null, description: 'Manage customer visits' },
-      { name: 'Live Map', href: '/field-operations/mapping', permission: null, description: 'Real-time agent tracking' },
-      { name: 'GPS Tracking', href: '/field-operations/gps-tracking', permission: null, description: 'GPS compliance monitoring' },
-      { name: 'Board Placements', href: '/field-operations/boards', permission: null, description: 'Track board placements' },
-      { name: 'Product Distribution', href: '/field-operations/products', permission: null, description: 'Product distribution tracking' },
-      { name: 'Working Days', href: '/field-operations/working-days', permission: null, description: 'Working days configuration' },
-      { name: 'Monthly Targets', href: '/field-operations/monthly-targets', permission: null, description: 'Monthly target management' },
-      { name: 'Commission Tiers', href: '/field-operations/commission-tiers', permission: null, description: 'Commission tier configuration' },
-      { name: 'Settings', href: '/field-operations/settings', permission: null, description: 'Field ops global settings' },
-      { name: 'Agent PINs', href: '/agent/pin-management', permission: null, description: 'Set/reset agent login PINs' },
+      // ── Master Data ──
+      { name: 'Companies', href: '/field-operations/companies', permission: null, description: 'Manage service companies', group: 'Master Data' },
+      { name: 'Hierarchy', href: '/field-operations/hierarchy', permission: null, description: 'Agent hierarchy management', group: 'Master Data' },
+      { name: 'Agent PINs', href: '/agent/pin-management', permission: null, description: 'Set/reset agent login PINs', group: 'Master Data' },
+      { name: 'Working Days', href: '/field-operations/working-days', permission: null, description: 'Working days configuration', group: 'Master Data' },
+      { name: 'Settings', href: '/field-operations/settings', permission: null, description: 'Field ops global settings', group: 'Master Data' },
+
+      // ── Targets & Commissions ──
+      { name: 'Daily Targets', href: '/field-operations/daily-targets', permission: null, description: 'Daily targets per agent', group: 'Targets & Commissions' },
+      { name: 'Monthly Targets', href: '/field-operations/monthly-targets', permission: null, description: 'Monthly target management', group: 'Targets & Commissions' },
+      { name: 'Commission Tiers', href: '/field-operations/commission-tiers', permission: null, description: 'Commission tier configuration', group: 'Targets & Commissions' },
+
+      // ── Visits & Activity ──
+      { name: 'Visits', href: '/field-operations/visits', permission: null, description: 'Manage customer visits', group: 'Visits & Activity' },
+      { name: 'Individuals', href: '/field-operations/individuals', permission: null, description: 'Individual registrations', group: 'Visits & Activity' },
+      { name: 'Board Placements', href: '/field-operations/boards', permission: null, description: 'Track board placements', group: 'Visits & Activity' },
+      { name: 'Product Distribution', href: '/field-operations/products', permission: null, description: 'Product distribution tracking', group: 'Visits & Activity' },
+
+      // ── Performance & Tracking ──
+      { name: 'Agent Dashboard', href: '/field-operations/agent-dashboard', permission: null, description: 'Agent performance overview', group: 'Performance & Tracking' },
+      { name: 'Performance', href: '/field-operations/performance', permission: null, description: 'Role-based performance metrics', group: 'Performance & Tracking' },
+      { name: 'Brand Insights', href: '/field-operations/brand-insights', permission: null, description: 'Brand analytics & reporting', group: 'Performance & Tracking' },
+      { name: 'Live Map', href: '/field-operations/mapping', permission: null, description: 'Real-time agent tracking', group: 'Performance & Tracking' },
+      { name: 'GPS Tracking', href: '/field-operations/gps-tracking', permission: null, description: 'GPS compliance monitoring', group: 'Performance & Tracking' },
+      { name: 'Company Logins', href: '/field-operations/company-logins', permission: null, description: 'Company portal logins', group: 'Performance & Tracking' },
     ],
   },
   {
