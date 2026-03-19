@@ -698,7 +698,7 @@ export default function VisitCreate() {
                         label={field.field_label}
                         onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.field_name]: e.target.value }))}
                       >
-                        {(JSON.parse(field.field_options) as string[]).map((opt: string) => (
+                        {(() => { try { return JSON.parse(field.field_options!) as string[] } catch { return [] } })().map((opt: string) => (
                           <MenuItem key={opt} value={opt}>{opt}</MenuItem>
                         ))}
                       </Select>

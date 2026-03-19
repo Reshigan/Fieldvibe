@@ -4562,7 +4562,7 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
     await db.prepare(`INSERT INTO visits (id, tenant_id, agent_id, customer_id, visit_date, visit_type, check_in_time, latitude, longitude, brand_id, individual_name, individual_surname, individual_id_number, individual_phone, purpose, notes, questionnaire_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?, ?)`).bind(
       visitId, tenantId, body.agent_id || userId, body.customer_id || null, visitDate,
       body.visit_target_type || 'customer', now,
-      body.checkin_latitude || null, body.checkin_longitude || null,
+      body.checkin_latitude ?? null, body.checkin_longitude ?? null,
       body.brand_id || body.company_id || null,
       body.individual_first_name || null, body.individual_last_name || null,
       body.individual_id_number || null, body.individual_phone || null,
@@ -4588,14 +4588,14 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
         // Update individual details
         await db.prepare('UPDATE individuals SET first_name = ?, last_name = ?, gps_latitude = ?, gps_longitude = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(
           body.individual_first_name || '', body.individual_last_name || '',
-          body.checkin_latitude || null, body.checkin_longitude || null, individualId
+          body.checkin_latitude ?? null, body.checkin_longitude ?? null, individualId
         ).run();
       } else {
         individualId = crypto.randomUUID();
         await db.prepare('INSERT INTO individuals (id, tenant_id, first_name, last_name, id_number, phone, email, gps_latitude, gps_longitude, company_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
           individualId, tenantId, body.individual_first_name || '', body.individual_last_name || '',
           body.individual_id_number || null, body.individual_phone || null, body.individual_email || null,
-          body.checkin_latitude || null, body.checkin_longitude || null, body.company_id || null
+          body.checkin_latitude ?? null, body.checkin_longitude ?? null, body.company_id || null
         ).run();
       }
 
@@ -4621,7 +4621,7 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
         await db.prepare(`INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, r2_url, gps_latitude, gps_longitude, captured_at, photo_hash, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
           photoId, tenantId, visitId, photo.photo_type || 'board',
           photo.r2_key || `photos/${visitId}/${photoId}`, photo.r2_url || photo.photo_url || null,
-          photo.gps_latitude || null, photo.gps_longitude || null,
+          photo.gps_latitude ?? null, photo.gps_longitude ?? null,
           photo.captured_at || now, photo.photo_hash || null, userId
         ).run();
       }
@@ -4646,8 +4646,8 @@ api.post('/visits/:id/complete-workflow', authMiddleware, async (c) => {
 
   try {
     // Update visit with completion data
-    await db.prepare("UPDATE visits SET status = 'completed', check_out_time = ?, outcome = ?, notes = COALESCE(notes || ' | ' || ?, notes), updated_at = ? WHERE id = ? AND tenant_id = ?").bind(
-      now, body.outcome || 'completed', body.completion_notes || '', now, visitId, tenantId
+    await db.prepare("UPDATE visits SET status = 'completed', check_out_time = ?, outcome = ?, notes = CASE WHEN ? != '' THEN COALESCE(notes || ' | ', '') || ? ELSE notes END, updated_at = ? WHERE id = ? AND tenant_id = ?").bind(
+      now, body.outcome || 'completed', body.completion_notes || '', body.completion_notes || '', now, visitId, tenantId
     ).run();
 
     // Save any final photos
@@ -4657,7 +4657,7 @@ api.post('/visits/:id/complete-workflow', authMiddleware, async (c) => {
         await db.prepare(`INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, r2_url, gps_latitude, gps_longitude, captured_at, photo_hash, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
           photoId, tenantId, visitId, photo.photo_type || 'board',
           photo.r2_key || `photos/${visitId}/${photoId}`, photo.r2_url || photo.photo_url || null,
-          photo.gps_latitude || null, photo.gps_longitude || null,
+          photo.gps_latitude ?? null, photo.gps_longitude ?? null,
           photo.captured_at || now, photo.photo_hash || null, c.get('userId')
         ).run();
       }
