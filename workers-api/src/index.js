@@ -6928,7 +6928,8 @@ api.put('/settings/company', requireRole('admin'), async (c) => {
   const body = await c.req.json();
   const existing = await db.prepare('SELECT settings FROM tenants WHERE id = ?').bind(tenantId).first();
   const currentSettings = existing?.settings ? JSON.parse(existing.settings) : {};
-  const newSettings = { ...currentSettings, ...body };
+  const { timezone, currency, date_format, language, logo_url, primary_color } = body;
+  const newSettings = { ...currentSettings, timezone, currency, date_format, language, logo_url, primary_color };
   await db.prepare('UPDATE tenants SET name = COALESCE(?, name), settings = ?, updated_at = datetime("now") WHERE id = ?').bind(body.company_name || null, JSON.stringify(newSettings), tenantId).run();
   return c.json({ success: true, message: 'Company settings updated' });
 });

@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS tenants (
   subscription_plan TEXT DEFAULT 'basic',
   max_users INTEGER DEFAULT 10,
   features TEXT,
+  settings TEXT,
+  modules_enabled TEXT,
   variance_threshold REAL DEFAULT 0.01,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
