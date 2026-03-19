@@ -25,7 +25,8 @@ export default function SalesOrderEdit() {
         salesService.getCustomers(),
         salesService.getSalesReps()
       ])
-      setOrder(orderRes.data || orderRes)
+      const orderData = orderRes?.data !== undefined ? orderRes.data : orderRes
+      setOrder(orderData)
       // salesService.getCustomers() returns axios response; .data is API body { success, data: { customers: [...] } }
       const rawCustomers = customersRes.data?.data || customersRes.data
       setCustomers(Array.isArray(rawCustomers) ? rawCustomers : (rawCustomers?.customers || []))

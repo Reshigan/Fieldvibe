@@ -25,7 +25,8 @@ export default function VisitEdit() {
         fieldOperationsService.getAgents(),
         fieldOperationsService.getCustomers()
       ])
-      setVisit(visitRes.data || visitRes)
+      const visitData = visitRes?.data !== undefined ? visitRes.data : visitRes
+      setVisit(visitData)
       // Agents endpoint returns a flat array
       const agentsList = Array.isArray(agentsRes) ? agentsRes : (agentsRes.data || [])
       // Customers endpoint returns { data: { customers: [...] } }

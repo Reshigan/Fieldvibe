@@ -25,7 +25,8 @@ export default function VanSalesOrderEdit() {
         vanSalesService.getCustomers(),
         vanSalesService.getRoutes()
       ])
-      setOrder(orderRes.data || orderRes)
+      const orderData = orderRes?.data !== undefined ? orderRes.data : orderRes
+      setOrder(orderData)
       const rawCustomers = customersRes.data || customersRes
       setCustomers(Array.isArray(rawCustomers) ? rawCustomers : (rawCustomers.customers || []))
       const rawRoutes = routesRes.data || routesRes
