@@ -20,11 +20,6 @@ export default function DashboardLayout() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
 
-  // Redirect agents to their dedicated mobile layout
-  if (user?.role === 'agent') {
-    return <Navigate to="/agent/dashboard" replace />
-  }
-
   // ENH-08: Global keyboard shortcuts
   useKeyboardShortcuts({
     shortcuts: [
@@ -50,6 +45,11 @@ export default function DashboardLayout() {
       document.body.style.overflow = 'unset'
     }
   }, [sidebarOpen])
+
+  // Redirect agents to their dedicated mobile layout (after all hooks)
+  if (user?.role === 'agent') {
+    return <Navigate to="/agent/dashboard" replace />
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[#06090F] text-gray-900 dark:text-gray-100 flex">
