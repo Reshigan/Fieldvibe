@@ -2908,7 +2908,7 @@ api.get('/field-operations/visits', authMiddleware, async (c) => {
   const tenantId = c.get('tenantId');
   const role = c.get('role');
   const userId = c.get('userId');
-  const { page = '1', limit = '20', status, agent_id, date } = c.req.query();
+  const { page = '1', limit = '20', status, agent_id, date, visit_type } = c.req.query();
   const offset = (parseInt(page) - 1) * parseInt(limit);
   let where = 'WHERE v.tenant_id = ?';
   const params = [tenantId];
@@ -2916,6 +2916,7 @@ api.get('/field-operations/visits', authMiddleware, async (c) => {
   if (status) { where += ' AND v.status = ?'; params.push(status); }
   if (agent_id) { where += ' AND v.agent_id = ?'; params.push(agent_id); }
   if (date) { where += ' AND v.visit_date = ?'; params.push(date); }
+  if (visit_type) { where += ' AND (v.visit_target_type = ? OR v.visit_type = ?)'; params.push(visit_type, visit_type); }
   const total = await db.prepare('SELECT COUNT(*) as count FROM visits v ' + where).bind(...params).first();
   const visits = await db.prepare("SELECT v.*, c.name as customer_name, u.first_name || ' ' || u.last_name as agent_name FROM visits v LEFT JOIN customers c ON v.customer_id = c.id LEFT JOIN users u ON v.agent_id = u.id " + where + " ORDER BY v.created_at DESC LIMIT ? OFFSET ?").bind(...params, parseInt(limit), offset).all();
   return c.json({ data: visits.results || [], total: total?.count || 0, page: parseInt(page), limit: parseInt(limit) });

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fieldOperationsService } from '../../services/field-operations.service'
 import { Plus, Edit, Trash2, Calendar, Map, Settings, Store, User } from 'lucide-react'
@@ -27,8 +27,8 @@ export default function VisitManagementPage({ visitType }: VisitManagementPagePr
   )
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['visits', filter],
-    queryFn: () => fieldOperationsService.getVisits(filter)
+    queryKey: ['visits', filter, activeType],
+    queryFn: () => fieldOperationsService.getVisits({ ...filter, ...(activeType ? { visit_type: activeType } : {}) })
   })
 
   const deleteMutation = useMutation({
@@ -36,16 +36,8 @@ export default function VisitManagementPage({ visitType }: VisitManagementPagePr
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['visits'] })
   })
 
-  const allVisits = data?.data || []
-  const filteredVisits = useMemo(() => {
-    if (!activeType) return allVisits
-    return allVisits.filter((v: { visit_type?: string; visit_target_type?: string }) => {
-      const type = (v.visit_target_type || v.visit_type || '').toLowerCase()
-      return type === activeType
-    })
-  }, [allVisits, activeType])
-
-  const total = activeType ? filteredVisits.length : (data?.total || 0)
+  const filteredVisits = data?.data || []
+  const total = data?.total || 0
 
   const pageTitle = activeType === 'store' ? 'Store Visits' :
     activeType === 'individual' ? 'Individual Visits' : 'Visit Management'
@@ -213,7 +205,7 @@ export default function VisitManagementPage({ visitType }: VisitManagementPagePr
         </div>
       </div>
 
-      {total > filter.limit && !activeType && (
+      {total > filter.limit && (
         <div className="flex justify-between items-center bg-white dark:bg-gray-800 rounded-lg shadow p-4">
           <div className="text-sm text-gray-700 dark:text-gray-300">Showing {(filter.page-1)*filter.limit+1} to {Math.min(filter.page*filter.limit,total)} of {total}</div>
           <div className="flex space-x-2">
