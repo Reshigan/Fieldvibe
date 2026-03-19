@@ -435,6 +435,9 @@ function App() {
             <Route index element={<Navigate to="login" replace />} />
           </Route>
 
+          {/* Legacy login redirect */}
+          <Route path="/login" element={<Navigate to="/auth/login" replace />} />
+
           {/* Company Portal Login (public) */}
           <Route path="/company-login" element={<PageLoader><CompanyLoginPage /></PageLoader>} />
           {/* Company Portal Dashboard (uses company_token, not main auth) */}
@@ -606,7 +609,11 @@ function App() {
             {/* Brand Activations Routes */}
             <Route path="brand-activations" element={<PageLoader><BrandActivationsPage /></PageLoader>} />
             
+            {/* Marketing index redirect */}
+            <Route path="marketing" element={<Navigate to="/marketing/campaigns" replace />} />
+
             {/* Superadmin Routes */}
+            <Route path="superadmin" element={<Navigate to="/superadmin/tenants" replace />} />
             <Route path="superadmin/tenants" element={<ProtectedRoute requiredRole="super_admin"><PageLoader><TenantManagement /></PageLoader></ProtectedRoute>} />
             <Route path="superadmin/tenants/:tenantId/modules" element={<ProtectedRoute requiredRole="super_admin"><PageLoader><TenantModules /></PageLoader></ProtectedRoute>} />
 
@@ -864,6 +871,7 @@ function App() {
             <Route path="insights/van-sales" element={<PageLoader><VanSalesInsights /></PageLoader>} />
             <Route path="insights/field-ops" element={<PageLoader><FieldOpsInsights /></PageLoader>} />
             <Route path="insights/trade-promotions" element={<PageLoader><TradePromoInsights /></PageLoader>} />
+            <Route path="insights/trade-promos" element={<Navigate to="/insights/trade-promotions" replace />} />
             <Route path="insights/stock" element={<PageLoader><StockInsights /></PageLoader>} />
             <Route path="insights/commissions" element={<PageLoader><CommissionInsights /></PageLoader>} />
             <Route path="insights/goals" element={<PageLoader><GoalsInsights /></PageLoader>} />
