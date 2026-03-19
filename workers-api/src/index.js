@@ -405,7 +405,7 @@ app.get('/api/agent/pin-status', authMiddleware, async (c) => {
 });
 
 // ==================== AGENT SEED ENDPOINT (creates test agents with PIN) ====================
-app.post('/api/admin/seed-test-agents', authMiddleware, async (c) => {
+app.post('/api/admin/seed-test-agents', authMiddleware, requireSuperAdmin, async (c) => {
   try {
     const db = c.env.DB;
     const tenantId = c.get('tenantId');

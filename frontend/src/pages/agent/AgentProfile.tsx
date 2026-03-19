@@ -76,7 +76,7 @@ export default function AgentProfile() {
         <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-3 border-2 border-[#00E87B]/30">
           <User className="w-10 h-10 text-[#00E87B]" />
         </div>
-        <h1 className="text-xl font-bold text-white">{user?.name || user?.firstName + ' ' + user?.lastName || 'Agent'}</h1>
+        <h1 className="text-xl font-bold text-white">{user?.name || (user?.firstName && user?.lastName ? user.firstName + ' ' + user.lastName : null) || 'Agent'}</h1>
         <p className="text-sm text-gray-400 capitalize">{user?.role?.replace('_', ' ') || 'Agent'}</p>
       </div>
 

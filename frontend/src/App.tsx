@@ -1021,11 +1021,11 @@ function App() {
             <Route path="field-operations/commission" element={<PageLoader><CommissionLedgerList /></PageLoader>} />
             <Route path="field-operations/commission/:id" element={<PageLoader><CommissionLedgerDetail /></PageLoader>} />
             <Route path="agent" element={<PageLoader><AgentLayout /></PageLoader>}>
-              <Route path="dashboard" element={<AgentDashboard />} />
-              <Route path="visits" element={<AgentVisits />} />
-              <Route path="stats" element={<AgentStats />} />
-              <Route path="profile" element={<AgentProfile />} />
-              <Route index element={<AgentDashboard />} />
+              <Route path="dashboard" element={<PageLoader><AgentDashboard /></PageLoader>} />
+              <Route path="visits" element={<PageLoader><AgentVisits /></PageLoader>} />
+              <Route path="stats" element={<PageLoader><AgentStats /></PageLoader>} />
+              <Route path="profile" element={<PageLoader><AgentProfile /></PageLoader>} />
+              <Route index element={<PageLoader><AgentDashboard /></PageLoader>} />
             </Route>
             <Route path="agent/pin-management" element={<PageLoader><AgentPinManagement /></PageLoader>} />
             <Route path="analytics-dashboard/*" element={<PageLoader><AnalyticsDashboardPage /></PageLoader>} />
