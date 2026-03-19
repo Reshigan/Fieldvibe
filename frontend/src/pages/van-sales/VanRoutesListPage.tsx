@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { vanSalesService } from '../../services/van-sales.service'
 import { Plus, Edit, Trash2, MapPin, TrendingUp, Calendar, Truck } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 
 export default function VanRoutesListPage() {
@@ -9,6 +10,7 @@ export default function VanRoutesListPage() {
 
   const [filter, setFilter] = useState({ page: 1, limit: 20, status: '' })
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['van-routes', filter],
@@ -40,7 +42,7 @@ export default function VanRoutesListPage() {
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
         <div><h1 className="text-2xl font-bold text-gray-900">Van Routes</h1><p className="text-sm text-gray-600 mt-1">Manage van routes ({total} total)</p></div>
-        <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"><Plus className="h-4 w-4" /><span>Create Route</span></button>
+        <button onClick={() => navigate('/van-sales/routes/create')} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"><Plus className="h-4 w-4" /><span>Create Route</span></button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -68,13 +70,13 @@ export default function VanRoutesListPage() {
                 <tr><td colSpan={6} className="px-6 py-12 text-center text-gray-500"><MapPin className="h-12 w-12 mx-auto text-gray-400 mb-2" /><p>No routes found</p></td></tr>
               ) : (
                 routes.map(route => (
-                  <tr key={route.id} className="hover:bg-surface-secondary">
+                  <tr key={route.id} className="hover:bg-surface-secondary cursor-pointer" onClick={() => navigate(`/van-sales/routes/${route.id}`)}>
                     <td className="px-6 py-4"><div className="text-sm font-medium text-gray-900">{route.route_name}</div><div className="text-sm text-gray-500">{route.start_location} → {route.end_location}</div></td>
                     <td className="px-6 py-4 text-sm text-gray-900">Van #{route.van_id?.substring(0,8)}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{new Date(route.route_date).toLocaleDateString()}</td>
                     <td className="px-6 py-4"><div className="text-sm text-gray-900">{route.completed_stops}/{route.planned_stops}</div><div className="w-full bg-gray-200 rounded-full h-2 mt-1"><div className="bg-blue-600 h-2 rounded-full" style={{width: `${(route.completed_stops/route.planned_stops)*100}%`}}></div></div></td>
                     <td className="px-6 py-4">{getStatusBadge(route.status)}</td>
-                    <td className="px-6 py-4"><div className="flex space-x-2"><button className="text-blue-600 hover:text-blue-900"><Edit className="h-4 w-4" /></button><button onClick={() => {setDeleteConfirmId(route.id)}} className="text-red-600 hover:text-red-900"><Trash2 className="h-4 w-4" /></button></div></td>
+                    <td className="px-6 py-4"><div className="flex space-x-2"><button onClick={(e) => { e.stopPropagation(); navigate(`/van-sales/routes/${route.id}/edit`); }} className="text-blue-600 hover:text-blue-900"><Edit className="h-4 w-4" /></button><button onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(route.id); }} className="text-red-600 hover:text-red-900"><Trash2 className="h-4 w-4" /></button></div></td>
                   </tr>
                 ))
               )}

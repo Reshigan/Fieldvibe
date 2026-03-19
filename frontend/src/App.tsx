@@ -249,6 +249,9 @@ const ProductPromotions = lazy(() => import('./pages/products/tabs/ProductPromot
 const ProductSales = lazy(() => import('./pages/products/tabs/ProductSales'))
 const ProductTypeBuilderPage = lazy(() => import('./pages/admin/ProductTypeBuilderPage'))
 const ProductsPage = lazy(() => import('./pages/products/ProductsPage'))
+const PromoterCreate = lazy(() => import('./pages/trade-marketing/promoters/PromoterCreate'))
+const PromoterDetail = lazy(() => import('./pages/trade-marketing/promoters/PromoterDetail'))
+const PromoterEdit = lazy(() => import('./pages/trade-marketing/promoters/PromoterEdit'))
 const PromoterManagementPage = lazy(() => import('./pages/trade-marketing/PromoterManagementPage'))
 const PromotionCreate = lazy(() => import('./pages/marketing/promotions/PromotionCreate'))
 const PromotionDetail = lazy(() => import('./pages/marketing/promotions/PromotionDetail'))
@@ -598,6 +601,9 @@ function App() {
             <Route path="trade-marketing/campaigns" element={<PageLoader><CampaignManagementPage /></PageLoader>} />
             <Route path="trade-marketing/merchandising" element={<PageLoader><MerchandisingCompliancePage /></PageLoader>} />
             <Route path="trade-marketing/promoters" element={<PageLoader><PromoterManagementPage /></PageLoader>} />
+            <Route path="trade-marketing/promoters/create" element={<PageLoader><PromoterCreate /></PageLoader>} />
+            <Route path="trade-marketing/promoters/:id" element={<PageLoader><PromoterDetail /></PageLoader>} />
+            <Route path="trade-marketing/promoters/:id/edit" element={<PageLoader><PromoterEdit /></PageLoader>} />
             <Route path="trade-marketing/analytics" element={<PageLoader><TradeMarketingAnalyticsPage /></PageLoader>} />
 
             {/* Events Routes */}
