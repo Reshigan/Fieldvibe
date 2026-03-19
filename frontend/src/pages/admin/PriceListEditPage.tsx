@@ -342,12 +342,9 @@ export default function PriceListEditPage() {
                   <div className="col-span-2">
                     <label className="block text-xs font-medium text-gray-700 mb-1">Product *</label>
                     <SearchableSelect
-                      options={[
-                        { value: '', label: 'Select Product' },
-                        { value: 'product.id', label: '{product.code} - {product.name}' },
-                      ]}
+                      options={products.map(p => ({ value: p.id, label: `${p.code} - ${p.name}` }))}
                       value={item.product_id || null}
-              onChange={(val) => setItem(prev => ({...prev, product_id: val}))}
+                      onChange={(val) => updateItem(index, 'product_id', val)}
                       placeholder="Select Product"
                     />
                   </div>
