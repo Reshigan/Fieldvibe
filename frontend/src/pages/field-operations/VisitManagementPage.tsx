@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fieldOperationsService } from '../../services/field-operations.service'
 import { Plus, Edit, Trash2, Calendar, Map, Settings, Store, User } from 'lucide-react'
@@ -25,6 +25,11 @@ export default function VisitManagementPage({ visitType }: VisitManagementPagePr
     location.pathname.includes('/visits/individuals') ? 'individual' as const :
     undefined
   )
+
+  // Reset page to 1 when switching between visit type tabs
+  useEffect(() => {
+    setFilter(f => ({ ...f, page: 1 }))
+  }, [activeType])
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['visits', filter, activeType],
