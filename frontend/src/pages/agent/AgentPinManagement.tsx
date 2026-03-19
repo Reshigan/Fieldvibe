@@ -7,6 +7,11 @@ import {
 } from '@mui/material'
 import { Refresh, LockReset, CheckCircle, Cancel } from '@mui/icons-material'
 import { toast } from 'react-hot-toast'
+import { useAuthStore } from '../../store/auth.store'
+
+function getToken(): string | null {
+  return useAuthStore.getState().tokens?.access_token || localStorage.getItem('token')
+}
 
 interface AgentPinInfo {
   id: string
@@ -30,7 +35,7 @@ export default function AgentPinManagement() {
   const fetchAgents = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem('token')
+      const token = getToken()
       if (!token) return
       const apiUrl = import.meta.env.VITE_API_URL || ''
       const res = await fetch(`${apiUrl}/api/agent/pin-status`, {
@@ -59,7 +64,7 @@ export default function AgentPinManagement() {
 
     setSaving(true)
     try {
-      const token = localStorage.getItem('token')
+      const token = getToken()
       const apiUrl = import.meta.env.VITE_API_URL || ''
       const res = await fetch(`${apiUrl}/api/agent/set-pin`, {
         method: 'POST',
