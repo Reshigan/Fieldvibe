@@ -401,6 +401,14 @@ const VisitManagementPage = lazy(() => import('./pages/field-operations/VisitMan
 const VisitWorkflowPage = lazy(() => import('./pages/VisitWorkflowPage'))
 const VisitsList = lazy(() => import('./pages/field-operations/visits/VisitsList'))
 
+// Field Operations Reports (SSReports-style)
+const ReportsDashboard = lazy(() => import('./pages/field-operations/reports/ReportsDashboard'))
+const ReportsInsights = lazy(() => import('./pages/field-operations/reports/ReportsInsights'))
+const ReportsShopsAnalytics = lazy(() => import('./pages/field-operations/reports/ReportsShopsAnalytics'))
+const ReportsCustomersAnalytics = lazy(() => import('./pages/field-operations/reports/ReportsCustomersAnalytics'))
+const ReportsCheckinsList = lazy(() => import('./pages/field-operations/reports/ReportsCheckinsList'))
+const ReportsExport = lazy(() => import('./pages/field-operations/reports/ReportsExport'))
+
 // T-21: Suspense fallback for lazy-loaded pages
 function PageLoader({ children }: { children: React.ReactNode }) {
   return (
@@ -1029,6 +1037,15 @@ function App() {
             <Route path="van-sales/route-details/:id" element={<PageLoader><VanRouteDetailsPage /></PageLoader>} />
             <Route path="van-sales/workflow" element={<PageLoader><VanSalesWorkflowPage /></PageLoader>} />
             <Route path="field-operations/visits/list" element={<PageLoader><VisitsList /></PageLoader>} />
+
+            {/* Field Operations Reports (SSReports-style) */}
+            <Route path="field-operations/reports" element={<PageLoader><ReportsDashboard /></PageLoader>} />
+            <Route path="field-operations/reports/dashboard" element={<PageLoader><ReportsDashboard /></PageLoader>} />
+            <Route path="field-operations/reports/insights" element={<PageLoader><ReportsInsights /></PageLoader>} />
+            <Route path="field-operations/reports/shops" element={<PageLoader><ReportsShopsAnalytics /></PageLoader>} />
+            <Route path="field-operations/reports/customers" element={<PageLoader><ReportsCustomersAnalytics /></PageLoader>} />
+            <Route path="field-operations/reports/checkins" element={<PageLoader><ReportsCheckinsList /></PageLoader>} />
+            <Route path="field-operations/reports/export" element={<PageLoader><ReportsExport /></PageLoader>} />
 
             {/* Mobile More Menu */}
             <Route path="mobile-dashboard" element={<PageLoader><MobileDashboard /></PageLoader>} />
