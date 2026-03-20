@@ -9920,6 +9920,608 @@ api.delete('/rbac/roles/:id', requireRole('admin'), async (c) => {
   } catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 
+// ==================== RBAC: ENHANCED PERMISSIONS & PRESET ROLES ====================
+
+// All available permissions grouped by module
+const RBAC_PERMISSIONS = [
+  // User Management
+  { name: 'view_users', description: 'View user list', module: 'users', action: 'read' },
+  { name: 'create_users', description: 'Create new users', module: 'users', action: 'create' },
+  { name: 'edit_users', description: 'Edit existing users', module: 'users', action: 'update' },
+  { name: 'delete_users', description: 'Delete users', module: 'users', action: 'delete' },
+  { name: 'manage_roles', description: 'Manage roles and permissions', module: 'users', action: 'manage' },
+  // Customers
+  { name: 'view_customers', description: 'View customer list', module: 'customers', action: 'read' },
+  { name: 'create_customers', description: 'Create new customers', module: 'customers', action: 'create' },
+  { name: 'edit_customers', description: 'Edit existing customers', module: 'customers', action: 'update' },
+  { name: 'delete_customers', description: 'Delete customers', module: 'customers', action: 'delete' },
+  // Orders
+  { name: 'view_orders', description: 'View orders', module: 'orders', action: 'read' },
+  { name: 'create_orders', description: 'Create new orders', module: 'orders', action: 'create' },
+  { name: 'edit_orders', description: 'Edit orders', module: 'orders', action: 'update' },
+  { name: 'delete_orders', description: 'Delete orders', module: 'orders', action: 'delete' },
+  { name: 'process_orders', description: 'Process and approve orders', module: 'orders', action: 'process' },
+  // Products
+  { name: 'view_products', description: 'View product catalog', module: 'products', action: 'read' },
+  { name: 'create_products', description: 'Create new products', module: 'products', action: 'create' },
+  { name: 'edit_products', description: 'Edit products', module: 'products', action: 'update' },
+  { name: 'delete_products', description: 'Delete products', module: 'products', action: 'delete' },
+  { name: 'manage_inventory', description: 'Manage inventory levels', module: 'products', action: 'manage' },
+  // Van Sales
+  { name: 'view_van_sales', description: 'View van sales data', module: 'van_sales', action: 'read' },
+  { name: 'manage_van_sales', description: 'Manage van sales operations', module: 'van_sales', action: 'manage' },
+  { name: 'manage_routes', description: 'Manage delivery routes', module: 'van_sales', action: 'routes' },
+  { name: 'view_inventory', description: 'View van inventory', module: 'van_sales', action: 'inventory' },
+  { name: 'manage_transactions', description: 'Manage van transactions', module: 'van_sales', action: 'transactions' },
+  { name: 'manage_deliveries', description: 'Manage deliveries', module: 'van_sales', action: 'deliveries' },
+  // Trade Marketing
+  { name: 'view_trade_marketing', description: 'View trade marketing', module: 'trade_marketing', action: 'read' },
+  { name: 'view_promotions', description: 'View promotions', module: 'trade_marketing', action: 'promotions' },
+  { name: 'manage_promotions', description: 'Manage promotions', module: 'trade_marketing', action: 'manage_promos' },
+  { name: 'manage_incentives', description: 'Manage incentives', module: 'trade_marketing', action: 'incentives' },
+  { name: 'view_market_analysis', description: 'View market analysis', module: 'trade_marketing', action: 'analysis' },
+  { name: 'manage_trade_spend', description: 'Manage trade spend', module: 'trade_marketing', action: 'spend' },
+  // Campaigns
+  { name: 'view_campaigns', description: 'View campaigns', module: 'campaigns', action: 'read' },
+  { name: 'manage_campaigns', description: 'Manage campaigns', module: 'campaigns', action: 'manage' },
+  { name: 'manage_audiences', description: 'Manage campaign audiences', module: 'campaigns', action: 'audiences' },
+  { name: 'view_campaign_performance', description: 'View campaign performance', module: 'campaigns', action: 'performance' },
+  { name: 'manage_ab_testing', description: 'Manage A/B testing', module: 'campaigns', action: 'ab_testing' },
+  // Field Operations
+  { name: 'view_field_operations', description: 'View field operations', module: 'field_ops', action: 'read' },
+  { name: 'manage_field_agents', description: 'Manage field agents', module: 'field_ops', action: 'agents' },
+  { name: 'manage_board_placements', description: 'Manage board placements', module: 'field_ops', action: 'boards' },
+  { name: 'manage_product_distribution', description: 'Manage product distribution', module: 'field_ops', action: 'distribution' },
+  { name: 'view_agent_locations', description: 'View agent GPS locations', module: 'field_ops', action: 'gps' },
+  { name: 'view_field_reports', description: 'View field operations reports', module: 'field_ops', action: 'reports' },
+  // KYC
+  { name: 'view_kyc', description: 'View KYC records', module: 'kyc', action: 'read' },
+  { name: 'manage_kyc', description: 'Manage KYC verification', module: 'kyc', action: 'manage' },
+  { name: 'view_kyc_reports', description: 'View KYC reports', module: 'kyc', action: 'reports' },
+  // Surveys
+  { name: 'view_surveys', description: 'View surveys', module: 'surveys', action: 'read' },
+  { name: 'manage_surveys', description: 'Create and manage surveys', module: 'surveys', action: 'manage' },
+  // Inventory Reports
+  { name: 'view_inventory_reports', description: 'View inventory reports', module: 'inventory', action: 'reports' },
+  // Analytics & Reports
+  { name: 'view_analytics', description: 'View analytics dashboards', module: 'analytics', action: 'read' },
+  { name: 'view_reports', description: 'View reports', module: 'analytics', action: 'reports' },
+  { name: 'export_data', description: 'Export data to Excel/PDF', module: 'analytics', action: 'export' },
+  // System Admin
+  { name: 'manage_system_settings', description: 'Manage system settings', module: 'system', action: 'settings' },
+  { name: 'view_audit_logs', description: 'View audit logs', module: 'system', action: 'audit' },
+  { name: 'manage_integrations', description: 'Manage integrations', module: 'system', action: 'integrations' },
+  // Commissions
+  { name: 'view_commissions', description: 'View commissions', module: 'commissions', action: 'read' },
+  { name: 'manage_commissions', description: 'Manage commission rules', module: 'commissions', action: 'manage' },
+  { name: 'process_payments', description: 'Process commission payments', module: 'commissions', action: 'payments' },
+  // Finance
+  { name: 'view_finance', description: 'View financial data', module: 'finance', action: 'read' },
+  { name: 'manage_finance', description: 'Manage financial records', module: 'finance', action: 'manage' },
+  // Super Admin
+  { name: 'manage_tenants', description: 'Manage tenants', module: 'platform', action: 'tenants' },
+  { name: 'view_all_tenants', description: 'View all tenants', module: 'platform', action: 'view_tenants' },
+];
+
+// Preset role definitions
+const PRESET_ROLES = {
+  super_admin: {
+    name: 'Super Admin',
+    description: 'Full platform access including tenant management',
+    permissions: RBAC_PERMISSIONS.map(p => p.name),
+  },
+  admin: {
+    name: 'Admin',
+    description: 'Full company access excluding tenant management',
+    permissions: RBAC_PERMISSIONS.filter(p => p.module !== 'platform').map(p => p.name),
+  },
+  manager: {
+    name: 'Manager',
+    description: 'Team management, reporting, and operational oversight',
+    permissions: [
+      'view_users', 'view_customers', 'create_customers', 'edit_customers',
+      'view_orders', 'create_orders', 'edit_orders', 'process_orders',
+      'view_products', 'view_van_sales', 'view_inventory',
+      'view_field_operations', 'view_agent_locations', 'view_field_reports',
+      'view_trade_marketing', 'view_promotions', 'view_campaigns', 'view_campaign_performance',
+      'view_surveys', 'view_analytics', 'view_reports', 'export_data',
+      'view_commissions', 'manage_commissions', 'view_finance',
+      'view_kyc', 'view_kyc_reports', 'view_inventory_reports',
+    ],
+  },
+  field_agent: {
+    name: 'Field Agent',
+    description: 'Field operations - visits, boards, distribution',
+    permissions: [
+      'view_customers', 'view_products',
+      'view_field_operations', 'manage_board_placements', 'manage_product_distribution',
+      'view_surveys', 'view_commissions',
+    ],
+  },
+  sales_rep: {
+    name: 'Sales Rep',
+    description: 'Sales operations - orders, customers, basic reporting',
+    permissions: [
+      'view_customers', 'create_customers', 'edit_customers',
+      'view_orders', 'create_orders', 'edit_orders',
+      'view_products', 'view_van_sales', 'manage_van_sales',
+      'view_analytics', 'view_commissions',
+    ],
+  },
+  company: {
+    name: 'Company',
+    description: 'Company portal - reports only access for field operations',
+    permissions: [
+      'view_field_operations', 'view_field_reports',
+      'view_analytics', 'view_reports', 'export_data',
+    ],
+  },
+};
+
+// List all available permissions (grouped by module)
+api.get('/rbac/permissions/all', requireRole('admin'), async (c) => {
+  try {
+    const grouped = {};
+    for (const p of RBAC_PERMISSIONS) {
+      if (!grouped[p.module]) grouped[p.module] = [];
+      grouped[p.module].push(p);
+    }
+    return c.json({ success: true, data: { permissions: RBAC_PERMISSIONS, grouped } });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// List preset role templates
+api.get('/rbac/preset-roles', requireRole('admin'), async (c) => {
+  try {
+    const presets = Object.entries(PRESET_ROLES).map(([key, val]) => ({
+      key,
+      name: val.name,
+      description: val.description,
+      permission_count: val.permissions.length,
+      permissions: val.permissions,
+    }));
+    return c.json({ success: true, data: presets });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Seed permissions into DB
+api.post('/rbac/seed-permissions', requireRole('admin'), async (c) => {
+  try {
+    const db = c.env.DB;
+    let seeded = 0;
+    for (const p of RBAC_PERMISSIONS) {
+      const existing = await db.prepare('SELECT id FROM permissions WHERE name = ?').bind(p.name).first();
+      if (!existing) {
+        await db.prepare('INSERT INTO permissions (id, name, description, category, created_at) VALUES (?,?,?,?,CURRENT_TIMESTAMP)')
+          .bind(crypto.randomUUID(), p.name, p.description, p.module).run();
+        seeded++;
+      }
+    }
+    return c.json({ success: true, message: `Seeded ${seeded} new permissions`, total: RBAC_PERMISSIONS.length });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Seed preset roles for a tenant
+api.post('/rbac/seed-roles', requireRole('admin'), async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    let seeded = 0;
+    for (const [key, preset] of Object.entries(PRESET_ROLES)) {
+      const existing = await db.prepare('SELECT id FROM roles WHERE tenant_id = ? AND name = ?').bind(tenantId, preset.name).first();
+      if (!existing) {
+        const roleId = crypto.randomUUID();
+        await db.prepare('INSERT INTO roles (id, tenant_id, name, description, is_system, created_at) VALUES (?,?,?,?,1,CURRENT_TIMESTAMP)')
+          .bind(roleId, tenantId, preset.name, preset.description).run();
+        // Assign permissions
+        for (const permName of preset.permissions) {
+          const perm = await db.prepare('SELECT id FROM permissions WHERE name = ?').bind(permName).first();
+          if (perm) {
+            await db.prepare('INSERT INTO role_permissions (id, role_id, permission_id) VALUES (?,?,?)')
+              .bind(crypto.randomUUID(), roleId, perm.id).run();
+          }
+        }
+        seeded++;
+      }
+    }
+    return c.json({ success: true, message: `Seeded ${seeded} preset roles`, total: Object.keys(PRESET_ROLES).length });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Apply a preset role template to an existing role
+api.post('/rbac/roles/:id/apply-preset', requireRole('admin'), async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const roleId = c.req.param('id');
+    const { preset_key } = await c.req.json();
+    const preset = PRESET_ROLES[preset_key];
+    if (!preset) return c.json({ success: false, message: 'Invalid preset key' }, 400);
+    // Clear existing permissions
+    await db.prepare('DELETE FROM role_permissions WHERE role_id = ?').bind(roleId).run();
+    // Apply preset permissions
+    let assigned = 0;
+    for (const permName of preset.permissions) {
+      const perm = await db.prepare('SELECT id FROM permissions WHERE name = ?').bind(permName).first();
+      if (perm) {
+        await db.prepare('INSERT INTO role_permissions (id, role_id, permission_id) VALUES (?,?,?)')
+          .bind(crypto.randomUUID(), roleId, perm.id).run();
+        assigned++;
+      }
+    }
+    return c.json({ success: true, message: `Applied preset "${preset.name}" with ${assigned} permissions` });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Get user's effective permissions (from their role in user_roles table)
+api.get('/rbac/users/:userId/permissions', requireRole('admin'), async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const userId = c.req.param('userId');
+    const userRoles = await db.prepare('SELECT ur.role_id, r.name as role_name FROM user_roles ur JOIN roles r ON ur.role_id = r.id WHERE ur.user_id = ? AND ur.is_active = 1').bind(userId).all();
+    const permissions = new Set();
+    for (const ur of (userRoles.results || [])) {
+      const perms = await db.prepare('SELECT p.name FROM permissions p JOIN role_permissions rp ON p.id = rp.permission_id WHERE rp.role_id = ?').bind(ur.role_id).all();
+      for (const p of (perms.results || [])) permissions.add(p.name);
+    }
+    return c.json({ success: true, data: { user_id: userId, roles: userRoles.results || [], permissions: [...permissions] } });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Assign role to user
+api.post('/rbac/users/:userId/roles', requireRole('admin'), async (c) => {
+  try {
+    const db = c.env.DB;
+    const userId = c.req.param('userId');
+    const { role_id } = await c.req.json();
+    // Check if already assigned
+    const existing = await db.prepare('SELECT id FROM user_roles WHERE user_id = ? AND role_id = ?').bind(userId, role_id).first();
+    if (existing) {
+      await db.prepare('UPDATE user_roles SET is_active = 1 WHERE id = ?').bind(existing.id).run();
+    } else {
+      await db.prepare('INSERT INTO user_roles (id, user_id, role_id, is_active, created_at) VALUES (?,?,?,1,CURRENT_TIMESTAMP)')
+        .bind(crypto.randomUUID(), userId, role_id).run();
+    }
+    return c.json({ success: true, message: 'Role assigned to user' });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Remove role from user
+api.delete('/rbac/users/:userId/roles/:roleId', requireRole('admin'), async (c) => {
+  try {
+    const db = c.env.DB;
+    await db.prepare('DELETE FROM user_roles WHERE user_id = ? AND role_id = ?').bind(c.req.param('userId'), c.req.param('roleId')).run();
+    return c.json({ success: true, message: 'Role removed from user' });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// ==================== FIELD OPS REPORTS (SSReports-style, native FieldVibe data) ====================
+
+// Report KPIs - total visits, agents, shops, conversions
+api.get('/field-ops/reports/kpis', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const { startDate, endDate } = c.req.query();
+    let dateFilter = '';
+    const binds = [tenantId];
+    if (startDate) { dateFilter += " AND v.visit_date >= ?"; binds.push(startDate); }
+    if (endDate) { dateFilter += " AND v.visit_date <= ?"; binds.push(endDate); }
+
+    const totalVisits = await db.prepare(`SELECT COUNT(*) as count FROM visits v WHERE v.tenant_id = ?${dateFilter}`).bind(...binds).first();
+    const completedVisits = await db.prepare(`SELECT COUNT(*) as count FROM visits v WHERE v.tenant_id = ? AND v.status = 'completed'${dateFilter}`).bind(...binds).first();
+    const activeAgents = await db.prepare(`SELECT COUNT(DISTINCT v.agent_id) as count FROM visits v WHERE v.tenant_id = ?${dateFilter}`).bind(...binds).first();
+    const totalCustomers = await db.prepare(`SELECT COUNT(DISTINCT v.customer_id) as count FROM visits v WHERE v.tenant_id = ? AND v.customer_id IS NOT NULL${dateFilter}`).bind(...binds).first();
+    const totalIndividuals = await db.prepare('SELECT COUNT(*) as count FROM individual_registrations WHERE tenant_id = ?').bind(tenantId).first();
+    const conversions = await db.prepare(`SELECT COUNT(*) as count FROM visits v WHERE v.tenant_id = ? AND v.status = 'completed' AND v.visit_target_type = 'individual'${dateFilter}`).bind(...binds).first();
+
+    return c.json({ success: true, kpis: {
+      total_checkins: totalVisits?.count || 0,
+      approved_checkins: completedVisits?.count || 0,
+      active_agents: activeAgents?.count || 0,
+      total_shops: totalCustomers?.count || 0,
+      conversions: conversions?.count || 0,
+      total_visits: totalVisits?.count || 0,
+      total_individuals: totalIndividuals?.count || 0,
+    }});
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Agent performance
+api.get('/field-ops/reports/agent-performance', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const { startDate, endDate } = c.req.query();
+    let dateFilter = '';
+    const binds = [tenantId];
+    if (startDate) { dateFilter += " AND v.visit_date >= ?"; binds.push(startDate); }
+    if (endDate) { dateFilter += " AND v.visit_date <= ?"; binds.push(endDate); }
+
+    const agents = await db.prepare(`
+      SELECT v.agent_id, u.first_name || ' ' || u.last_name as agent_name,
+        COUNT(*) as checkin_count,
+        SUM(CASE WHEN v.status = 'completed' AND v.visit_target_type = 'individual' THEN 1 ELSE 0 END) as conversions
+      FROM visits v
+      LEFT JOIN users u ON v.agent_id = u.id
+      WHERE v.tenant_id = ?${dateFilter}
+      GROUP BY v.agent_id
+      ORDER BY checkin_count DESC
+      LIMIT 50
+    `).bind(...binds).all();
+
+    const data = (agents.results || []).map(a => ({
+      ...a,
+      conversion_rate: a.checkin_count > 0 ? parseFloat(((a.conversions / a.checkin_count) * 100).toFixed(1)) : 0,
+    }));
+
+    return c.json({ success: true, data });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Checkins by hour
+api.get('/field-ops/reports/checkins-by-hour', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const { startDate, endDate } = c.req.query();
+    let dateFilter = '';
+    const binds = [tenantId];
+    if (startDate) { dateFilter += " AND visit_date >= ?"; binds.push(startDate); }
+    if (endDate) { dateFilter += " AND visit_date <= ?"; binds.push(endDate); }
+
+    const result = await db.prepare(`
+      SELECT CAST(strftime('%H', created_at) AS INTEGER) as hour, COUNT(*) as count
+      FROM visits
+      WHERE tenant_id = ?${dateFilter}
+      GROUP BY hour
+      ORDER BY hour
+    `).bind(...binds).all();
+
+    // Fill in missing hours
+    const hourMap = {};
+    for (const r of (result.results || [])) hourMap[r.hour] = r.count;
+    const data = [];
+    for (let h = 0; h < 24; h++) data.push({ hour: h, count: hourMap[h] || 0 });
+
+    return c.json({ success: true, data });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Checkins by day of week
+api.get('/field-ops/reports/checkins-by-day', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const { startDate, endDate } = c.req.query();
+    let dateFilter = '';
+    const binds = [tenantId];
+    if (startDate) { dateFilter += " AND visit_date >= ?"; binds.push(startDate); }
+    if (endDate) { dateFilter += " AND visit_date <= ?"; binds.push(endDate); }
+
+    const result = await db.prepare(`
+      SELECT CAST(strftime('%w', visit_date) AS INTEGER) as day_num, COUNT(*) as count
+      FROM visits
+      WHERE tenant_id = ?${dateFilter}
+      GROUP BY day_num
+      ORDER BY day_num
+    `).bind(...binds).all();
+
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayMap = {};
+    for (const r of (result.results || [])) dayMap[r.day_num] = r.count;
+    const data = dayNames.map((name, i) => ({ day_name: name, day_num: i, count: dayMap[i] || 0 }));
+
+    return c.json({ success: true, data });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Conversion stats
+api.get('/field-ops/reports/conversion-stats', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const { startDate, endDate } = c.req.query();
+    let dateFilter = '';
+    const binds = [tenantId];
+    if (startDate) { dateFilter += " AND visit_date >= ?"; binds.push(startDate); }
+    if (endDate) { dateFilter += " AND visit_date <= ?"; binds.push(endDate); }
+
+    const total = await db.prepare(`SELECT COUNT(*) as count FROM visits WHERE tenant_id = ?${dateFilter}`).bind(...binds).first();
+    const converted = await db.prepare(`SELECT COUNT(*) as count FROM visits WHERE tenant_id = ? AND status = 'completed' AND visit_target_type = 'individual'${dateFilter}`).bind(...binds).first();
+    const storeVisits = await db.prepare(`SELECT COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_target_type = 'store'${dateFilter}`).bind(...binds).first();
+
+    return c.json({ success: true, data: {
+      converted_yes: converted?.count || 0,
+      converted_no: (total?.count || 0) - (converted?.count || 0),
+      betting_yes: storeVisits?.count || 0,
+      betting_no: (total?.count || 0) - (storeVisits?.count || 0),
+    }});
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Shops analytics (customer/store analytics)
+api.get('/field-ops/reports/shops-analytics', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const { page = '1', limit = '15', startDate, endDate } = c.req.query();
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    let dateFilter = '';
+    const binds = [tenantId];
+    if (startDate) { dateFilter += " AND v.visit_date >= ?"; binds.push(startDate); }
+    if (endDate) { dateFilter += " AND v.visit_date <= ?"; binds.push(endDate); }
+
+    const totalResult = await db.prepare('SELECT COUNT(*) as count FROM customers WHERE tenant_id = ?').bind(tenantId).first();
+
+    const shops = await db.prepare(`
+      SELECT c.id, c.name, c.address, c.latitude, c.longitude,
+        COUNT(v.id) as total_checkins,
+        SUM(CASE WHEN v.status = 'completed' THEN 1 ELSE 0 END) as approved_checkins,
+        SUM(CASE WHEN v.status = 'completed' AND v.visit_target_type = 'individual' THEN 1 ELSE 0 END) as conversions,
+        MAX(v.visit_date) as last_visit
+      FROM customers c
+      LEFT JOIN visits v ON v.customer_id = c.id AND v.tenant_id = c.tenant_id${dateFilter.replace(/AND v\./g, 'AND v.')}
+      WHERE c.tenant_id = ?
+      GROUP BY c.id
+      ORDER BY total_checkins DESC
+      LIMIT ? OFFSET ?
+    `).bind(...binds, tenantId, parseInt(limit), offset).all();
+
+    return c.json({ success: true, shops: shops.results || [], total: totalResult?.count || 0 });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Shop detail
+api.get('/field-ops/reports/shops/:shopId', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const shopId = c.req.param('shopId');
+    const shop = await db.prepare('SELECT * FROM customers WHERE id = ? AND tenant_id = ?').bind(shopId, tenantId).first();
+    const checkins = await db.prepare(`
+      SELECT v.id, v.visit_date as timestamp, v.status, v.agent_id,
+        CASE WHEN v.visit_target_type = 'individual' AND v.status = 'completed' THEN 1 ELSE 0 END as converted,
+        v.notes as responses
+      FROM visits v
+      WHERE v.customer_id = ? AND v.tenant_id = ?
+      ORDER BY v.visit_date DESC
+      LIMIT 50
+    `).bind(shopId, tenantId).all();
+    const stats = await db.prepare(`
+      SELECT COUNT(*) as total_checkins,
+        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as approved,
+        SUM(CASE WHEN status = 'completed' AND visit_target_type = 'individual' THEN 1 ELSE 0 END) as conversions
+      FROM visits WHERE customer_id = ? AND tenant_id = ?
+    `).bind(shopId, tenantId).first();
+
+    return c.json({ success: true, shop, checkins: checkins.results || [], stats });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Customers analytics (individual registrations)
+api.get('/field-ops/reports/customers-analytics', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const { page = '1', limit = '20', startDate, endDate } = c.req.query();
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    let dateFilter = '';
+    const binds = [tenantId];
+    if (startDate) { dateFilter += " AND v.visit_date >= ?"; binds.push(startDate); }
+    if (endDate) { dateFilter += " AND v.visit_date <= ?"; binds.push(endDate); }
+
+    const totalResult = await db.prepare(`SELECT COUNT(*) as count FROM visits v WHERE v.tenant_id = ?${dateFilter}`).bind(...binds).first();
+
+    const customers = await db.prepare(`
+      SELECT v.id as checkin_id, v.visit_date as timestamp,
+        v.checkin_latitude as latitude, v.checkin_longitude as longitude,
+        v.agent_id, u.first_name || ' ' || u.last_name as agent_name,
+        c.name as shop_name, v.customer_id as shop_id,
+        v.notes as responses,
+        CASE WHEN v.status = 'completed' AND v.visit_target_type = 'individual' THEN 1 ELSE 0 END as converted,
+        CASE WHEN v.visit_target_type = 'store' THEN 1 ELSE 0 END as already_betting
+      FROM visits v
+      LEFT JOIN users u ON v.agent_id = u.id
+      LEFT JOIN customers c ON v.customer_id = c.id
+      WHERE v.tenant_id = ?${dateFilter}
+      ORDER BY v.visit_date DESC
+      LIMIT ? OFFSET ?
+    `).bind(...binds, parseInt(limit), offset).all();
+
+    const statsResult = await db.prepare(`
+      SELECT COUNT(*) as total_customers,
+        SUM(CASE WHEN status = 'completed' AND visit_target_type = 'individual' THEN 1 ELSE 0 END) as converted,
+        SUM(CASE WHEN visit_target_type = 'store' THEN 1 ELSE 0 END) as already_betting
+      FROM visits WHERE tenant_id = ?
+    `).bind(tenantId).first();
+
+    return c.json({ success: true, customers: customers.results || [], total: totalResult?.count || 0, stats: statsResult });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Checkins list with filters
+api.get('/field-ops/reports/checkins', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const { page = '1', limit = '20', startDate, endDate, status, agentId } = c.req.query();
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    let where = 'WHERE v.tenant_id = ?';
+    const binds = [tenantId];
+    if (startDate) { where += ' AND v.visit_date >= ?'; binds.push(startDate); }
+    if (endDate) { where += ' AND v.visit_date <= ?'; binds.push(endDate); }
+    if (status) { where += ' AND v.status = ?'; binds.push(status); }
+    if (agentId) { where += ' AND v.agent_id = ?'; binds.push(agentId); }
+
+    const totalResult = await db.prepare(`SELECT COUNT(*) as count FROM visits v ${where}`).bind(...binds).first();
+
+    const checkins = await db.prepare(`
+      SELECT v.id, v.agent_id, v.customer_id as shop_id, v.visit_date as timestamp,
+        v.checkin_latitude as latitude, v.checkin_longitude as longitude,
+        v.status, v.notes, v.visit_target_type
+      FROM visits v
+      ${where}
+      ORDER BY v.visit_date DESC
+      LIMIT ? OFFSET ?
+    `).bind(...binds, parseInt(limit), offset).all();
+
+    return c.json({ success: true, checkins: checkins.results || [], total: totalResult?.count || 0 });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Checkin detail
+api.get('/field-ops/reports/checkins/:checkinId', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const checkinId = c.req.param('checkinId');
+    const checkin = await db.prepare('SELECT * FROM visits WHERE id = ? AND tenant_id = ?').bind(checkinId, tenantId).first();
+    if (!checkin) return c.json({ success: false, message: 'Not found' }, 404);
+    // Get survey response if any
+    const response = await db.prepare('SELECT * FROM survey_responses WHERE visit_id = ? LIMIT 1').bind(checkinId).first();
+    return c.json({ success: true, checkin, response: response || null });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Agents list for filters
+api.get('/field-ops/reports/agents', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const agents = await db.prepare("SELECT id as agent_id, first_name || ' ' || last_name as agent_name FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') ORDER BY first_name LIMIT 500").bind(tenantId).all();
+    return c.json({ success: true, agents: agents.results || [] });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Export checkins data
+api.get('/field-ops/reports/export/checkins', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const { startDate, endDate } = c.req.query();
+    let where = 'WHERE v.tenant_id = ?';
+    const binds = [tenantId];
+    if (startDate) { where += ' AND v.visit_date >= ?'; binds.push(startDate); }
+    if (endDate) { where += ' AND v.visit_date <= ?'; binds.push(endDate); }
+
+    const data = await db.prepare(`
+      SELECT v.id, v.agent_id, v.customer_id as shop_id, v.visit_date as timestamp,
+        v.checkin_latitude as latitude, v.checkin_longitude as longitude,
+        v.status, v.notes, v.visit_target_type as visit_type,
+        CASE WHEN v.status = 'completed' AND v.visit_target_type = 'individual' THEN 1 ELSE 0 END as converted,
+        CASE WHEN v.visit_target_type = 'store' THEN 1 ELSE 0 END as already_betting
+      FROM visits v
+      ${where}
+      ORDER BY v.visit_date DESC
+      LIMIT 10000
+    `).bind(...binds).all();
+
+    return c.json({ success: true, data: data.results || [] });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
 // ==================== v2: MARKETING ALIAS ROUTES ====================
 api.get('/marketing/campaigns', authMiddleware, async (c) => {
   try {
