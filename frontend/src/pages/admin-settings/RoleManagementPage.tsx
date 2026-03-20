@@ -80,7 +80,14 @@ export const RoleManagementPage: React.FC = () => {
     queryFn: async () => {
       try {
         const res = await apiClient.get('/rbac/preset-roles')
-        return (res.data?.data || res.data?.presets || res.data || {}) as Record<string, PresetRole>
+        const arr = res.data?.data || res.data?.presets || res.data || []
+        // Backend returns an array of presets with a `key` field; convert to keyed object
+        if (Array.isArray(arr)) {
+          const obj: Record<string, PresetRole> = {}
+          for (const p of arr) obj[p.key || p.name] = p
+          return obj
+        }
+        return (arr || {}) as Record<string, PresetRole>
       } catch { return {} }
     },
   })

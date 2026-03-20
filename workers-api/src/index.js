@@ -9913,7 +9913,7 @@ api.put('/rbac/roles/:id', requireRole('admin'), async (c) => {
     // Accept permission_ids (UUIDs) or permissions (names)
     const permissionIds = body.permission_ids || [];
     const permissionNames = body.permissions || [];
-    if (permissionIds.length > 0 || permissionNames.length > 0) {
+    if (body.permissions !== undefined || body.permission_ids !== undefined) {
       await db.prepare('DELETE FROM role_permissions WHERE role_id = ?').bind(id).run();
       if (permissionIds.length > 0) {
         for (const pid of permissionIds) {
