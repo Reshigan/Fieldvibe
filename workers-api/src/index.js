@@ -9884,9 +9884,19 @@ api.post('/rbac/roles', requireRole('admin'), async (c) => {
     const body = await c.req.json();
     const id = crypto.randomUUID();
     await db.prepare('INSERT INTO roles (id, tenant_id, name, description, created_at) VALUES (?,?,?,?,CURRENT_TIMESTAMP)').bind(id, tenantId, body.name, body.description || null).run();
-    if (body.permission_ids && body.permission_ids.length > 0) {
-      for (const pid of body.permission_ids) {
+    // Accept permission_ids (UUIDs) or permissions (names)
+    const permissionIds = body.permission_ids || [];
+    const permissionNames = body.permissions || [];
+    if (permissionIds.length > 0) {
+      for (const pid of permissionIds) {
         await db.prepare('INSERT INTO role_permissions (id, role_id, permission_id) VALUES (?,?,?)').bind(crypto.randomUUID(), id, pid).run();
+      }
+    } else if (permissionNames.length > 0) {
+      for (const pName of permissionNames) {
+        const perm = await db.prepare('SELECT id FROM permissions WHERE name = ?').bind(pName).first();
+        if (perm) {
+          await db.prepare('INSERT INTO role_permissions (id, role_id, permission_id) VALUES (?,?,?)').bind(crypto.randomUUID(), id, perm.id).run();
+        }
       }
     }
     return c.json({ success: true, data: { id, name: body.name } }, 201);
@@ -9900,10 +9910,22 @@ api.put('/rbac/roles/:id', requireRole('admin'), async (c) => {
     const body = await c.req.json();
     const id = c.req.param('id');
     await db.prepare('UPDATE roles SET name=?, description=? WHERE id=? AND (tenant_id=? OR tenant_id IS NULL)').bind(body.name, body.description || null, id, tenantId).run();
-    if (body.permission_ids) {
+    // Accept permission_ids (UUIDs) or permissions (names)
+    const permissionIds = body.permission_ids || [];
+    const permissionNames = body.permissions || [];
+    if (permissionIds.length > 0 || permissionNames.length > 0) {
       await db.prepare('DELETE FROM role_permissions WHERE role_id = ?').bind(id).run();
-      for (const pid of body.permission_ids) {
-        await db.prepare('INSERT INTO role_permissions (id, role_id, permission_id) VALUES (?,?,?)').bind(crypto.randomUUID(), id, pid).run();
+      if (permissionIds.length > 0) {
+        for (const pid of permissionIds) {
+          await db.prepare('INSERT INTO role_permissions (id, role_id, permission_id) VALUES (?,?,?)').bind(crypto.randomUUID(), id, pid).run();
+        }
+      } else {
+        for (const pName of permissionNames) {
+          const perm = await db.prepare('SELECT id FROM permissions WHERE name = ?').bind(pName).first();
+          if (perm) {
+            await db.prepare('INSERT INTO role_permissions (id, role_id, permission_id) VALUES (?,?,?)').bind(crypto.randomUUID(), id, perm.id).run();
+          }
+        }
       }
     }
     return c.json({ success: true, data: { id, ...body } });
@@ -10137,6 +10159,9 @@ api.post('/rbac/roles/:id/apply-preset', requireRole('admin'), async (c) => {
     const { preset_key } = await c.req.json();
     const preset = PRESET_ROLES[preset_key];
     if (!preset) return c.json({ success: false, message: 'Invalid preset key' }, 400);
+    // Verify role belongs to this tenant
+    const role = await db.prepare('SELECT id FROM roles WHERE id = ? AND (tenant_id = ? OR tenant_id IS NULL)').bind(roleId, tenantId).first();
+    if (!role) return c.json({ success: false, message: 'Role not found' }, 404);
     // Clear existing permissions
     await db.prepare('DELETE FROM role_permissions WHERE role_id = ?').bind(roleId).run();
     // Apply preset permissions

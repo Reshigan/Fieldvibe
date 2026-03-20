@@ -49,7 +49,12 @@ export const RoleManagementPage: React.FC = () => {
       try {
         const res = await apiClient.get('/rbac/roles')
         const d = res.data?.data || res.data?.roles || res.data
-        return Array.isArray(d) ? d as Role[] : []
+        if (!Array.isArray(d)) return []
+        // Normalize permissions from objects to strings (backend returns full permission objects)
+        return (d as Role[]).map(r => ({
+          ...r,
+          permissions: (r.permissions || []).map((p: string | { name: string }) => typeof p === 'string' ? p : p.name)
+        }))
       } catch { return [] }
     },
   })
@@ -59,11 +64,12 @@ export const RoleManagementPage: React.FC = () => {
     queryFn: async () => {
       try {
         const res = await apiClient.get('/rbac/permissions/all')
-        const d = res.data?.data || res.data?.permissions || res.data
-        if (Array.isArray(d)) return d as PermissionGroup[]
-        if (d && typeof d === 'object') {
-          return Object.entries(d).map(([mod, perms]) => ({ module: mod, permissions: Array.isArray(perms) ? perms : [] })) as PermissionGroup[]
+        const d = res.data?.data || res.data
+        // Backend returns { permissions: [...], grouped: { module: [...perms] } }
+        if (d?.grouped && typeof d.grouped === 'object') {
+          return Object.entries(d.grouped).map(([mod, perms]) => ({ module: mod, permissions: Array.isArray(perms) ? perms : [] })) as PermissionGroup[]
         }
+        if (Array.isArray(d)) return d as PermissionGroup[]
         return []
       } catch { return [] }
     },
@@ -112,7 +118,7 @@ export const RoleManagementPage: React.FC = () => {
   })
 
   const applyPresetMutation = useMutation({
-    mutationFn: async ({ roleId, presetKey }: { roleId: string; presetKey: string }) => apiClient.post(`/rbac/roles/${roleId}/apply-preset`, { preset: presetKey }),
+    mutationFn: async ({ roleId, presetKey }: { roleId: string; presetKey: string }) => apiClient.post(`/rbac/roles/${roleId}/apply-preset`, { preset_key: presetKey }),
     onSuccess: () => { toast.success('Preset applied'); queryClient.invalidateQueries({ queryKey: ['rbac-roles'] }) },
     onError: () => toast.error('Failed to apply preset'),
   })
