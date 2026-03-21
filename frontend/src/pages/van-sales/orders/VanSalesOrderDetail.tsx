@@ -113,7 +113,7 @@ export default function VanSalesOrderDetail() {
     tax_total: order.tax_total || 0,
     total: order.total_amount || 0,
     route_name: order.route_name,
-    delivery_method: order.payment_method,
+    payment_terms: order.payment_method,
     notes: order.notes,
   }
 
