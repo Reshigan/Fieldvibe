@@ -141,6 +141,43 @@ export default function AgentDashboard() {
         </p>
       </div>
 
+      {/* Role-specific quick access card */}
+      {authUser?.role === 'team_lead' && (
+        <div className="px-5 mb-4">
+          <button
+            onClick={() => navigate('/agent/team')}
+            className="w-full bg-gradient-to-r from-indigo-600/20 to-cyan-600/20 border border-indigo-500/20 rounded-2xl p-4 flex items-center gap-3 active:bg-white/5 transition-colors"
+          >
+            <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
+              <Users className="w-5 h-5 text-indigo-400" />
+            </div>
+            <div className="flex-1 text-left">
+              <p className="text-sm font-semibold text-white">Team Overview</p>
+              <p className="text-xs text-gray-400">View your agents' performance</p>
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+      )}
+
+      {authUser?.role === 'manager' && (
+        <div className="px-5 mb-4">
+          <button
+            onClick={() => navigate('/agent/teams')}
+            className="w-full bg-gradient-to-r from-violet-600/20 to-pink-600/20 border border-violet-500/20 rounded-2xl p-4 flex items-center gap-3 active:bg-white/5 transition-colors"
+          >
+            <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center">
+              <Building2 className="w-5 h-5 text-violet-400" />
+            </div>
+            <div className="flex-1 text-left">
+              <p className="text-sm font-semibold text-white">Organization Overview</p>
+              <p className="text-xs text-gray-400">View all teams & agents</p>
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+      )}
+
       <div className="px-5 mb-4">
         <div className="grid grid-cols-2 gap-3 mb-3">
           <button

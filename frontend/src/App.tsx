@@ -37,6 +37,8 @@ const AgentProfile = lazy(() => import('./pages/agent/AgentProfile'))
 const AgentOnboarding = lazy(() => import('./pages/agent/AgentOnboarding'))
 const AgentPinManagement = lazy(() => import('./pages/agent/AgentPinManagement'))
 const AgentTrainingGuide = lazy(() => import('./pages/agent/AgentTrainingGuide'))
+const TeamTab = lazy(() => import('./pages/agent/TeamTab'))
+const ManagerTeamsTab = lazy(() => import('./pages/agent/ManagerTeamsTab'))
 const AgentHierarchyPage = lazy(() => import('./pages/field-operations/AgentHierarchyPage'))
 const AnalyticsDashboardPage = lazy(() => import('./pages/reports/AnalyticsDashboardPage'))
 const AnalyticsPage = lazy(() => import('./pages/dashboard/AnalyticsPage'))
@@ -425,8 +427,10 @@ function PageLoader({ children }: { children: React.ReactNode }) {
   )
 }
 
+const MOBILE_ROLES = ['agent', 'team_lead', 'field_agent', 'sales_rep', 'manager']
+
 function App() {
-  const { isAuthenticated, isLoading, initialize, hydrated } = useAuthStore()
+  const { isAuthenticated, isLoading, initialize, hydrated, user } = useAuthStore()
 
   useEffect(() => {
     if (hydrated) {
@@ -452,7 +456,7 @@ function App() {
 
           {/* Public Routes */}
           <Route path="/auth/*" element={
-            isAuthenticated ? <Navigate to="/dashboard" replace /> : <AuthLayout />
+            isAuthenticated ? <Navigate to={user?.role && MOBILE_ROLES.includes(user.role) ? '/agent/dashboard' : '/dashboard'} replace /> : <AuthLayout />
           }>
             <Route path="login" element={<PageLoader><LoginPage /></PageLoader>} />
             <Route path="forgot-password" element={<PageLoader><ForgotPasswordPage /></PageLoader>} />
@@ -1072,6 +1076,8 @@ function App() {
             <Route path="visits/:id" element={<PageLoader><VisitDetail /></PageLoader>} />
             <Route path="visits/:id/edit" element={<PageLoader><VisitEdit /></PageLoader>} />
             <Route path="stats" element={<PageLoader><AgentStats /></PageLoader>} />
+            <Route path="team" element={<PageLoader><TeamTab /></PageLoader>} />
+            <Route path="teams" element={<PageLoader><ManagerTeamsTab /></PageLoader>} />
             <Route path="profile" element={<PageLoader><AgentProfile /></PageLoader>} />
             <Route path="onboarding" element={<PageLoader><AgentOnboarding /></PageLoader>} />
             <Route path="training" element={<PageLoader><AgentTrainingGuide /></PageLoader>} />
