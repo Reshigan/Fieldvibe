@@ -528,6 +528,8 @@ app.get('/api/team-lead/dashboard', authMiddleware, async (c) => {
       ]);
       const tv = targets?.target_visits || 0;
       const av = targets?.actual_visits || 0;
+      const tr = targets?.target_registrations || 0;
+      const ar = targets?.actual_registrations || 0;
       agentStats.push({
         id: member.id,
         first_name: member.first_name,
@@ -539,6 +541,8 @@ app.get('/api/team-lead/dashboard', authMiddleware, async (c) => {
         month_registrations: monthR?.count || 0,
         target_visits: tv,
         actual_visits: av,
+        target_registrations: tr,
+        actual_registrations: ar,
         achievement: tv > 0 ? Math.round((av / tv) * 100) : 0,
       });
     }
@@ -550,6 +554,24 @@ app.get('/api/team-lead/dashboard', authMiddleware, async (c) => {
     const teamMonthRegs = agentStats.reduce((s, a) => s + a.month_registrations, 0);
     const teamTargetVisits = agentStats.reduce((s, a) => s + a.target_visits, 0);
     const teamActualVisits = agentStats.reduce((s, a) => s + a.actual_visits, 0);
+    const teamTargetRegs = agentStats.reduce((s, a) => s + (a.target_registrations || 0), 0);
+    const teamActualRegs = agentStats.reduce((s, a) => s + (a.actual_registrations || 0), 0);
+
+    // Fetch commission rules and tiers (apply to both agent and team level)
+    const [commissionRules, commissionTiers] = await Promise.all([
+      db.prepare("SELECT id, name, source_type, rate, min_threshold, max_cap, effective_from, effective_to FROM commission_rules WHERE tenant_id = ? AND is_active = 1 ORDER BY name").bind(tenantId).all(),
+      db.prepare("SELECT id, tier_name, min_achievement_pct, max_achievement_pct, commission_rate, bonus_amount, metric_type FROM target_commission_tiers WHERE tenant_id = ? AND is_active = 1 ORDER BY min_achievement_pct").bind(tenantId).all(),
+    ]);
+
+    // Determine current team tier based on achievement
+    const teamAch = teamTargetVisits > 0 ? Math.round((teamActualVisits / teamTargetVisits) * 100) : 0;
+    const tiers = commissionTiers.results || [];
+    let currentTeamTier = null;
+    for (const tier of tiers) {
+      if (teamAch >= tier.min_achievement_pct && (tier.max_achievement_pct === null || teamAch <= tier.max_achievement_pct)) {
+        currentTeamTier = tier;
+      }
+    }
 
     // Team commission totals (sum of all team members' commissions)
     const [teamPending, teamApproved, teamPaid] = await Promise.all([
@@ -579,6 +601,8 @@ app.get('/api/team-lead/dashboard', authMiddleware, async (c) => {
         team_targets: {
           target_visits: teamTargetVisits,
           actual_visits: teamActualVisits,
+          target_registrations: teamTargetRegs,
+          actual_registrations: teamActualRegs,
           achievement: teamTargetVisits > 0 ? Math.round((teamActualVisits / teamTargetVisits) * 100) : 0,
         },
         team_commission: {
@@ -586,11 +610,14 @@ app.get('/api/team-lead/dashboard', authMiddleware, async (c) => {
           approved: (teamApproved?.total || 0) + (ownApproved?.total || 0),
           paid: (teamPaid?.total || 0) + (ownPaid?.total || 0),
         },
+        commission_rules: commissionRules.results || [],
+        commission_tiers: tiers,
+        current_team_tier: currentTeamTier,
       }
     });
   } catch (error) {
     console.error('Team lead dashboard error:', error);
-    return c.json({ success: true, data: { team_size: 0, agents: [], team_totals: { today_visits: 0, month_visits: 0, today_registrations: 0, month_registrations: 0 }, team_targets: { target_visits: 0, actual_visits: 0, achievement: 0 }, team_commission: { pending: 0, approved: 0, paid: 0 } } });
+    return c.json({ success: true, data: { team_size: 0, agents: [], team_totals: { today_visits: 0, month_visits: 0, today_registrations: 0, month_registrations: 0 }, team_targets: { target_visits: 0, actual_visits: 0, target_registrations: 0, actual_registrations: 0, achievement: 0 }, team_commission: { pending: 0, approved: 0, paid: 0 }, commission_rules: [], commission_tiers: [], current_team_tier: null } });
   }
 });
 
@@ -639,18 +666,22 @@ app.get('/api/manager/dashboard', authMiddleware, async (c) => {
       let teamRegs = 0;
       let teamTargetVisits = 0;
       let teamActualVisits = 0;
+      let teamTargetRegs = 0;
+      let teamActualRegs = 0;
 
       if (memberIds.length > 0) {
         const ph = memberIds.map(() => '?').join(',');
         const [vRes, rRes, tRes] = await Promise.all([
           db.prepare(`SELECT COUNT(*) as count FROM visits WHERE tenant_id = ? AND agent_id IN (${ph}) AND visit_date >= ?`).bind(tenantId, ...memberIds, currentMonth + '-01').first(),
           db.prepare(`SELECT COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND agent_id IN (${ph}) AND created_at >= ?`).bind(tenantId, ...memberIds, currentMonth + '-01').first(),
-          db.prepare(`SELECT COALESCE(SUM(target_visits),0) as tv, COALESCE(SUM(actual_visits),0) as av FROM monthly_targets WHERE tenant_id = ? AND agent_id IN (${ph}) AND target_month = ?`).bind(tenantId, ...memberIds, currentMonth).first(),
+          db.prepare(`SELECT COALESCE(SUM(target_visits),0) as tv, COALESCE(SUM(actual_visits),0) as av, COALESCE(SUM(target_registrations),0) as tr, COALESCE(SUM(actual_registrations),0) as ar FROM monthly_targets WHERE tenant_id = ? AND agent_id IN (${ph}) AND target_month = ?`).bind(tenantId, ...memberIds, currentMonth).first(),
         ]);
         teamVisits = vRes?.count || 0;
         teamRegs = rRes?.count || 0;
         teamTargetVisits = tRes?.tv || 0;
         teamActualVisits = tRes?.av || 0;
+        teamTargetRegs = tRes?.tr || 0;
+        teamActualRegs = tRes?.ar || 0;
       }
 
       teamsData.push({
@@ -661,6 +692,8 @@ app.get('/api/manager/dashboard', authMiddleware, async (c) => {
         month_registrations: teamRegs,
         target_visits: teamTargetVisits,
         actual_visits: teamActualVisits,
+        target_registrations: teamTargetRegs,
+        actual_registrations: teamActualRegs,
         achievement: teamTargetVisits > 0 ? Math.round((teamActualVisits / teamTargetVisits) * 100) : 0,
       });
     }
@@ -668,7 +701,7 @@ app.get('/api/manager/dashboard', authMiddleware, async (c) => {
     // Org-wide totals
     const allAgentIds = (allAgents.results || []).map(a => a.id);
     let orgTodayVisits = 0, orgMonthVisits = 0, orgTodayRegs = 0, orgMonthRegs = 0;
-    let orgTargetVisits = 0, orgActualVisits = 0;
+    let orgTargetVisits = 0, orgActualVisits = 0, orgTargetRegs = 0, orgActualRegs = 0;
     let orgPending = 0, orgApproved = 0, orgPaid = 0;
 
     if (allAgentIds.length > 0) {
@@ -678,7 +711,7 @@ app.get('/api/manager/dashboard', authMiddleware, async (c) => {
         db.prepare(`SELECT COUNT(*) as count FROM visits WHERE tenant_id = ? AND agent_id IN (${ph2}) AND visit_date >= ?`).bind(tenantId, ...allAgentIds, currentMonth + '-01').first(),
         db.prepare(`SELECT COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND agent_id IN (${ph2}) AND DATE(created_at) = ?`).bind(tenantId, ...allAgentIds, today).first(),
         db.prepare(`SELECT COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND agent_id IN (${ph2}) AND created_at >= ?`).bind(tenantId, ...allAgentIds, currentMonth + '-01').first(),
-        db.prepare(`SELECT COALESCE(SUM(target_visits),0) as tv, COALESCE(SUM(actual_visits),0) as av FROM monthly_targets WHERE tenant_id = ? AND agent_id IN (${ph2}) AND target_month = ?`).bind(tenantId, ...allAgentIds, currentMonth).first(),
+        db.prepare(`SELECT COALESCE(SUM(target_visits),0) as tv, COALESCE(SUM(actual_visits),0) as av, COALESCE(SUM(target_registrations),0) as tr, COALESCE(SUM(actual_registrations),0) as ar FROM monthly_targets WHERE tenant_id = ? AND agent_id IN (${ph2}) AND target_month = ?`).bind(tenantId, ...allAgentIds, currentMonth).first(),
         db.prepare(`SELECT COALESCE(SUM(amount),0) as total FROM commission_earnings WHERE tenant_id = ? AND earner_id IN (${ph2}) AND status = 'pending'`).bind(tenantId, ...allAgentIds).first(),
         db.prepare(`SELECT COALESCE(SUM(amount),0) as total FROM commission_earnings WHERE tenant_id = ? AND earner_id IN (${ph2}) AND status = 'approved'`).bind(tenantId, ...allAgentIds).first(),
         db.prepare(`SELECT COALESCE(SUM(amount),0) as total FROM commission_earnings WHERE tenant_id = ? AND earner_id IN (${ph2}) AND status = 'paid'`).bind(tenantId, ...allAgentIds).first(),
@@ -689,9 +722,26 @@ app.get('/api/manager/dashboard', authMiddleware, async (c) => {
       orgMonthRegs = mrRes?.count || 0;
       orgTargetVisits = tgRes?.tv || 0;
       orgActualVisits = tgRes?.av || 0;
+      orgTargetRegs = tgRes?.tr || 0;
+      orgActualRegs = tgRes?.ar || 0;
       orgPending = cpRes?.total || 0;
       orgApproved = caRes?.total || 0;
       orgPaid = cdRes?.total || 0;
+    }
+
+    // Fetch commission rules and tiers
+    const [mgrCommRules, mgrCommTiers] = await Promise.all([
+      db.prepare("SELECT id, name, source_type, rate, min_threshold, max_cap, effective_from, effective_to FROM commission_rules WHERE tenant_id = ? AND is_active = 1 ORDER BY name").bind(tenantId).all(),
+      db.prepare("SELECT id, tier_name, min_achievement_pct, max_achievement_pct, commission_rate, bonus_amount, metric_type FROM target_commission_tiers WHERE tenant_id = ? AND is_active = 1 ORDER BY min_achievement_pct").bind(tenantId).all(),
+    ]);
+
+    const mgrTiers = mgrCommTiers.results || [];
+    const orgAch = orgTargetVisits > 0 ? Math.round((orgActualVisits / orgTargetVisits) * 100) : 0;
+    let currentOrgTier = null;
+    for (const tier of mgrTiers) {
+      if (orgAch >= tier.min_achievement_pct && (tier.max_achievement_pct === null || orgAch <= tier.max_achievement_pct)) {
+        currentOrgTier = tier;
+      }
     }
 
     // Unassigned agents (no team lead)
@@ -713,6 +763,8 @@ app.get('/api/manager/dashboard', authMiddleware, async (c) => {
         org_targets: {
           target_visits: orgTargetVisits,
           actual_visits: orgActualVisits,
+          target_registrations: orgTargetRegs,
+          actual_registrations: orgActualRegs,
           achievement: orgTargetVisits > 0 ? Math.round((orgActualVisits / orgTargetVisits) * 100) : 0,
         },
         org_commission: {
@@ -720,11 +772,14 @@ app.get('/api/manager/dashboard', authMiddleware, async (c) => {
           approved: orgApproved,
           paid: orgPaid,
         },
+        commission_rules: mgrCommRules.results || [],
+        commission_tiers: mgrTiers,
+        current_org_tier: currentOrgTier,
       }
     });
   } catch (error) {
     console.error('Manager dashboard error:', error);
-    return c.json({ success: true, data: { total_team_leads: 0, total_agents: 0, unassigned_agents: 0, teams: [], org_totals: { today_visits: 0, month_visits: 0, today_registrations: 0, month_registrations: 0 }, org_targets: { target_visits: 0, actual_visits: 0, achievement: 0 }, org_commission: { pending: 0, approved: 0, paid: 0 } } });
+    return c.json({ success: true, data: { total_team_leads: 0, total_agents: 0, unassigned_agents: 0, teams: [], org_totals: { today_visits: 0, month_visits: 0, today_registrations: 0, month_registrations: 0 }, org_targets: { target_visits: 0, actual_visits: 0, target_registrations: 0, actual_registrations: 0, achievement: 0 }, org_commission: { pending: 0, approved: 0, paid: 0 }, commission_rules: [], commission_tiers: [], current_org_tier: null } });
   }
 });
 
