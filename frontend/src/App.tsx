@@ -535,6 +535,7 @@ function App() {
             <Route path="field-operations/agent-dashboard" element={<PageLoader><FieldAgentDashboardPage /></PageLoader>} />
             <Route path="field-operations/agents" element={<Navigate to="/field-operations" replace />} />
             <Route path="field-operations/mapping" element={<Navigate to="/field-operations/gps-tracking" replace />} />
+            <Route path="field-operations/live-map" element={<PageLoader><LiveGPSTrackingPage /></PageLoader>} />
             <Route path="field-operations/gps-tracking" element={<PageLoader><LiveGPSTrackingPage /></PageLoader>} />
             <Route path="field-operations/boards" element={<PageLoader><BoardPlacementsList /></PageLoader>} />
             <Route path="field-operations/boards/create" element={<PageLoader><BoardPlacementFormPage /></PageLoader>} />
