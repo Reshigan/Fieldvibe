@@ -427,8 +427,10 @@ function PageLoader({ children }: { children: React.ReactNode }) {
   )
 }
 
+const MOBILE_ROLES = ['agent', 'team_lead', 'field_agent', 'sales_rep', 'manager']
+
 function App() {
-  const { isAuthenticated, isLoading, initialize, hydrated } = useAuthStore()
+  const { isAuthenticated, isLoading, initialize, hydrated, user } = useAuthStore()
 
   useEffect(() => {
     if (hydrated) {
@@ -454,7 +456,7 @@ function App() {
 
           {/* Public Routes */}
           <Route path="/auth/*" element={
-            isAuthenticated ? <Navigate to="/dashboard" replace /> : <AuthLayout />
+            isAuthenticated ? <Navigate to={user?.role && MOBILE_ROLES.includes(user.role) ? '/agent/dashboard' : '/dashboard'} replace /> : <AuthLayout />
           }>
             <Route path="login" element={<PageLoader><LoginPage /></PageLoader>} />
             <Route path="forgot-password" element={<PageLoader><ForgotPasswordPage /></PageLoader>} />
