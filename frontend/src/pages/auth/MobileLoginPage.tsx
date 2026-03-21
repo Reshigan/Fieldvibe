@@ -18,7 +18,7 @@ const MobileLoginPage: React.FC = () => {
     const { isAuthenticated, user } = useAuthStore.getState()
     if (isAuthenticated && user) {
       const role = user.role
-      if (role && ['agent', 'team_lead', 'field_agent', 'sales_rep'].includes(role)) {
+      if (role && ['agent', 'team_lead', 'field_agent', 'sales_rep', 'manager'].includes(role)) {
         navigate('/agent/dashboard')
         return
       }
