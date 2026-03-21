@@ -415,8 +415,8 @@ export default function AgentStats() {
           apiClient.get('/agent/dashboard').catch(() => null),
           apiClient.get('/agent/performance').catch(() => null),
         ])
-        if (dashRes.data?.success && dashRes.data?.data) setDashData(dashRes.data.data)
-        if (perfRes.data?.success && perfRes.data?.data) setPerfData(perfRes.data.data)
+        if (dashRes?.data?.success && dashRes?.data?.data) setDashData(dashRes.data.data)
+        if (perfRes?.data?.success && perfRes?.data?.data) setPerfData(perfRes.data.data)
       } catch (err) {
         console.error('Stats fetch error:', err)
       } finally {
