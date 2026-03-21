@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import {
   TrendingUp, MapPin, Users, Target, Calendar, Award, BarChart3,
-  DollarSign, Flame, Zap, Trophy, Clock
+  DollarSign, Flame, Zap, Trophy, Clock, Shield, Star, UserCheck
 } from 'lucide-react'
 import { apiClient } from '../../services/api.service'
 
@@ -59,6 +59,45 @@ interface PerformanceData {
   }>
   weekly_visits: Array<{ visit_date: string; count: number }>
   streak: number
+  commission_rules: Array<{
+    id: string
+    name: string
+    source_type: string
+    rate: number
+    min_threshold: number
+    max_cap: number | null
+    effective_from: string | null
+    effective_to: string | null
+  }>
+  commission_tiers: Array<{
+    id: string
+    tier_name: string
+    min_achievement_pct: number
+    max_achievement_pct: number | null
+    commission_rate: number
+    bonus_amount: number
+    metric_type: string
+  }>
+  current_tier: {
+    id: string
+    tier_name: string
+    min_achievement_pct: number
+    max_achievement_pct: number | null
+    commission_rate: number
+    bonus_amount: number
+    metric_type: string
+  } | null
+  team_performance: {
+    team_lead_name: string
+    member_count: number
+    total_visits: number
+    total_registrations: number
+    target_visits: number
+    actual_visits: number
+    target_registrations: number
+    actual_registrations: number
+    achievement: number
+  } | null
 }
 
 function getBarBg(isToday: boolean, count: number): string {
@@ -223,6 +262,23 @@ function OverviewTab({
           </div>
         </div>
       )}
+
+      {/* Current Tier + Team summary on Overview */}
+      {perfData?.current_tier && (
+        <div className={'bg-gradient-to-br border rounded-2xl p-3 flex items-center gap-3 ' + tierBg(perfData.current_tier.tier_name)}>
+          <Star className={'w-5 h-5 ' + tierColor(perfData.current_tier.tier_name)} />
+          <div className="flex-1">
+            <p className={'text-sm font-bold ' + tierColor(perfData.current_tier.tier_name)}>{perfData.current_tier.tier_name} Tier</p>
+            <p className="text-[10px] text-gray-400">{perfData.current_tier.commission_rate}% rate{perfData.current_tier.bonus_amount > 0 ? ` + R${perfData.current_tier.bonus_amount.toLocaleString()} bonus` : ''}</p>
+          </div>
+          {perfData.team_performance && (
+            <div className="text-right">
+              <p className="text-xs text-gray-400">Team</p>
+              <p className={'text-sm font-bold ' + (perfData.team_performance.achievement >= 100 ? 'text-[#00E87B]' : 'text-amber-400')}>{perfData.team_performance.achievement}%</p>
+            </div>
+          )}
+        </div>
+      )}
     </>
   )
 }
@@ -334,7 +390,28 @@ function TargetsTab({ perfData, dashData }: { perfData: PerformanceData | null; 
   )
 }
 
+function tierColor(tierName: string): string {
+  const lower = tierName.toLowerCase()
+  if (lower === 'platinum') return 'text-purple-300'
+  if (lower === 'gold') return 'text-amber-400'
+  if (lower === 'silver') return 'text-gray-300'
+  return 'text-orange-400'
+}
+
+function tierBg(tierName: string): string {
+  const lower = tierName.toLowerCase()
+  if (lower === 'platinum') return 'from-purple-500/20 to-purple-600/10 border-purple-500/20'
+  if (lower === 'gold') return 'from-amber-500/20 to-amber-600/10 border-amber-500/20'
+  if (lower === 'silver') return 'from-gray-400/20 to-gray-500/10 border-gray-400/20'
+  return 'from-orange-500/20 to-orange-600/10 border-orange-500/20'
+}
+
 function EarningsTab({ perfData, totalEarnings }: { perfData: PerformanceData | null; totalEarnings: number }) {
+  const currentTier = perfData?.current_tier
+  const tiers = perfData?.commission_tiers || []
+  const rules = perfData?.commission_rules || []
+  const team = perfData?.team_performance
+
   return (
     <>
       <div className="grid grid-cols-2 gap-3">
@@ -349,6 +426,25 @@ function EarningsTab({ perfData, totalEarnings }: { perfData: PerformanceData | 
           <p className="text-[10px] text-green-300/70 uppercase">Paid Out</p>
         </div>
       </div>
+
+      {/* Current Tier Badge */}
+      {currentTier && (
+        <div className={'bg-gradient-to-br border rounded-2xl p-4 flex items-center gap-4 ' + tierBg(currentTier.tier_name)}>
+          <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+            <Star className={'w-6 h-6 ' + tierColor(currentTier.tier_name)} />
+          </div>
+          <div className="flex-1">
+            <p className={'text-lg font-bold ' + tierColor(currentTier.tier_name)}>{currentTier.tier_name} Tier</p>
+            <p className="text-xs text-gray-400">
+              {currentTier.commission_rate}% commission rate
+              {currentTier.bonus_amount > 0 && ` + R${currentTier.bonus_amount.toLocaleString()} bonus`}
+            </p>
+            <p className="text-[10px] text-gray-500 mt-0.5">
+              Achievement: {currentTier.min_achievement_pct}%{currentTier.max_achievement_pct ? ` - ${currentTier.max_achievement_pct}%` : '+'}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Commission Breakdown</h3>
@@ -366,6 +462,86 @@ function EarningsTab({ perfData, totalEarnings }: { perfData: PerformanceData | 
           </div>
         )}
       </div>
+
+      {/* Commission Tiers */}
+      {tiers.length > 0 && (
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <Shield className="w-3.5 h-3.5" /> Earning Tiers
+          </h3>
+          <div className="space-y-2">
+            {tiers.map((tier) => {
+              const isCurrent = currentTier?.id === tier.id
+              return (
+                <div key={tier.id} className={'flex items-center justify-between p-2.5 rounded-lg ' + (isCurrent ? 'bg-white/10 border border-white/20' : 'bg-white/[0.02]')}>
+                  <div className="flex items-center gap-2">
+                    <Star className={'w-4 h-4 ' + tierColor(tier.tier_name)} />
+                    <div>
+                      <p className={'text-sm font-medium ' + (isCurrent ? 'text-white' : 'text-gray-400')}>{tier.tier_name}</p>
+                      <p className="text-[10px] text-gray-600">
+                        {tier.min_achievement_pct}%{tier.max_achievement_pct ? ` - ${tier.max_achievement_pct}%` : '+'} achievement
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className={'text-sm font-semibold ' + (isCurrent ? 'text-[#00E87B]' : 'text-gray-400')}>{tier.commission_rate}%</p>
+                    {tier.bonus_amount > 0 && <p className="text-[10px] text-amber-400">+R{tier.bonus_amount.toLocaleString()}</p>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Team Performance */}
+      {team && (
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <Users className="w-3.5 h-3.5" /> Team Performance
+          </h3>
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+              <UserCheck className="w-5 h-5 text-blue-400" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white">{team.team_lead_name}&apos;s Team</p>
+              <p className="text-xs text-gray-500">{team.member_count} members</p>
+            </div>
+            <div className="ml-auto text-right">
+              <p className={'text-lg font-bold ' + (team.achievement >= 100 ? 'text-[#00E87B]' : team.achievement >= 75 ? 'text-amber-400' : 'text-red-400')}>{team.achievement}%</p>
+              <p className="text-[10px] text-gray-500">Team Target</p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <ProgressRow label="Team Visits" actual={team.actual_visits} target={team.target_visits} color="#3B82F6" />
+            <ProgressRow label="Team Registrations" actual={team.actual_registrations} target={team.target_registrations} color="#8B5CF6" />
+          </div>
+          <p className="text-[10px] text-gray-600 mt-2">Team targets affect your commission tier and bonus eligibility</p>
+        </div>
+      )}
+
+      {/* Commission Rules */}
+      {rules.length > 0 && (
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Active Commission Rules</h3>
+          <div className="space-y-2">
+            {rules.map((rule) => (
+              <div key={rule.id} className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02]">
+                <div>
+                  <p className="text-sm text-white">{rule.name}</p>
+                  <p className="text-[10px] text-gray-500">
+                    {rule.source_type.replace(/_/g, ' ')}
+                    {rule.min_threshold > 0 && ` | Min: R${rule.min_threshold.toLocaleString()}`}
+                    {rule.max_cap && ` | Cap: R${rule.max_cap.toLocaleString()}`}
+                  </p>
+                </div>
+                <span className="text-sm font-semibold text-[#00E87B]">{rule.rate}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div>
         <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Recent Earnings</h2>
