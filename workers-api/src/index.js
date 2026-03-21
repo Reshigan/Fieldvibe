@@ -367,7 +367,7 @@ app.get('/api/agent/performance', authMiddleware, async (c) => {
       db.prepare("SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM commission_earnings WHERE tenant_id = ? AND earner_id = ? AND status = 'paid'").bind(tenantId, userId).first(),
       db.prepare("SELECT ce.id, ce.amount, ce.status, ce.source_type, ce.created_at, cr.name as rule_name FROM commission_earnings ce LEFT JOIN commission_rules cr ON ce.rule_id = cr.id WHERE ce.tenant_id = ? AND ce.earner_id = ? ORDER BY ce.created_at DESC LIMIT 10").bind(tenantId, userId).all(),
       db.prepare("SELECT visit_date, COUNT(*) as count FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date >= date(?, '-6 days') GROUP BY visit_date ORDER BY visit_date").bind(tenantId, userId, today).all(),
-      db.prepare("SELECT DISTINCT visit_date FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date <= ? ORDER BY visit_date DESC LIMIT 30").bind(tenantId, userId, today).all(),
+      db.prepare("SELECT DISTINCT visit_date FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date <= ? AND strftime('%w', visit_date) NOT IN ('0', '6') ORDER BY visit_date DESC LIMIT 30").bind(tenantId, userId, today).all(),
       db.prepare("SELECT id, name, source_type, rate, min_threshold, max_cap, effective_from, effective_to FROM commission_rules WHERE tenant_id = ? AND is_active = 1 ORDER BY name").bind(tenantId).all(),
       db.prepare("SELECT id, tier_name, min_achievement_pct, max_achievement_pct, commission_rate, bonus_amount, metric_type FROM target_commission_tiers WHERE tenant_id = ? AND is_active = 1 ORDER BY min_achievement_pct").bind(tenantId).all(),
     ]);
