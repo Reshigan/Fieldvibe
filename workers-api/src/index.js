@@ -337,6 +337,95 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
   }
 });
 
+// ==================== AGENT PERFORMANCE ====================
+app.get('/api/agent/performance', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const userId = c.get('userId');
+    const today = new Date().toISOString().split('T')[0];
+    const currentMonth = today.substring(0, 7);
+    const monthStart = currentMonth + '-01';
+
+    const [
+      monthlyTargets,
+      pendingCommissions,
+      approvedCommissions,
+      paidCommissions,
+      recentEarnings,
+      weeklyVisits,
+      streakData
+    ] = await Promise.all([
+      db.prepare("SELECT mt.*, fc.name as company_name FROM monthly_targets mt LEFT JOIN field_companies fc ON mt.company_id = fc.id WHERE mt.tenant_id = ? AND mt.agent_id = ? AND mt.target_month = ? ORDER BY fc.name").bind(tenantId, userId, currentMonth).all(),
+      db.prepare("SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM commission_earnings WHERE tenant_id = ? AND earner_id = ? AND status = 'pending'").bind(tenantId, userId).first(),
+      db.prepare("SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM commission_earnings WHERE tenant_id = ? AND earner_id = ? AND status = 'approved'").bind(tenantId, userId).first(),
+      db.prepare("SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM commission_earnings WHERE tenant_id = ? AND earner_id = ? AND status = 'paid'").bind(tenantId, userId).first(),
+      db.prepare("SELECT ce.id, ce.amount, ce.status, ce.source_type, ce.created_at, cr.name as rule_name FROM commission_earnings ce LEFT JOIN commission_rules cr ON ce.rule_id = cr.id WHERE ce.tenant_id = ? AND ce.earner_id = ? ORDER BY ce.created_at DESC LIMIT 10").bind(tenantId, userId).all(),
+      db.prepare("SELECT visit_date, COUNT(*) as count FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date >= date(?, '-6 days') GROUP BY visit_date ORDER BY visit_date").bind(tenantId, userId, today).all(),
+      db.prepare("SELECT DISTINCT visit_date FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date <= ? ORDER BY visit_date DESC LIMIT 30").bind(tenantId, userId, today).all(),
+    ]);
+
+    // Calculate current streak
+    let streak = 0;
+    const streakDates = (streakData.results || []).map(r => r.visit_date);
+    if (streakDates.length > 0) {
+      const d = new Date(today);
+      for (let i = 0; i < streakDates.length; i++) {
+        const expected = d.toISOString().split('T')[0];
+        if (streakDates[i] === expected) {
+          streak++;
+          d.setDate(d.getDate() - 1);
+          // Skip weekends
+          while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+        } else {
+          break;
+        }
+      }
+    }
+
+    // Aggregate monthly targets
+    const targets = monthlyTargets.results || [];
+    const totalTargetVisits = targets.reduce((s, t) => s + (t.target_visits || 0), 0);
+    const totalActualVisits = targets.reduce((s, t) => s + (t.actual_visits || 0), 0);
+    const totalTargetRegs = targets.reduce((s, t) => s + (t.target_registrations || 0), 0);
+    const totalActualRegs = targets.reduce((s, t) => s + (t.actual_registrations || 0), 0);
+    const totalTargetConvs = targets.reduce((s, t) => s + (t.target_conversions || 0), 0);
+    const totalActualConvs = targets.reduce((s, t) => s + (t.actual_conversions || 0), 0);
+    const totalCommission = targets.reduce((s, t) => s + (t.commission_amount || 0), 0);
+    const overallAchievement = totalTargetVisits > 0 ? Math.round((totalActualVisits / totalTargetVisits) * 100) : 0;
+
+    return c.json({
+      success: true,
+      data: {
+        month: currentMonth,
+        overall_achievement: overallAchievement,
+        total_target_visits: totalTargetVisits,
+        total_actual_visits: totalActualVisits,
+        total_target_registrations: totalTargetRegs,
+        total_actual_registrations: totalActualRegs,
+        total_target_conversions: totalTargetConvs,
+        total_actual_conversions: totalActualConvs,
+        monthly_targets: targets,
+        commission_summary: {
+          pending: pendingCommissions?.total || 0,
+          pending_count: pendingCommissions?.count || 0,
+          approved: approvedCommissions?.total || 0,
+          approved_count: approvedCommissions?.count || 0,
+          paid: paidCommissions?.total || 0,
+          paid_count: paidCommissions?.count || 0,
+          target_commission: totalCommission,
+        },
+        recent_earnings: recentEarnings.results || [],
+        weekly_visits: weeklyVisits.results || [],
+        streak: streak,
+      }
+    });
+  } catch (error) {
+    console.error('Agent performance error:', error);
+    return c.json({ success: true, data: { month: '', overall_achievement: 0, total_target_visits: 0, total_actual_visits: 0, total_target_registrations: 0, total_actual_registrations: 0, total_target_conversions: 0, total_actual_conversions: 0, monthly_targets: [], commission_summary: { pending: 0, pending_count: 0, approved: 0, approved_count: 0, paid: 0, paid_count: 0, target_commission: 0 }, recent_earnings: [], weekly_visits: [], streak: 0 } });
+  }
+});
+
 // ==================== AGENT PIN MANAGEMENT ====================
 
 // Manager/Admin: Set or reset PIN for an agent
