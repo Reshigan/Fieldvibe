@@ -935,10 +935,10 @@ app.post('/api/agent/set-pin', authMiddleware, async (c) => {
       return c.json({ success: false, message: 'Only admins, managers, and team leads can set agent PINs' }, 403);
     }
 
-    // Verify target user exists and has an agent-like role
+    // Verify target user exists and has a mobile-login-capable role
     const targetQuery = isTeamLead
-      ? "SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role IN ('agent', 'team_lead', 'field_agent', 'sales_rep') AND team_lead_id = ?"
-      : "SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role IN ('agent', 'team_lead', 'field_agent', 'sales_rep')";
+      ? "SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role IN ('agent', 'team_lead', 'field_agent', 'sales_rep', 'manager') AND team_lead_id = ?"
+      : "SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role IN ('agent', 'team_lead', 'field_agent', 'sales_rep', 'manager')";
     const targetBinds = isTeamLead ? [agent_id, tenantId, requesterId] : [agent_id, tenantId];
     const targetAgent = await db.prepare(targetQuery).bind(...targetBinds).first();
     if (!targetAgent) {
@@ -1267,13 +1267,14 @@ api.post('/users', requireRole('admin'), async (c) => {
   if (!v.valid) return c.json({ success: false, message: 'Validation failed', errors: v.errors }, 400);
   const id = uuidv4();
   const role = body.role || 'agent';
-  // Agents default to password 12345; other roles get random password
+  // Agents/team_leads/managers default to password 12345; other roles get random password
   const isAgent = role === 'agent' || role === 'field_agent' || role === 'sales_rep';
-  const password = body.password || (isAgent ? '12345' : Math.random().toString(36).slice(-8));
+  const isMobileRole = isAgent || role === 'team_lead' || role === 'manager';
+  const password = body.password || (isMobileRole ? '12345' : Math.random().toString(36).slice(-8));
   const hashedPassword = await bcrypt.hash(password, 10);
-  // Set default PIN 12345 for agents and field_agents
+  // Set default PIN 12345 for all mobile-login-capable roles
   let pinHash = null;
-  if (isAgent) {
+  if (isMobileRole) {
     pinHash = await bcrypt.hash('12345', 10);
   }
   // Email is optional for agents but required for non-agent roles
