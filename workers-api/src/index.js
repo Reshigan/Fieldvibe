@@ -409,6 +409,11 @@ app.get('/api/agent/performance', authMiddleware, async (c) => {
       const d = new Date(today);
       // Skip weekends for initial date to match the weekday-only streak query
       while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+      // If no visit today yet, start checking from the previous weekday
+      if (streakDates[0] !== d.toISOString().split('T')[0]) {
+        d.setDate(d.getDate() - 1);
+        while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+      }
       for (let i = 0; i < streakDates.length; i++) {
         const expected = d.toISOString().split('T')[0];
         if (streakDates[i] === expected) {
