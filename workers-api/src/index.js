@@ -936,9 +936,13 @@ app.post('/api/agent/set-pin', authMiddleware, async (c) => {
     }
 
     // Verify target user exists and has a mobile-login-capable role
+    // Managers can only set PINs for agents/team_leads/field_agents/sales_reps (not other managers)
+    // Only admins/super_admins can set PINs for manager-level users
     const targetQuery = isTeamLead
       ? "SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role IN ('agent', 'team_lead', 'field_agent', 'sales_rep', 'manager') AND team_lead_id = ?"
-      : "SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role IN ('agent', 'team_lead', 'field_agent', 'sales_rep', 'manager')";
+      : isManager
+        ? "SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role IN ('agent', 'team_lead', 'field_agent', 'sales_rep')"
+        : "SELECT id FROM users WHERE id = ? AND tenant_id = ? AND role IN ('agent', 'team_lead', 'field_agent', 'sales_rep', 'manager')";
     const targetBinds = isTeamLead ? [agent_id, tenantId, requesterId] : [agent_id, tenantId];
     const targetAgent = await db.prepare(targetQuery).bind(...targetBinds).first();
     if (!targetAgent) {
