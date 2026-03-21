@@ -843,6 +843,19 @@ app.get('/api/manager/dashboard', authMiddleware, async (c) => {
       orgPaid = cdRes?.total || 0;
     }
 
+    // Include team lead commission earnings in org totals
+    if (teamLeadIds.length > 0) {
+      const tlPh3 = teamLeadIds.map(() => '?').join(',');
+      const [tlPendingC, tlApprovedC, tlPaidC] = await Promise.all([
+        db.prepare(`SELECT COALESCE(SUM(amount),0) as total FROM commission_earnings WHERE tenant_id = ? AND earner_id IN (${tlPh3}) AND status = 'pending'`).bind(tenantId, ...teamLeadIds).first(),
+        db.prepare(`SELECT COALESCE(SUM(amount),0) as total FROM commission_earnings WHERE tenant_id = ? AND earner_id IN (${tlPh3}) AND status = 'approved'`).bind(tenantId, ...teamLeadIds).first(),
+        db.prepare(`SELECT COALESCE(SUM(amount),0) as total FROM commission_earnings WHERE tenant_id = ? AND earner_id IN (${tlPh3}) AND status = 'paid'`).bind(tenantId, ...teamLeadIds).first(),
+      ]);
+      orgPending += (tlPendingC?.total || 0);
+      orgApproved += (tlApprovedC?.total || 0);
+      orgPaid += (tlPaidC?.total || 0);
+    }
+
     // Fetch commission rules and tiers
     const [mgrCommRules, mgrCommTiers] = await Promise.all([
       db.prepare("SELECT id, name, source_type, rate, min_threshold, max_cap, effective_from, effective_to FROM commission_rules WHERE tenant_id = ? AND is_active = 1 ORDER BY name").bind(tenantId).all(),
