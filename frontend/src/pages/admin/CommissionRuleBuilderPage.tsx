@@ -1,5 +1,3 @@
-const [confirmOpen, setConfirmOpen] = useState(false)
-const [pendingAction, setPendingAction] = useState<{ title: string; message: string; action: () => void }>({ title: '', message: '', action: () => {} })
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Calculator } from 'lucide-react';
 import SearchableSelect from '../../components/ui/SearchableSelect'
@@ -9,6 +7,8 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 interface Rule { id: number; name: string; boardType: string; minQty: number; maxQty: number; rate: number; bonusRate: number; }
 
 const CommissionRuleBuilderPage: React.FC = () => {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<{ title: string; message: string; action: () => void }>({ title: '', message: '', action: () => {} })
   const [rules, setRules] = useState<Rule[]>([]);
   const [form, setForm] = useState<Partial<Rule>>({});
 

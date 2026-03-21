@@ -1,5 +1,3 @@
-const [confirmOpen, setConfirmOpen] = useState(false)
-const [pendingAction, setPendingAction] = useState<{ title: string; message: string; action: () => void }>({ title: '', message: '', action: () => {} })
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Edit, Trash2, Calendar, MapPin, CheckSquare, Camera, BarChart3 } from 'lucide-react'
@@ -33,6 +31,8 @@ interface VisitConfiguration {
 }
 
 export default function VisitConfigurationPage() {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<{ title: string; message: string; action: () => void }>({ title: '', message: '', action: () => {} })
   const [showModal, setShowModal] = useState(false)
   const [editingConfig, setEditingConfig] = useState<VisitConfiguration | null>(null)
   const queryClient = useQueryClient()

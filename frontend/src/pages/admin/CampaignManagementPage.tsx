@@ -1,5 +1,3 @@
-const [confirmOpen, setConfirmOpen] = useState(false)
-const [pendingAction, setPendingAction] = useState<{ title: string; message: string; action: () => void }>({ title: '', message: '', action: () => {} })
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Calendar } from 'lucide-react';
 import SearchableSelect from '../../components/ui/SearchableSelect'
@@ -9,6 +7,8 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 interface Campaign { id: number; name: string; startDate: string; endDate: string; budget: number; status: string; target: number; }
 
 const CampaignManagementPage: React.FC = () => {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<{ title: string; message: string; action: () => void }>({ title: '', message: '', action: () => {} })
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [editing, setEditing] = useState<number | null>(null);
   const [form, setForm] = useState<Partial<Campaign>>({ status: 'planned' });

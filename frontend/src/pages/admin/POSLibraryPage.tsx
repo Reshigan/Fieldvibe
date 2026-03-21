@@ -1,5 +1,3 @@
-const [confirmOpen, setConfirmOpen] = useState(false)
-const [pendingAction, setPendingAction] = useState<{ title: string; message: string; action: () => void }>({ title: '', message: '', action: () => {} })
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Package } from 'lucide-react';
 import SearchableSelect from '../../components/ui/SearchableSelect'
@@ -9,6 +7,8 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 interface Material { id: number; name: string; type: string; brand: string; stockQty: number; cost: number; supplier: string; }
 
 const POSLibraryPage: React.FC = () => {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<{ title: string; message: string; action: () => void }>({ title: '', message: '', action: () => {} })
   const [materials, setMaterials] = useState<Material[]>([]);
   const [editing, setEditing] = useState<number | null>(null);
   const [form, setForm] = useState<Partial<Material>>({});

@@ -1,5 +1,3 @@
-const [confirmOpen, setConfirmOpen] = useState(false)
-const [pendingAction, setPendingAction] = useState<{ title: string; message: string; action: () => void }>({ title: '', message: '', action: () => {} })
 import { useState, useEffect } from 'react'
 import { Plus, Edit, Trash2, Search, DollarSign, Calendar } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -10,6 +8,8 @@ import SearchableSelect from '../../components/ui/SearchableSelect'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 
 export default function PriceListManagementPage() {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<{ title: string; message: string; action: () => void }>({ title: '', message: '', action: () => {} })
   const { toast } = useToast()
   const navigate = useNavigate()
   const [priceLists, setPriceLists] = useState<PriceList[]>([])

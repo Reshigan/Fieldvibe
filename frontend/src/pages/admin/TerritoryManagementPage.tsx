@@ -1,5 +1,3 @@
-const [confirmOpen, setConfirmOpen] = useState(false)
-const [pendingAction, setPendingAction] = useState<{ title: string; message: string; action: () => void }>({ title: '', message: '', action: () => {} })
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, MapPin } from 'lucide-react';
 import { apiClient } from '../../services/api.service'
@@ -8,6 +6,8 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 interface Territory { id: number; name: string; region: string; agents: number; area: string; coordinates: string; }
 
 const TerritoryManagementPage: React.FC = () => {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<{ title: string; message: string; action: () => void }>({ title: '', message: '', action: () => {} })
   const [territories, setTerritories] = useState<Territory[]>([]);
   const [editing, setEditing] = useState<number | null>(null);
   const [form, setForm] = useState<Partial<Territory>>({});
