@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Play, Store, User, MapPin, Camera, CheckCircle, FileText,
   ChevronDown, ChevronUp, Navigation, Clock, AlertTriangle,
-  Smartphone, ArrowLeft, BookOpen, Target, Shield, Wifi
+  Smartphone, BookOpen, Target, Shield, Wifi
 } from 'lucide-react'
 
 interface Section {
@@ -259,20 +259,12 @@ export default function AgentTrainingGuide() {
     <div className="min-h-screen bg-[#06090F] pb-24">
       {/* Header */}
       <div className="bg-gradient-to-br from-[#0A1628] to-[#0F2140] px-5 pt-5 pb-6">
-        <div className="flex items-center gap-3 mb-4">
-          <button
-            onClick={() => navigate('/agent/dashboard')}
-            className="p-2 -ml-2 rounded-xl hover:bg-white/5 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 text-white" />
-          </button>
-          <div>
-            <h1 className="text-xl font-bold text-white flex items-center gap-2">
-              <BookOpen className="w-5 h-5 text-[#00E87B]" />
-              Training Guide
-            </h1>
-            <p className="text-xs text-gray-400 mt-0.5">How to complete visits in FieldVibe</p>
-          </div>
+        <div className="mb-4">
+          <h1 className="text-xl font-bold text-white flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-[#00E87B]" />
+            Training Guide
+          </h1>
+          <p className="text-xs text-gray-400 mt-0.5">How to complete visits in FieldVibe</p>
         </div>
 
         {/* Quick action */}
