@@ -1293,7 +1293,8 @@ api.post('/users', requireRole('admin'), async (c) => {
   try {
     const agentType = body.agent_type || body.agentType || null;
     await db.prepare('INSERT INTO users (id, tenant_id, email, phone, password_hash, pin_hash, first_name, last_name, role, agent_type, manager_id, team_lead_id, status, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)').bind(id, tenantId, emailForDb, body.phone || null, hashedPassword, pinHash, body.firstName || body.first_name || '', body.lastName || body.last_name || '', role, agentType, body.managerId || body.manager_id || null, body.teamLeadId || body.team_lead_id || null, 'active').run();
-    return c.json({ success: true, data: { id, password, default_pin: isMobileRole ? '12345' : undefined }, message: 'User created' }, 201);
+    const actualPin = isMobileRole ? (body.pin || '12345') : undefined;
+    return c.json({ success: true, data: { id, password, default_pin: actualPin }, message: 'User created' }, 201);
   } catch (err) {
     const msg = err.message || 'Failed to create user';
     if (msg.includes('UNIQUE constraint failed: users.email')) {

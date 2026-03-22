@@ -877,8 +877,7 @@ export default function AgentHierarchyPage() {
                 )}
 
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Default password: <strong>12345</strong> &middot; Default PIN: <strong>12345</strong>
-                  {createForm.pin && <> &middot; Custom PIN: <strong>{createForm.pin}</strong></>}
+                  Default password: <strong>12345</strong> &middot; {createForm.pin ? <>PIN: <strong>{createForm.pin}</strong></> : <>Default PIN: <strong>12345</strong></>}
                 </p>
 
                 <div className="flex justify-end gap-3 pt-2">
