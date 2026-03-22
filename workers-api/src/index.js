@@ -10727,7 +10727,7 @@ api.put('/company-sample-boards/:id', authMiddleware, async (c) => {
   const existing = await db.prepare('SELECT id FROM company_sample_boards WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
   if (!existing) return c.json({ success: false, message: 'Sample board not found' }, 404);
   await db.prepare(`UPDATE company_sample_boards SET name = COALESCE(?, name), description = COALESCE(?, description), validity_start = COALESCE(?, validity_start), validity_end = ?, is_active = COALESCE(?, is_active), updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`).bind(
-    body.name || null, body.description || null, body.valid_from || null, body.valid_to ?? null, body.is_active ?? null, id, tenantId
+    body.name || null, body.description || null, body.validity_start || body.valid_from || null, body.validity_end ?? body.valid_to ?? null, body.is_active ?? null, id, tenantId
   ).run();
   return c.json({ success: true, message: 'Sample board updated' });
 });
@@ -10746,7 +10746,7 @@ api.get('/company-sample-boards/active/:companyId', authMiddleware, async (c) =>
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const companyId = c.req.param('companyId');
-  const boards = await db.prepare("SELECT id, name, description, r2_key, r2_url, valid_from, valid_to FROM company_sample_boards WHERE tenant_id = ? AND company_id = ? AND is_active = 1 AND validity_start <= date('now') AND (validity_end IS NULL OR valid_to >= date('now')) ORDER BY valid_from DESC").bind(tenantId, companyId).all();
+  const boards = await db.prepare("SELECT id, name, description, r2_key, image_url, validity_start, validity_end FROM company_sample_boards WHERE tenant_id = ? AND company_id = ? AND is_active = 1 AND validity_start <= date('now') AND (validity_end IS NULL OR validity_end >= date('now')) ORDER BY validity_start DESC").bind(tenantId, companyId).all();
   return c.json({ success: true, data: boards.results || [] });
 });
 
@@ -14045,9 +14045,12 @@ async function generateAgingReport(db) {
 async function resolvePrice(db, tenantId, productId, customerId, quantity) {
   if (customerId) {
     const customer = await db.prepare('SELECT id, category FROM customers WHERE id = ? AND tenant_id = ?').bind(customerId, tenantId).first();
-    if (customer) {
-      const pli = await db.prepare('SELECT unit_price FROM price_list_items WHERE price_list_id = ? AND product_id = ? AND min_qty <= ? ORDER BY min_qty DESC LIMIT 1').bind(null, productId, quantity || 1).first();
-      if (pli) return { price: pli.unit_price, source: 'customer_price_list' };
+    if (customer && customer.category) {
+      const catPriceList = await db.prepare("SELECT pl.id FROM price_lists pl WHERE pl.tenant_id = ? AND pl.is_active = 1 AND pl.name LIKE '%' || ? || '%' ORDER BY pl.created_at DESC LIMIT 1").bind(tenantId, customer.category).first();
+      if (catPriceList) {
+        const pli = await db.prepare('SELECT unit_price FROM price_list_items WHERE price_list_id = ? AND product_id = ? AND min_qty <= ? ORDER BY min_qty DESC LIMIT 1').bind(catPriceList.id, productId, quantity || 1).first();
+        if (pli) return { price: pli.unit_price, source: 'customer_price_list' };
+      }
     }
   }
   const volumePrice = await db.prepare("SELECT pli.unit_price FROM price_list_items pli JOIN price_lists pl ON pli.price_list_id = pl.id WHERE pl.tenant_id = ? AND pl.is_active = 1 AND pli.product_id = ? AND pli.min_qty <= ? ORDER BY pli.min_qty DESC LIMIT 1").bind(tenantId, productId, quantity || 1).first();
