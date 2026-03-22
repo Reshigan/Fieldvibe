@@ -748,8 +748,8 @@ function CustomQuestionsTab() {
         field_options: form.field_type === 'select' ? form.field_options.split(',').map(o => o.trim()).filter(Boolean) : undefined,
         is_required: form.is_required,
         check_duplicate: form.check_duplicate,
-        min_length: (form.field_type === 'text' || form.field_type === 'number' || form.field_type === 'textarea') ? form.min_length : undefined,
-        max_length: (form.field_type === 'text' || form.field_type === 'number' || form.field_type === 'textarea') ? form.max_length : undefined,
+        min_length: (form.field_type === 'text' || form.field_type === 'number' || form.field_type === 'textarea') ? (form.min_length ?? null) : null,
+        max_length: (form.field_type === 'text' || form.field_type === 'number' || form.field_type === 'textarea') ? (form.max_length ?? null) : null,
       }
       if (editingQuestion) {
         return fieldOperationsService.updateCompanyCustomQuestion(editingQuestion.id, payload)

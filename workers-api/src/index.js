@@ -6352,15 +6352,16 @@ api.put('/company-custom-questions/:id', authMiddleware, async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json();
   try {
-    await db.prepare('UPDATE company_custom_questions SET question_label = COALESCE(?, question_label), question_key = COALESCE(?, question_key), field_type = COALESCE(?, field_type), field_options = COALESCE(?, field_options), is_required = COALESCE(?, is_required), display_order = COALESCE(?, display_order), visit_target_type = COALESCE(?, visit_target_type), check_duplicate = COALESCE(?, check_duplicate), min_length = COALESCE(?, min_length), max_length = COALESCE(?, max_length), updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?').bind(
+    // Use direct assignment for min_length/max_length so null clears the value (COALESCE would preserve old value)
+    await db.prepare('UPDATE company_custom_questions SET question_label = COALESCE(?, question_label), question_key = COALESCE(?, question_key), field_type = COALESCE(?, field_type), field_options = COALESCE(?, field_options), is_required = COALESCE(?, is_required), display_order = COALESCE(?, display_order), visit_target_type = COALESCE(?, visit_target_type), check_duplicate = COALESCE(?, check_duplicate), min_length = ?, max_length = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?').bind(
       body.question_label || null, body.question_key || null, body.field_type || null,
       body.field_options ? JSON.stringify(body.field_options) : null,
       body.is_required !== undefined ? (body.is_required ? 1 : 0) : null,
       body.display_order !== undefined ? body.display_order : null,
       body.visit_target_type || null,
       body.check_duplicate !== undefined ? (body.check_duplicate ? 1 : 0) : null,
-      body.min_length !== undefined ? body.min_length : null,
-      body.max_length !== undefined ? body.max_length : null,
+      body.min_length !== undefined ? (body.min_length ?? null) : null,
+      body.max_length !== undefined ? (body.max_length ?? null) : null,
       id, tenantId
     ).run();
     return c.json({ message: 'Custom question updated' });
