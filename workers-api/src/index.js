@@ -10660,11 +10660,11 @@ api.get('/company-sample-boards', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const { company_id, active_only } = c.req.query();
-  let where = 'WHERE tenant_id = ?';
+  let where = 'WHERE csb.tenant_id = ?';
   const params = [tenantId];
-  if (company_id) { where += ' AND company_id = ?'; params.push(company_id); }
+  if (company_id) { where += ' AND csb.company_id = ?'; params.push(company_id); }
   if (active_only === 'true') {
-    where += " AND is_active = 1 AND valid_from <= date('now') AND (valid_to IS NULL OR valid_to >= date('now'))";
+    where += " AND csb.is_active = 1 AND csb.validity_start <= date('now') AND (csb.validity_end IS NULL OR csb.validity_end >= date('now'))";
   }
   const boards = await db.prepare(`SELECT csb.*, fc.name as company_name FROM company_sample_boards csb LEFT JOIN field_companies fc ON csb.company_id = fc.id ${where} ORDER BY csb.created_at DESC`).bind(...params).all();
   return c.json({ success: true, data: boards.results || [] });
