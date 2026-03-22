@@ -11667,7 +11667,7 @@ api.get('/admin/integrations', requireRole('admin'), async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
   const webhooks = await db.prepare('SELECT * FROM webhooks WHERE tenant_id = ? ORDER BY created_at DESC').bind(tenantId).all();
-  const apiKeys = await db.prepare('SELECT id, tenant_id, name, key_prefix, permissions, expires_at, is_active, created_at FROM api_keys WHERE tenant_id = ? ORDER BY created_at DESC').bind(tenantId).all();
+  const apiKeys = await db.prepare('SELECT id, tenant_id, name, key_prefix, scopes, is_active, last_used_at, expires_at, created_by, created_at FROM api_keys WHERE tenant_id = ? ORDER BY created_at DESC').bind(tenantId).all();
   return c.json({ success: true, data: { webhooks: webhooks.results || [], api_keys: apiKeys.results || [] } });
 });
 
@@ -11694,7 +11694,7 @@ api.get('/dashboard/sales', authMiddleware, async (c) => {
     db.prepare("SELECT COUNT(*) as total FROM sales_orders WHERE tenant_id = ? AND created_at >= ? AND created_at <= ?").bind(tenantId, lastMonthStart, lastMonthEnd).first(),
     db.prepare("SELECT COUNT(*) as total FROM sales_orders WHERE tenant_id = ? AND status IN ('pending', 'confirmed', 'processing')").bind(tenantId).first(),
     db.prepare("SELECT COUNT(*) as total FROM sales_orders WHERE tenant_id = ? AND status IN ('delivered', 'completed')").bind(tenantId).first(),
-    db.prepare("SELECT COALESCE(SUM(target_value), 0) as total FROM monthly_targets WHERE tenant_id = ? AND month = ?").bind(tenantId, monthStart.substring(0, 7)).first(),
+    db.prepare("SELECT COALESCE(SUM(target_visits), 0) as total FROM monthly_targets WHERE tenant_id = ? AND target_month = ?").bind(tenantId, monthStart.substring(0, 7)).first(),
   ]);
   const totalSales = currentSales?.total || 0;
   const prevSales = lastSales?.total || 0;
@@ -11821,8 +11821,8 @@ api.get('/samples/allocations', authMiddleware, async (c) => {
 api.get('/product-types', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
-  const types = await db.prepare('SELECT DISTINCT type FROM products WHERE tenant_id = ? AND type IS NOT NULL ORDER BY type').bind(tenantId).all();
-  return c.json({ success: true, data: (types.results || []).map(t => ({ name: t.type })) });
+  const types = await db.prepare('SELECT DISTINCT c.name as type_name, c.id FROM categories c JOIN products p ON p.category_id = c.id WHERE p.tenant_id = ? AND c.name IS NOT NULL ORDER BY c.name').bind(tenantId).all();
+  return c.json({ success: true, data: (types.results || []).map(t => ({ name: t.type_name, id: t.id })) });
 });
 
 api.get('/van-routes', authMiddleware, async (c) => {
@@ -11907,7 +11907,7 @@ api.get('/van-sales', authMiddleware, async (c) => {
   const tenantId = c.get('tenantId');
   const { page = '1', limit = '50' } = c.req.query();
   const offset = (parseInt(page) - 1) * parseInt(limit);
-  const sales = await db.prepare('SELECT vsl.*, v.name as van_name, v.registration_number FROM van_stock_loads vsl LEFT JOIN vans v ON vsl.van_id = v.id WHERE vsl.tenant_id = ? ORDER BY vsl.created_at DESC LIMIT ? OFFSET ?').bind(tenantId, parseInt(limit), offset).all();
+  const sales = await db.prepare('SELECT vsl.*, v.name as van_name, v.registration_number FROM van_stock_loads vsl LEFT JOIN vans v ON vsl.vehicle_reg = v.registration_number WHERE vsl.tenant_id = ? ORDER BY vsl.created_at DESC LIMIT ? OFFSET ?').bind(tenantId, parseInt(limit), offset).all();
   return c.json({ success: true, data: sales.results || [] });
 });
 
