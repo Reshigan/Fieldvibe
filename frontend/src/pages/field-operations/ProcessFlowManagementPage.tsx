@@ -71,6 +71,42 @@ interface CustomQuestion {
   max_length?: number
 }
 
+// ── Built-in flow fields already captured in the standard visit flow ──
+const BUILT_IN_FLOW_FIELDS: Record<string, { label: string; appliesTo: 'individual' | 'store' | 'both' }> = {
+  first_name: { label: 'First Name', appliesTo: 'individual' },
+  last_name: { label: 'Last Name', appliesTo: 'individual' },
+  customer_name: { label: 'Customer Name', appliesTo: 'individual' },
+  individual_name: { label: 'Individual Name', appliesTo: 'individual' },
+  name: { label: 'Name', appliesTo: 'both' },
+  id_number: { label: 'ID Number', appliesTo: 'individual' },
+  phone: { label: 'Phone Number', appliesTo: 'individual' },
+  phone_number: { label: 'Phone Number', appliesTo: 'individual' },
+  cell_number: { label: 'Cell Number', appliesTo: 'individual' },
+  email: { label: 'Email', appliesTo: 'individual' },
+  store_name: { label: 'Store Name', appliesTo: 'store' },
+  shop_name: { label: 'Shop Name', appliesTo: 'store' },
+  business_name: { label: 'Business Name', appliesTo: 'store' },
+  address: { label: 'Address', appliesTo: 'store' },
+  gps: { label: 'GPS Location', appliesTo: 'both' },
+  latitude: { label: 'Latitude', appliesTo: 'both' },
+  longitude: { label: 'Longitude', appliesTo: 'both' },
+  visit_type: { label: 'Visit Type', appliesTo: 'both' },
+  photo: { label: 'Photo', appliesTo: 'store' },
+}
+
+function checkDuplicateFlowField(questionKey: string, questionLabel: string, visitTargetType: string): string | null {
+  const normalizedKey = questionKey.toLowerCase().replace(/[^a-z0-9]/g, '_')
+  const normalizedLabel = questionLabel.toLowerCase().replace(/[^a-z0-9]/g, '_')
+  for (const [key, info] of Object.entries(BUILT_IN_FLOW_FIELDS)) {
+    if (info.appliesTo !== 'both' && visitTargetType !== 'both' && info.appliesTo !== visitTargetType) continue
+    if (normalizedKey === key || normalizedLabel === key ||
+        normalizedKey.includes(key) || normalizedLabel.includes(key)) {
+      return `This question may duplicate the built-in "${info.label}" field already captured in the ${info.appliesTo === 'both' ? 'standard' : info.appliesTo} flow.`
+    }
+  }
+  return null
+}
+
 // ── Available step definitions ──
 const AVAILABLE_STEPS = [
   { key: 'gps', label: 'GPS Check-in', description: 'Capture GPS coordinates for visit location' },
@@ -801,9 +837,13 @@ function CustomQuestionsTab() {
 
       {showCreate && (
         <div className="card p-6 border-2 border-blue-200 dark:border-blue-800">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
             {editingQuestion ? 'Edit Custom Question' : 'Create Custom Question'}
           </h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            Custom questions appear on the visit Details step. Write clear, concise questions that agents can answer quickly in the field.
+            Avoid questions that duplicate data already captured (e.g. name, phone, GPS).
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Company *</label>
@@ -829,8 +869,9 @@ function CustomQuestionsTab() {
                   }))
                 }}
                 className="input w-full"
-                placeholder="e.g. How many units were sold?"
+                placeholder="e.g. How many units were sold this week?"
               />
+              <p className="text-xs text-gray-400 mt-1">Write as a clear question the agent will answer during the visit.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Question Key</label>
@@ -841,6 +882,7 @@ function CustomQuestionsTab() {
                 className="input w-full"
                 placeholder="Auto-generated from label"
               />
+              <p className="text-xs text-gray-400 mt-1">Unique identifier used in data exports. Auto-generated from the label.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Field Type</label>
@@ -923,6 +965,20 @@ function CustomQuestionsTab() {
               <span className="text-sm text-gray-700 dark:text-gray-300">Check for duplicate (flags if similar question exists in the flow)</span>
             </label>
           </div>
+          {/* Duplicate flow field warning */}
+          {form.check_duplicate && form.question_key && (() => {
+            const warning = checkDuplicateFlowField(form.question_key, form.question_label, form.visit_target_type)
+            return warning ? (
+              <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg flex items-start gap-2">
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Potential Duplicate Detected</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">{warning}</p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Consider removing this question to avoid asking the same information twice.</p>
+                </div>
+              </div>
+            ) : null
+          })()}
           <div className="flex gap-3 mt-4">
             <button
               onClick={() => saveMutation.mutate()}
