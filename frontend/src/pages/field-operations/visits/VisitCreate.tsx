@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { apiClient } from '../../../services/api.service'
 import {
   Box, Stepper, Step, StepLabel, Button, Paper, Typography, Alert,
   TextField, FormControl, InputLabel, Select, MenuItem, CircularProgress,
@@ -246,13 +247,32 @@ export default function VisitCreate() {
 
   const loadFormData = async () => {
     try {
-      const [companiesRes, customersRes] = await Promise.all([
-        fieldOperationsService.getCompanies(),
-        fieldOperationsService.getCustomers()
-      ])
-      const companiesData = companiesRes?.data || companiesRes || []
+      let companiesData: Company[] = []
+      if (isMobileContext) {
+        // Mobile agents: only show companies they are assigned to
+        try {
+          const dashRes = await apiClient.get('/agent/dashboard')
+          const agentCompanies = dashRes?.data?.data?.companies || dashRes?.data?.companies || []
+          companiesData = Array.isArray(agentCompanies) ? agentCompanies : []
+        } catch {
+          // Fallback to all companies if dashboard fails
+          const companiesRes = await fieldOperationsService.getCompanies()
+          const allCompanies = companiesRes?.data || companiesRes || []
+          companiesData = Array.isArray(allCompanies) ? allCompanies : []
+        }
+      } else {
+        // Admin: show all companies
+        const companiesRes = await fieldOperationsService.getCompanies()
+        const allCompanies = companiesRes?.data || companiesRes || []
+        companiesData = Array.isArray(allCompanies) ? allCompanies : []
+      }
+      setCompanies(companiesData)
+      // Auto-select company if agent has exactly one
+      if (companiesData.length === 1) {
+        setSelectedCompany(companiesData[0].id)
+      }
+      const customersRes = await fieldOperationsService.getCustomers()
       const customersData = customersRes?.data?.data || customersRes?.data || customersRes || []
-      setCompanies(Array.isArray(companiesData) ? companiesData : [])
       setCustomers(Array.isArray(customersData) ? customersData : [])
     } catch (err) {
       console.error('Failed to load form data:', err)
@@ -724,20 +744,26 @@ export default function VisitCreate() {
   const renderDetailsStep = () => (
     <Card>
       <CardContent>
-        {/* Company Selection */}
-        <FormControl fullWidth sx={{ mb: 3 }}>
-          <InputLabel>Company / Brand</InputLabel>
-          <Select
-            value={selectedCompany}
-            label="Company / Brand"
-            onChange={(e) => setSelectedCompany(e.target.value)}
-          >
-            <MenuItem value="">None</MenuItem>
-            {companies.map(c => (
-              <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        {/* Company Selection - hide if mobile agent with only 1 company (auto-selected) */}
+        {companies.length === 1 && isMobileContext ? (
+          <Alert severity="info" sx={{ mb: 3 }}>
+            Company: <strong>{companies[0].name}</strong>
+          </Alert>
+        ) : (
+          <FormControl fullWidth sx={{ mb: 3 }}>
+            <InputLabel>Company / Brand</InputLabel>
+            <Select
+              value={selectedCompany}
+              label="Company / Brand"
+              onChange={(e) => setSelectedCompany(e.target.value)}
+            >
+              {!isMobileContext && <MenuItem value="">None</MenuItem>}
+              {companies.map(c => (
+                <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
 
         {visitTargetType === 'individual' && (
           <>
