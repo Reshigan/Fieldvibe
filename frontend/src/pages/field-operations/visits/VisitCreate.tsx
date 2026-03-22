@@ -316,12 +316,13 @@ export default function VisitCreate() {
     }
   }, [currentStepKey, gpsLocation, gpsLoading, captureGps])
 
-  // Load custom fields AND custom questions when company changes
+  // Load custom fields, custom questions, survey config, AND questionnaires when company changes
   useEffect(() => {
     if (selectedCompany) {
       loadCustomFields(selectedCompany)
       loadCustomQuestions(selectedCompany)
       loadSurveyConfig(selectedCompany)
+      loadQuestionnaires()
     }
   }, [selectedCompany, visitTargetType])
 
@@ -369,9 +370,9 @@ export default function VisitCreate() {
     }
   }
 
-  // Load questionnaires when entering survey step
+  // Reload questionnaires when entering survey step (in case they weren't loaded yet)
   useEffect(() => {
-    if (currentStepKey === 'survey') {
+    if (currentStepKey === 'survey' && questionnaires.length === 0) {
       loadQuestionnaires()
     }
   }, [currentStepKey])
