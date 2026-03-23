@@ -6468,7 +6468,7 @@ api.get('/individual-visits-report', authMiddleware, async (c) => {
   try {
     let query = `SELECT v.id, v.visit_date, v.check_in_time, v.check_out_time, v.latitude, v.longitude,
       v.individual_name, v.individual_surname, v.individual_id_number, v.individual_phone,
-      v.notes, v.status, v.questionnaire_id, v.purpose,
+      v.notes, v.status, v.questionnaire_id, v.purpose, v.company_id, v.brand_id,
       vi.custom_field_values,
       vr.responses as survey_responses,
       u.first_name || ' ' || u.last_name as agent_name,
