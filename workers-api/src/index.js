@@ -132,6 +132,16 @@ const rateLimiter = (limit, windowMs) => async (c, next) => {
 app.get('/', (c) => c.json({ status: 'ok', service: 'FieldVibe API', version: '2.0.0' }));
 app.get('/health', (c) => c.json({ status: 'healthy', timestamp: new Date().toISOString() }));
 
+// ==================== PHONE NORMALIZATION ====================
+function normalizePhone(phone) {
+  if (!phone) return null;
+  let normalized = phone.replace(/[\s\-]/g, '');
+  if (normalized.startsWith('0')) normalized = '+27' + normalized.substring(1);
+  else if (normalized.startsWith('27') && !normalized.startsWith('+27')) normalized = '+' + normalized;
+  else if (!normalized.startsWith('+')) normalized = '+27' + normalized;
+  return normalized;
+}
+
 // ==================== JWT HELPERS ====================
 async function generateToken(payload, secret, expiresIn = 86400) {
   const header = { alg: 'HS256', typ: 'JWT' };
@@ -257,10 +267,7 @@ app.post('/api/auth/mobile-login', rateLimiter(10, 900000), async (c) => {
     if (pin.length < 4 || pin.length > 6) return c.json({ success: false, message: 'PIN must be 4-6 digits' }, 400);
     const db = c.env.DB;
     // Normalize phone number to +27 format (South Africa)
-    let normalizedPhone = phone.replace(/[\s\-]/g, '');
-    if (normalizedPhone.startsWith('0')) normalizedPhone = '+27' + normalizedPhone.substring(1);
-    else if (normalizedPhone.startsWith('27') && !normalizedPhone.startsWith('+27')) normalizedPhone = '+' + normalizedPhone;
-    else if (!normalizedPhone.startsWith('+')) normalizedPhone = '+27' + normalizedPhone;
+    const normalizedPhone = normalizePhone(phone);
     // Resolve tenant_id from tenant_code (or X-Tenant-Code header) for multi-tenant scoping
     let tenantFilter = '';
     let tenantBinds = [normalizedPhone];
@@ -1550,7 +1557,7 @@ api.post('/users', requireRole('admin'), async (c) => {
   const emailForDb = email || (isMobileRole ? `user_${id.substring(0, 8)}@placeholder.local` : null);
   try {
     const agentType = body.agent_type || body.agentType || null;
-    await db.prepare('INSERT INTO users (id, tenant_id, email, phone, password_hash, pin_hash, first_name, last_name, role, agent_type, manager_id, team_lead_id, status, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)').bind(id, tenantId, emailForDb, body.phone || null, hashedPassword, pinHash, body.firstName || body.first_name || '', body.lastName || body.last_name || '', role, agentType, body.managerId || body.manager_id || null, body.teamLeadId || body.team_lead_id || null, 'active').run();
+    await db.prepare('INSERT INTO users (id, tenant_id, email, phone, password_hash, pin_hash, first_name, last_name, role, agent_type, manager_id, team_lead_id, status, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)').bind(id, tenantId, emailForDb, normalizePhone(body.phone), hashedPassword, pinHash, body.firstName || body.first_name || '', body.lastName || body.last_name || '', role, agentType, body.managerId || body.manager_id || null, body.teamLeadId || body.team_lead_id || null, 'active').run();
     const actualPin = isMobileRole ? (body.pin || '12345') : undefined;
     return c.json({ success: true, data: { id, password, default_pin: actualPin }, message: 'User created' }, 201);
   } catch (err) {
@@ -1572,7 +1579,7 @@ api.put('/users/:id', requireRole('admin'), async (c) => {
   const body = await c.req.json();
   const agentType = body.agent_type !== undefined ? body.agent_type : (body.agentType !== undefined ? body.agentType : undefined);
   let sql = 'UPDATE users SET first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name), role = COALESCE(?, role), phone = COALESCE(?, phone), email = COALESCE(?, email), manager_id = ?, team_lead_id = ?, status = COALESCE(?, status), is_active = COALESCE(?, is_active)';
-  const binds = [body.firstName || body.first_name || null, body.lastName || body.last_name || null, body.role || null, body.phone || null, body.email || null, body.managerId || body.manager_id || null, body.teamLeadId || body.team_lead_id || null, body.status || null, body.is_active !== undefined ? (body.is_active ? 1 : 0) : null];
+  const binds = [body.firstName || body.first_name || null, body.lastName || body.last_name || null, body.role || null, normalizePhone(body.phone), body.email || null, body.managerId || body.manager_id || null, body.teamLeadId || body.team_lead_id || null, body.status || null, body.is_active !== undefined ? (body.is_active ? 1 : 0) : null];
   if (agentType !== undefined) {
     sql += ', agent_type = ?';
     binds.push(agentType);
@@ -1605,7 +1612,7 @@ api.patch('/users/:id/quick-edit', requireRole('admin'), async (c) => {
 
   if (body.phone !== undefined) {
     updates.push('phone = ?');
-    binds.push(body.phone || null);
+    binds.push(normalizePhone(body.phone));
   }
 
   if (body.pin !== undefined) {
@@ -9668,7 +9675,7 @@ api.post('/tenants', requireSuperAdmin, async (c) => {
     const adminUserId = uuidv4();
     const hashedPassword = await bcrypt.hash(body.adminUser.password, 10);
     batch.push(
-      db.prepare('INSERT INTO users (id, tenant_id, email, phone, password_hash, first_name, last_name, role, status, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime("now"))').bind(adminUserId, tenantId, body.adminUser.email, body.adminUser.phone || null, hashedPassword, body.adminUser.firstName || 'Admin', body.adminUser.lastName || 'User', 'admin', 'active')
+      db.prepare('INSERT INTO users (id, tenant_id, email, phone, password_hash, first_name, last_name, role, status, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime("now"))').bind(adminUserId, tenantId, body.adminUser.email, normalizePhone(body.adminUser.phone), hashedPassword, body.adminUser.firstName || 'Admin', body.adminUser.lastName || 'User', 'admin', 'active')
     );
     batch.push(
       db.prepare('INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, new_values) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(uuidv4(), tenantId, adminUserId, 'CREATE', 'tenant', tenantId, JSON.stringify({ name: body.name, code, adminEmail: body.adminUser.email }))
