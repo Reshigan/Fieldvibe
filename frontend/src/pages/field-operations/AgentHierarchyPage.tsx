@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fieldOperationsService } from '../../services/field-operations.service'
 import { apiClient } from '../../services/api.service'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
-import { Users, ChevronDown, ChevronRight, UserPlus, Shield, Crown, User, Link2, Unlink, X, ArrowRightLeft, Building2, Plus, Pencil, Check, Mail, Phone, KeyRound, Trash2 } from 'lucide-react'
+import { Users, ChevronDown, ChevronRight, UserPlus, Shield, Crown, User, Link2, Unlink, X, ArrowRightLeft, Building2, Plus, Pencil, Check, Mail, Phone, KeyRound, Trash2, Archive, ArchiveRestore } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
 import SearchableSelect from '../../components/ui/SearchableSelect'
@@ -53,6 +53,9 @@ export default function AgentHierarchyPage() {
 
   // Delete confirmation state
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string; role: string } | null>(null)
+
+  // Archive confirmation state
+  const [archiveConfirm, setArchiveConfirm] = useState<{ id: string; name: string; role: string; isArchived: boolean } | null>(null)
 
   const { data: hierarchy, isLoading, error } = useQuery({
     queryKey: ['field-ops-hierarchy'],
@@ -121,6 +124,17 @@ export default function AgentHierarchyPage() {
       setDeleteConfirm(null)
     },
     onError: () => toast.error('Failed to remove person'),
+  })
+
+  const archiveMutation = useMutation({
+    mutationFn: (userId: string) => apiClient.patch(`/users/${userId}/archive`),
+    onSuccess: (_data, _vars) => {
+      queryClient.invalidateQueries({ queryKey: ['field-ops-hierarchy'] })
+      const wasArchived = archiveConfirm?.isArchived
+      toast.success(wasArchived ? 'Person unarchived' : 'Person archived')
+      setArchiveConfirm(null)
+    },
+    onError: () => toast.error('Failed to archive/unarchive person'),
   })
 
   function startQuickEdit(user: { id: string; email?: string; phone?: string }) {
@@ -317,7 +331,8 @@ export default function AgentHierarchyPage() {
               >
                 {expandedManagers.has(manager.id) ? <ChevronDown className="w-4 h-4 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 flex-shrink-0" />}
                 <Crown className="w-5 h-5 text-purple-600 flex-shrink-0" />
-                <span className="font-semibold text-gray-900 dark:text-white truncate">{manager.first_name} {manager.last_name}</span>
+                <span className={`font-semibold truncate ${manager.status === 'archived' ? 'text-gray-400 dark:text-gray-500 line-through' : 'text-gray-900 dark:text-white'}`}>{manager.first_name} {manager.last_name}</span>
+                {manager.status === 'archived' && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">Archived</span>}
               </button>
               <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
                 {/* Quick Edit */}
@@ -405,6 +420,13 @@ export default function AgentHierarchyPage() {
                 )}
                 <span className="text-sm text-gray-500 ml-2">{manager.team_leads?.length || 0} team leads</span>
                 <button
+                  onClick={(e) => { e.stopPropagation(); setArchiveConfirm({ id: manager.id, name: `${manager.first_name} ${manager.last_name}`, role: 'Manager', isArchived: manager.status === 'archived' }) }}
+                  className={`p-1 rounded flex-shrink-0 ${manager.status === 'archived' ? 'text-amber-500 hover:text-green-600' : 'text-gray-400 hover:text-amber-500'}`}
+                  title={manager.status === 'archived' ? 'Unarchive manager' : 'Archive manager'}
+                >
+                  {manager.status === 'archived' ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                </button>
+                <button
                   onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ id: manager.id, name: `${manager.first_name} ${manager.last_name}`, role: 'Manager' }) }}
                   className="text-gray-400 hover:text-red-500 p-1 rounded flex-shrink-0"
                   title="Remove manager"
@@ -422,7 +444,8 @@ export default function AgentHierarchyPage() {
                       <button onClick={() => toggleTeamLead(tl.id)} className="flex items-center gap-3 flex-1 min-w-0">
                         {expandedTeamLeads.has(tl.id) ? <ChevronDown className="w-4 h-4 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 flex-shrink-0" />}
                         <Shield className="w-5 h-5 text-blue-600 flex-shrink-0" />
-                        <span className="font-medium text-gray-900 dark:text-white truncate">{tl.first_name} {tl.last_name}</span>
+                        <span className={`font-medium truncate ${tl.status === 'archived' ? 'text-gray-400 dark:text-gray-500 line-through' : 'text-gray-900 dark:text-white'}`}>{tl.first_name} {tl.last_name}</span>
+                        {tl.status === 'archived' && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">Archived</span>}
                         {/* TL company badges */}
                         {(tl.companies || []).map((company: { id: string; name: string; code: string; link_id: string }) => (
                           <span key={company.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
@@ -488,6 +511,13 @@ export default function AgentHierarchyPage() {
                         <Unlink className="w-3.5 h-3.5" />
                       </button>
                       <button
+                        onClick={() => setArchiveConfirm({ id: tl.id, name: `${tl.first_name} ${tl.last_name}`, role: 'Team Lead', isArchived: tl.status === 'archived' })}
+                        className={`p-1 rounded flex-shrink-0 ${tl.status === 'archived' ? 'text-amber-500 hover:text-green-600' : 'text-gray-400 hover:text-amber-500'}`}
+                        title={tl.status === 'archived' ? 'Unarchive team lead' : 'Archive team lead'}
+                      >
+                        {tl.status === 'archived' ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                      </button>
+                      <button
                         onClick={() => setDeleteConfirm({ id: tl.id, name: `${tl.first_name} ${tl.last_name}`, role: 'Team Lead' })}
                         className="text-gray-400 hover:text-red-500 p-1 rounded flex-shrink-0"
                         title="Remove team lead"
@@ -501,7 +531,8 @@ export default function AgentHierarchyPage() {
                         {(tl.agents || []).map((agent: any) => (
                           <div key={agent.id} className="flex items-center gap-3 p-2 rounded-lg bg-green-50 dark:bg-green-900/20 flex-wrap">
                             <User className="w-4 h-4 text-green-600 flex-shrink-0" />
-                            <span className="text-gray-900 dark:text-white truncate">{agent.first_name} {agent.last_name}</span>
+                            <span className={`truncate ${agent.status === 'archived' ? 'text-gray-400 dark:text-gray-500 line-through' : 'text-gray-900 dark:text-white'}`}>{agent.first_name} {agent.last_name}</span>
+                            {agent.status === 'archived' && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">Archived</span>}
                             {/* Agent company badges */}
                             {(agent.companies || []).map((company: { id: string; name: string; code: string; link_id: string }) => (
                               <span key={company.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-green-100 dark:bg-green-800/30 text-green-700 dark:text-green-300">
@@ -564,6 +595,13 @@ export default function AgentHierarchyPage() {
                                 <Unlink className="w-3.5 h-3.5" />
                               </button>
                               <button
+                                onClick={() => setArchiveConfirm({ id: agent.id, name: `${agent.first_name} ${agent.last_name}`, role: 'Agent', isArchived: agent.status === 'archived' })}
+                                className={`p-1 rounded ${agent.status === 'archived' ? 'text-amber-500 hover:text-green-600' : 'text-gray-400 hover:text-amber-500'}`}
+                                title={agent.status === 'archived' ? 'Unarchive agent' : 'Archive agent'}
+                              >
+                                {agent.status === 'archived' ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                              </button>
+                              <button
                                 onClick={() => setDeleteConfirm({ id: agent.id, name: `${agent.first_name} ${agent.last_name}`, role: 'Agent' })}
                                 className="text-gray-400 hover:text-red-500 p-1 rounded"
                                 title="Remove agent"
@@ -598,7 +636,8 @@ export default function AgentHierarchyPage() {
               {unassignedTeamLeads.map((tl: any) => (
                 <div key={tl.id} className="flex items-center gap-3 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
                   <Shield className="w-5 h-5 text-yellow-600 flex-shrink-0" />
-                  <span className="text-gray-900 dark:text-white truncate">{tl.first_name} {tl.last_name}</span>
+                  <span className={`truncate ${tl.status === 'archived' ? 'text-gray-400 dark:text-gray-500 line-through' : 'text-gray-900 dark:text-white'}`}>{tl.first_name} {tl.last_name}</span>
+                  {tl.status === 'archived' && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">Archived</span>}
                   {assigningUser === tl.id ? (
                     <div className="ml-auto flex items-center gap-2 flex-shrink-0">
                       <SearchableSelect
@@ -620,6 +659,13 @@ export default function AgentHierarchyPage() {
                     <div className="ml-auto flex items-center gap-2 flex-shrink-0">
                       <button onClick={() => { setAssigningUser(tl.id); setAssignTarget('') }} className="text-blue-600 text-sm flex items-center gap-1">
                         <Link2 className="w-3 h-3" /> Assign to Manager
+                      </button>
+                      <button
+                        onClick={() => setArchiveConfirm({ id: tl.id, name: `${tl.first_name} ${tl.last_name}`, role: 'Team Lead', isArchived: tl.status === 'archived' })}
+                        className={`p-1 rounded ${tl.status === 'archived' ? 'text-amber-500 hover:text-green-600' : 'text-gray-400 hover:text-amber-500'}`}
+                        title={tl.status === 'archived' ? 'Unarchive team lead' : 'Archive team lead'}
+                      >
+                        {tl.status === 'archived' ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
                       </button>
                       <button
                         onClick={() => setDeleteConfirm({ id: tl.id, name: `${tl.first_name} ${tl.last_name}`, role: 'Team Lead' })}
@@ -644,7 +690,8 @@ export default function AgentHierarchyPage() {
               {unassignedAgents.map((agent: any) => (
                 <div key={agent.id} className="flex items-center gap-3 p-3 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
                   <User className="w-5 h-5 text-orange-600 flex-shrink-0" />
-                  <span className="text-gray-900 dark:text-white truncate">{agent.first_name} {agent.last_name}</span>
+                  <span className={`truncate ${agent.status === 'archived' ? 'text-gray-400 dark:text-gray-500 line-through' : 'text-gray-900 dark:text-white'}`}>{agent.first_name} {agent.last_name}</span>
+                  {agent.status === 'archived' && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">Archived</span>}
                   {assigningUser === agent.id ? (
                     <div className="ml-auto flex items-center gap-2 flex-shrink-0">
                       <SearchableSelect
@@ -666,6 +713,13 @@ export default function AgentHierarchyPage() {
                     <div className="ml-auto flex items-center gap-2 flex-shrink-0">
                       <button onClick={() => { setAssigningUser(agent.id); setAssignTarget('') }} className="text-blue-600 text-sm flex items-center gap-1">
                         <Link2 className="w-3 h-3" /> Assign to Team Lead
+                      </button>
+                      <button
+                        onClick={() => setArchiveConfirm({ id: agent.id, name: `${agent.first_name} ${agent.last_name}`, role: 'Agent', isArchived: agent.status === 'archived' })}
+                        className={`p-1 rounded ${agent.status === 'archived' ? 'text-amber-500 hover:text-green-600' : 'text-gray-400 hover:text-amber-500'}`}
+                        title={agent.status === 'archived' ? 'Unarchive agent' : 'Archive agent'}
+                      >
+                        {agent.status === 'archived' ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
                       </button>
                       <button
                         onClick={() => setDeleteConfirm({ id: agent.id, name: `${agent.first_name} ${agent.last_name}`, role: 'Agent' })}
@@ -752,6 +806,50 @@ export default function AgentHierarchyPage() {
                 className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
               >
                 {deleteMutation.isPending ? 'Removing...' : 'Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Archive Confirmation Modal ═══ */}
+      {archiveConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-[#1A1F2E] rounded-xl max-w-sm w-full shadow-2xl">
+            <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-white/10">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{archiveConfirm.isArchived ? 'Unarchive' : 'Archive'} {archiveConfirm.role}</h3>
+              <button onClick={() => setArchiveConfirm(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5">
+              {archiveConfirm.isArchived ? (
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Are you sure you want to unarchive <strong>{archiveConfirm.name}</strong> ({archiveConfirm.role})? They will be able to log in again.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Are you sure you want to archive <strong>{archiveConfirm.name}</strong> ({archiveConfirm.role})?
+                  </p>
+                  <ul className="text-sm text-gray-500 dark:text-gray-400 list-disc pl-5 space-y-1">
+                    <li>They will <strong>not</strong> be able to log in (mobile or web)</li>
+                    <li>Their stats will <strong>still appear</strong> in team reports</li>
+                    <li>They will remain visible in the hierarchy</li>
+                  </ul>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 p-5 border-t border-gray-200 dark:border-white/10">
+              <button onClick={() => setArchiveConfirm(null)} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">
+                Cancel
+              </button>
+              <button
+                onClick={() => archiveMutation.mutate(archiveConfirm.id)}
+                disabled={archiveMutation.isPending}
+                className={`px-4 py-2 text-sm text-white rounded-lg disabled:opacity-50 transition-colors ${archiveConfirm.isArchived ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-600 hover:bg-amber-700'}`}
+              >
+                {archiveMutation.isPending ? (archiveConfirm.isArchived ? 'Unarchiving...' : 'Archiving...') : (archiveConfirm.isArchived ? 'Unarchive' : 'Archive')}
               </button>
             </div>
           </div>
