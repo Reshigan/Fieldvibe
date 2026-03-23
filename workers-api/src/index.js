@@ -562,9 +562,11 @@ async function getEffectiveWorkingDaysConfig(db, tenantId, agentId, companyId) {
   try {
     let config = null;
     if (agentId) {
-      config = await db.prepare('SELECT * FROM working_days_config WHERE tenant_id = ? AND agent_id = ? AND company_id IS NULL ORDER BY created_at DESC LIMIT 1').bind(tenantId, agentId).first();
-      if (!config && companyId) {
+      if (companyId) {
         config = await db.prepare('SELECT * FROM working_days_config WHERE tenant_id = ? AND agent_id = ? AND company_id = ? ORDER BY created_at DESC LIMIT 1').bind(tenantId, agentId, companyId).first();
+      }
+      if (!config) {
+        config = await db.prepare('SELECT * FROM working_days_config WHERE tenant_id = ? AND agent_id = ? AND company_id IS NULL ORDER BY created_at DESC LIMIT 1').bind(tenantId, agentId).first();
       }
     }
     if (!config && companyId) {
@@ -668,13 +670,15 @@ async function generateTargetsFromRules(db, tenantId, agentId, monthStartDate) {
 
 // Helper: compute target totals for a set of user IDs from company_target_rules
 async function computeTargetTotalsFromRules(db, tenantId, userIds, monthStartDate) {
-  let totalTargetVisits = 0, totalActualVisits = 0;
+  let totalTargetVisits = 0, totalActualVisits = 0, totalTargetRegs = 0, totalActualRegs = 0;
   for (const uid of userIds) {
     const targets = await generateTargetsFromRules(db, tenantId, uid, monthStartDate);
     totalTargetVisits += targets.reduce((s, t) => s + (t.target_visits || 0), 0);
     totalActualVisits += targets.reduce((s, t) => s + (t.actual_visits || 0), 0);
+    totalTargetRegs += targets.reduce((s, t) => s + (t.target_registrations || 0), 0);
+    totalActualRegs += targets.reduce((s, t) => s + (t.actual_registrations || 0), 0);
   }
-  return { totalTargetVisits, totalActualVisits };
+  return { totalTargetVisits, totalActualVisits, totalTargetRegs, totalActualRegs };
 }
 
 // ==================== AGENT PERFORMANCE ====================
