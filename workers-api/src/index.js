@@ -1953,14 +1953,14 @@ api.get('/visits', async (c) => {
   const offset = (pageNum - 1) * limitNum;
   const countR = await db.prepare('SELECT COUNT(*) as total FROM visits v LEFT JOIN customers c ON v.customer_id = c.id ' + where).bind(...params).first();
   const total = countR ? countR.total : 0;
-  const visits = await db.prepare("SELECT v.*, c.name as customer_name, c.address as customer_address, u.first_name || ' ' || u.last_name as agent_name, (SELECT vp.r2_url FROM visit_photos vp WHERE vp.visit_id = v.id AND vp.tenant_id = v.tenant_id AND vp.r2_url IS NOT NULL LIMIT 1) as thumbnail_url, vr.responses as _raw_responses FROM visits v LEFT JOIN customers c ON v.customer_id = c.id LEFT JOIN users u ON v.agent_id = u.id LEFT JOIN visit_responses vr ON vr.visit_id = v.id " + where + ' ORDER BY v.created_at DESC LIMIT ? OFFSET ?').bind(...params, limitNum, offset).all();
+  const visits = await db.prepare("SELECT v.*, c.name as customer_name, c.address as customer_address, u.first_name || ' ' || u.last_name as agent_name, (SELECT vp.r2_url FROM visit_photos vp WHERE vp.visit_id = v.id AND vp.tenant_id = v.tenant_id AND vp.r2_url IS NOT NULL LIMIT 1) as thumbnail_url, (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id LIMIT 1) as _raw_responses FROM visits v LEFT JOIN customers c ON v.customer_id = c.id LEFT JOIN users u ON v.agent_id = u.id " + where + ' ORDER BY v.created_at DESC LIMIT ? OFFSET ?').bind(...params, limitNum, offset).all();
   // Extract image thumbnails from custom question responses where show_in_reports is enabled
   const visitRows = visits.results || [];
   const companyIds = [...new Set(visitRows.map(v => v.company_id).filter(Boolean))];
   let reportImageKeys = {};
   if (companyIds.length > 0) {
     const placeholders = companyIds.map(() => '?').join(',');
-    const imgQs = await db.prepare(`SELECT company_id, question_key FROM company_custom_questions WHERE company_id IN (${placeholders}) AND field_type = 'image' AND show_in_reports = 1 AND is_active = 1`).bind(...companyIds).all();
+    const imgQs = await db.prepare(`SELECT company_id, question_key FROM company_custom_questions WHERE tenant_id = ? AND company_id IN (${placeholders}) AND field_type = 'image' AND show_in_reports = 1 AND is_active = 1`).bind(tenantId, ...companyIds).all();
     for (const q of (imgQs.results || [])) {
       if (!reportImageKeys[q.company_id]) reportImageKeys[q.company_id] = [];
       reportImageKeys[q.company_id].push(q.question_key);
@@ -6493,7 +6493,7 @@ api.get('/individual-visits-report', authMiddleware, async (c) => {
     let reportImgKeys = {};
     if (reportCompanyIds.length > 0) {
       const ph = reportCompanyIds.map(() => '?').join(',');
-      const imgQs = await db.prepare(`SELECT company_id, question_key, question_label FROM company_custom_questions WHERE company_id IN (${ph}) AND field_type = 'image' AND show_in_reports = 1 AND is_active = 1`).bind(...reportCompanyIds).all();
+      const imgQs = await db.prepare(`SELECT company_id, question_key, question_label FROM company_custom_questions WHERE tenant_id = ? AND company_id IN (${ph}) AND field_type = 'image' AND show_in_reports = 1 AND is_active = 1`).bind(tenantId, ...reportCompanyIds).all();
       for (const q of (imgQs.results || [])) {
         if (!reportImgKeys[q.company_id]) reportImgKeys[q.company_id] = [];
         reportImgKeys[q.company_id].push({ key: q.question_key, label: q.question_label });
