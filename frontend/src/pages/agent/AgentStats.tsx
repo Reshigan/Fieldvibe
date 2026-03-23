@@ -520,8 +520,11 @@ function TargetsTab({ perfData, dashData }: { perfData: PerformanceData | null; 
                       )}
                     </div>
                   )}
+                  {t.working_days > 0 && (
+                    <p className="text-[10px] text-gray-500 mt-2">{t.working_days} working days this month</p>
+                  )}
                   {t.commission_rate > 0 && (
-                    <p className="text-[10px] text-gray-500 mt-2">Commission rate: {t.commission_rate}%</p>
+                    <p className="text-[10px] text-gray-500 mt-1">Commission rate: {t.commission_rate}%</p>
                   )}
                 </div>
               )
