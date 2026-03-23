@@ -677,51 +677,6 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
   }
 });
 
-// Helper: resolve effective working_days_config for a given agent/company (agent override > company config > global default)
-async function getEffectiveWorkingDaysConfig(db, tenantId, agentId, companyId) {
-  try {
-    let config = null;
-    if (agentId) {
-      if (companyId) {
-        config = await db.prepare('SELECT * FROM working_days_config WHERE tenant_id = ? AND agent_id = ? AND company_id = ? ORDER BY created_at DESC LIMIT 1').bind(tenantId, agentId, companyId).first();
-      }
-      if (!config) {
-        config = await db.prepare('SELECT * FROM working_days_config WHERE tenant_id = ? AND agent_id = ? AND company_id IS NULL ORDER BY created_at DESC LIMIT 1').bind(tenantId, agentId).first();
-      }
-    }
-    if (!config && companyId) {
-      config = await db.prepare('SELECT * FROM working_days_config WHERE tenant_id = ? AND company_id = ? AND agent_id IS NULL ORDER BY created_at DESC LIMIT 1').bind(tenantId, companyId).first();
-    }
-    if (!config) {
-      config = await db.prepare('SELECT * FROM working_days_config WHERE tenant_id = ? AND company_id IS NULL AND agent_id IS NULL ORDER BY created_at DESC LIMIT 1').bind(tenantId).first();
-    }
-    if (!config) {
-      config = { monday: 1, tuesday: 1, wednesday: 1, thursday: 1, friday: 1, saturday: 0, sunday: 0, public_holidays: '[]' };
-    }
-    return config;
-  } catch {
-    return { monday: 1, tuesday: 1, wednesday: 1, thursday: 1, friday: 1, saturday: 0, sunday: 0, public_holidays: '[]' };
-  }
-}
-
-// Helper: count working days in a given month using a working_days_config
-function countWorkingDaysInMonth(config, month) {
-  try {
-    const [year, mon] = month.split('-').map(Number);
-    const daysInMonth = new Date(year, mon, 0).getDate();
-    const holidays = JSON.parse(config.public_holidays || '[]');
-    const dayMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    let count = 0;
-    for (let d = 1; d <= daysInMonth; d++) {
-      const date = new Date(year, mon - 1, d);
-      const dayName = dayMap[date.getDay()];
-      const dateStr = `${year}-${String(mon).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      if (config[dayName] && !holidays.includes(dateStr)) count++;
-    }
-    return count || 22; // fallback to 22 if somehow 0
-  } catch { return 22; }
-}
-
 // Helper: generate monthly targets from company_target_rules when monthly_targets table is empty
 async function generateTargetsFromRules(db, tenantId, agentId, monthStartDate) {
   try {
@@ -741,7 +696,7 @@ async function generateTargetsFromRules(db, tenantId, agentId, monthStartDate) {
     const syntheticTargets = [];
     for (const ctr of rules) {
       // Resolve working calendar for this agent+company
-      const wdConfig = await getEffectiveWorkingDaysConfig(db, tenantId, agentId, ctr.company_id);
+      const wdConfig = await resolveWorkingDaysConfig(db, tenantId, ctr.company_id, agentId);
       const wdMonth = countWorkingDaysInMonth(wdConfig, currentMonth);
       const targetVisits = (ctr.target_visits_per_day || 0) * wdMonth;
       const targetRegs = (ctr.target_registrations_per_day || 0) * wdMonth;
