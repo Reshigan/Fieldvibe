@@ -485,13 +485,21 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
     try { targets = await db.prepare("SELECT dt.*, fc.name as company_name, (SELECT COUNT(*) FROM visits v2 WHERE v2.agent_id = dt.agent_id AND v2.company_id = dt.company_id AND v2.visit_date = dt.target_date AND v2.tenant_id = dt.tenant_id) as actual_visits, (SELECT COUNT(*) FROM individual_registrations ir2 WHERE ir2.agent_id = dt.agent_id AND ir2.company_id = dt.company_id AND DATE(ir2.created_at) = dt.target_date AND ir2.tenant_id = dt.tenant_id) as actual_registrations FROM daily_targets dt LEFT JOIN field_companies fc ON dt.company_id = fc.id WHERE dt.tenant_id = ? AND dt.agent_id = ? AND dt.target_date = ?").bind(tenantId, userId, today).all(); } catch { /* daily_targets table may not exist */ }
 
     // Fetch company target rules as fallback if no daily_targets exist
+    // Use role-specific rules: agents get 'agent' rules, team_leads get 'team_lead' rules, managers get 'manager' rules
+    const dashRoleType = userRole === 'manager' ? 'manager' : userRole === 'team_lead' ? 'team_lead' : 'agent';
     let companyTargetRules = [];
     try {
       const agentCompanyIds = (companies.results || []).map(c => c.id);
       if (agentCompanyIds.length > 0) {
         const ph = agentCompanyIds.map(() => '?').join(',');
-        const ctrResult = await db.prepare(`SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ? AND ctr.company_id IN (${ph})`).bind(tenantId, ...agentCompanyIds).all();
+        // Try role-specific rules first
+        let ctrResult = await db.prepare(`SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ? AND ctr.company_id IN (${ph}) AND ctr.role_type = ?`).bind(tenantId, ...agentCompanyIds, dashRoleType).all();
         companyTargetRules = ctrResult.results || [];
+        // Fallback: get any rules if no role-specific ones found
+        if (companyTargetRules.length === 0) {
+          ctrResult = await db.prepare(`SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ? AND ctr.company_id IN (${ph})`).bind(tenantId, ...agentCompanyIds).all();
+          companyTargetRules = ctrResult.results || [];
+        }
       }
     } catch { /* table may not exist yet */ }
 
@@ -561,18 +569,23 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
     if (dailyTargets.length === 0 && companyTargetRules.length > 0) {
       dailyTargets = companyTargetRules.map(ctr => {
         const ca = perCompanyActuals[ctr.company_id] || {};
-        const cr = perCompanyRegsLookup[ctr.company_id] || {};
+        // Use new per-role fields first, fall back to legacy fields
+        const indivPerDay = ctr.individual_target_per_day || ctr.target_visits_per_day || 0;
+        const storePerDay = ctr.store_target_per_day || ctr.target_registrations_per_day || 0;
         return {
           company_name: ctr.company_name,
           company_id: ctr.company_id,
-          target_visits: ctr.target_visits_per_day,
-          target_registrations: ctr.target_registrations_per_day,
-          target_conversions: ctr.target_conversions_per_day,
-          actual_visits: ca.today_visits || 0,
-          actual_registrations: cr.today || 0,
+          target_visits: indivPerDay,
+          target_registrations: storePerDay,
+          target_conversions: ctr.target_conversions_per_day || 0,
+          actual_visits: ca.today_individual_visits || 0,
+          actual_registrations: ca.today_store_visits || 0,
           actual_store_visits: ca.today_store_visits || 0,
           actual_individual_visits: ca.today_individual_visits || 0,
+          individual_target_per_day: indivPerDay,
+          store_target_per_day: storePerDay,
           source: 'company_rule',
+          role_type: ctr.role_type || 'agent',
         };
       });
     }
@@ -677,9 +690,10 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
 });
 
 // Helper: generate monthly targets from company_target_rules when monthly_targets table is empty
-async function generateTargetsFromRules(db, tenantId, agentId, monthStartDate) {
+async function generateTargetsFromRules(db, tenantId, agentId, monthStartDate, roleType) {
   try {
     const currentMonth = monthStartDate.substring(0, 7); // e.g. '2026-03'
+    const rt = roleType || 'agent';
     // Get agent's companies
     const agentCompanies = await db.prepare(
       "SELECT fc.id, fc.name FROM agent_company_links acl JOIN field_companies fc ON acl.company_id = fc.id WHERE acl.agent_id = ? AND acl.tenant_id = ? AND acl.is_active = 1 AND fc.status = 'active'"
@@ -687,33 +701,32 @@ async function generateTargetsFromRules(db, tenantId, agentId, monthStartDate) {
     const companyIds = (agentCompanies.results || []).map(c => c.id);
     if (companyIds.length === 0) return [];
     const ph = companyIds.map(() => '?').join(',');
-    const rulesResult = await db.prepare(
-      `SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ? AND ctr.company_id IN (${ph})`
-    ).bind(tenantId, ...companyIds).all();
-    const rules = rulesResult.results || [];
+    // Try to get per-role rules first, fall back to any rules for backward compat
+    let rulesResult = await db.prepare(
+      `SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ? AND ctr.company_id IN (${ph}) AND ctr.role_type = ?`
+    ).bind(tenantId, ...companyIds, rt).all();
+    let rules = rulesResult.results || [];
+    if (rules.length === 0) {
+      // Fallback: get any rules (legacy rows without role_type or role_type='agent')
+      rulesResult = await db.prepare(
+        `SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ? AND ctr.company_id IN (${ph})`
+      ).bind(tenantId, ...companyIds).all();
+      rules = rulesResult.results || [];
+    }
     if (rules.length === 0) return [];
     const syntheticTargets = [];
     for (const ctr of rules) {
       // Resolve working calendar for this agent+company
       const wdConfig = await resolveWorkingDaysConfig(db, tenantId, ctr.company_id, agentId);
       const wdMonth = countWorkingDaysInMonth(wdConfig, currentMonth);
-      const targetVisits = (ctr.target_visits_per_day || 0) * wdMonth;
-      const targetRegs = (ctr.target_registrations_per_day || 0) * wdMonth;
+      // Use new per-role fields first, fall back to legacy fields
+      const indivPerDay = ctr.individual_target_per_day || ctr.target_visits_per_day || 0;
+      const storePerMonth = ctr.store_target_per_month || ctr.store_target_per_month_agent || ctr.store_target_per_month_tl || 0;
+      const indivPerMonth = ctr.individual_target_per_month || (indivPerDay * wdMonth);
+      const storePerDay = ctr.store_target_per_day || 0;
       const targetConvs = (ctr.target_conversions_per_day || 0) * wdMonth;
       // Get live actuals
-      let actualVisits = 0, actualRegs = 0, actualConvs = 0, storeVisits = 0, individualVisits = 0;
-      try {
-        const lv = await db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date >= ? AND company_id = ?").bind(agentId, tenantId, monthStartDate, ctr.company_id).first();
-        actualVisits = lv?.count || 0;
-      } catch { /* */ }
-      try {
-        const lr = await db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND created_at >= ? AND company_id = ?").bind(agentId, tenantId, monthStartDate + ' 00:00:00', ctr.company_id).first();
-        actualRegs = lr?.count || 0;
-      } catch { /* */ }
-      try {
-        const lc = await db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND converted = 1 AND conversion_date >= ? AND company_id = ?").bind(agentId, tenantId, monthStartDate, ctr.company_id).first();
-        actualConvs = lc?.count || 0;
-      } catch { /* */ }
+      let storeVisits = 0, individualVisits = 0, actualConvs = 0;
       try {
         const tb = await db.prepare("SELECT visit_type, COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date >= ? AND company_id = ? GROUP BY visit_type").bind(agentId, tenantId, monthStartDate, ctr.company_id).all();
         for (const row of (tb.results || [])) {
@@ -721,21 +734,28 @@ async function generateTargetsFromRules(db, tenantId, agentId, monthStartDate) {
           if ((row.visit_type || '').toLowerCase() === 'individual') individualVisits = row.count || 0;
         }
       } catch { /* */ }
+      try {
+        const lc = await db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND converted = 1 AND conversion_date >= ? AND company_id = ?").bind(agentId, tenantId, monthStartDate, ctr.company_id).first();
+        actualConvs = lc?.count || 0;
+      } catch { /* */ }
       syntheticTargets.push({
         company_id: ctr.company_id,
         company_name: ctr.company_name,
-        target_visits: targetVisits,
-        actual_visits: actualVisits,
-        target_registrations: targetRegs,
-        actual_registrations: actualRegs,
+        target_visits: indivPerMonth,
+        actual_visits: individualVisits,
+        target_registrations: storePerMonth,
+        actual_registrations: storeVisits,
         target_conversions: targetConvs,
         actual_conversions: actualConvs,
+        individual_target_per_day: indivPerDay,
+        store_target_per_day: storePerDay,
         commission_amount: 0,
         commission_rate: 0,
         working_days: wdMonth,
         store_visits: storeVisits,
         individual_visits: individualVisits,
         source: 'company_rule',
+        role_type: ctr.role_type || 'agent',
       });
     }
     return syntheticTargets;
@@ -6051,12 +6071,13 @@ api.post('/field-ops/daily-targets/bulk', authMiddleware, async (c) => {
 api.get('/field-ops/company-target-rules', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
-  const { company_id } = c.req.query();
+  const { company_id, role_type } = c.req.query();
   try {
     let query = "SELECT ctr.*, fc.name as company_name, fc.code as company_code FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ?";
     const params = [tenantId];
     if (company_id) { query += ' AND ctr.company_id = ?'; params.push(company_id); }
-    query += ' ORDER BY fc.name';
+    if (role_type) { query += ' AND ctr.role_type = ?'; params.push(role_type); }
+    query += ' ORDER BY fc.name, ctr.role_type';
     const rules = await db.prepare(query).bind(...params).all();
     return c.json({ data: rules.results || [] });
   } catch {
@@ -6069,10 +6090,11 @@ api.get('/field-ops/company-target-rules/:companyId', authMiddleware, async (c) 
   const tenantId = c.get('tenantId');
   const companyId = c.req.param('companyId');
   try {
-    const rule = await db.prepare("SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.company_id = ? AND ctr.tenant_id = ?").bind(companyId, tenantId).first();
-    return c.json({ data: rule || null });
+    const rules = await db.prepare("SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.company_id = ? AND ctr.tenant_id = ? ORDER BY ctr.role_type").bind(companyId, tenantId).all();
+    // Return all role rules for this company
+    return c.json({ data: rules.results || [] });
   } catch {
-    return c.json({ data: null });
+    return c.json({ data: [] });
   }
 });
 
@@ -6081,23 +6103,50 @@ api.post('/field-ops/company-target-rules', authMiddleware, async (c) => {
   const tenantId = c.get('tenantId');
   const userId = c.get('userId');
   const body = await c.req.json();
-  const { company_id } = body;
+  const { company_id, role_type } = body;
   if (!company_id) return c.json({ success: false, message: 'company_id required' }, 400);
-  // Upsert: check if rule already exists for this company
-  const existing = await db.prepare('SELECT id FROM company_target_rules WHERE company_id = ? AND tenant_id = ?').bind(company_id, tenantId).first();
+  const rt = role_type || 'agent';
+  // Upsert: check if rule already exists for this company + role_type
+  const existing = await db.prepare('SELECT id FROM company_target_rules WHERE company_id = ? AND tenant_id = ? AND role_type = ?').bind(company_id, tenantId, rt).first();
   if (existing) {
-    await db.prepare('UPDATE company_target_rules SET target_visits_per_day = ?, target_registrations_per_day = ?, target_conversions_per_day = ?, team_lead_own_target_visits = ?, team_lead_own_target_registrations = ?, team_lead_own_target_conversions = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?').bind(
-      body.target_visits_per_day ?? 20, body.target_registrations_per_day ?? 10, body.target_conversions_per_day ?? 5,
-      body.team_lead_own_target_visits ?? 20, body.team_lead_own_target_registrations ?? 10, body.team_lead_own_target_conversions ?? 5,
+    await db.prepare(`UPDATE company_target_rules SET 
+      individual_target_per_day = ?, individual_target_per_month = ?,
+      store_target_per_day = ?, store_target_per_month = ?,
+      target_visits_per_day = ?, target_registrations_per_day = ?, target_conversions_per_day = ?,
+      team_lead_own_target_visits = ?, team_lead_own_target_registrations = ?, team_lead_own_target_conversions = ?,
+      store_target_per_month_tl = ?, store_target_per_month_agent = ?,
+      individual_target_per_week_agent = ?, individual_target_per_month_agent = ?,
+      tl_target_is_agent_sum = ?, mgr_target_is_tl_sum = ?,
+      updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`).bind(
+      body.individual_target_per_day ?? 0, body.individual_target_per_month ?? 0,
+      body.store_target_per_day ?? 0, body.store_target_per_month ?? 0,
+      body.target_visits_per_day ?? body.individual_target_per_day ?? 0, body.target_registrations_per_day ?? 0, body.target_conversions_per_day ?? 0,
+      body.team_lead_own_target_visits ?? 0, body.team_lead_own_target_registrations ?? 0, body.team_lead_own_target_conversions ?? 0,
+      body.store_target_per_month_tl ?? body.store_target_per_month ?? null, body.store_target_per_month_agent ?? body.store_target_per_month ?? null,
+      body.individual_target_per_week_agent ?? null, body.individual_target_per_month_agent ?? body.individual_target_per_month ?? null,
+      body.tl_target_is_agent_sum ?? 1, body.mgr_target_is_tl_sum ?? 1,
       existing.id, tenantId
     ).run();
     return c.json({ success: true, data: { id: existing.id }, message: 'Target rules updated' });
   }
   const id = uuidv4();
-  await db.prepare('INSERT INTO company_target_rules (id, tenant_id, company_id, target_visits_per_day, target_registrations_per_day, target_conversions_per_day, team_lead_own_target_visits, team_lead_own_target_registrations, team_lead_own_target_conversions, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
-    id, tenantId, company_id,
-    body.target_visits_per_day ?? 20, body.target_registrations_per_day ?? 10, body.target_conversions_per_day ?? 5,
-    body.team_lead_own_target_visits ?? 20, body.team_lead_own_target_registrations ?? 10, body.team_lead_own_target_conversions ?? 5,
+  await db.prepare(`INSERT INTO company_target_rules (id, tenant_id, company_id, role_type,
+    individual_target_per_day, individual_target_per_month,
+    store_target_per_day, store_target_per_month,
+    target_visits_per_day, target_registrations_per_day, target_conversions_per_day,
+    team_lead_own_target_visits, team_lead_own_target_registrations, team_lead_own_target_conversions,
+    store_target_per_month_tl, store_target_per_month_agent,
+    individual_target_per_week_agent, individual_target_per_month_agent,
+    tl_target_is_agent_sum, mgr_target_is_tl_sum,
+    created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+    id, tenantId, company_id, rt,
+    body.individual_target_per_day ?? 0, body.individual_target_per_month ?? 0,
+    body.store_target_per_day ?? 0, body.store_target_per_month ?? 0,
+    body.target_visits_per_day ?? body.individual_target_per_day ?? 0, body.target_registrations_per_day ?? 0, body.target_conversions_per_day ?? 0,
+    body.team_lead_own_target_visits ?? 0, body.team_lead_own_target_registrations ?? 0, body.team_lead_own_target_conversions ?? 0,
+    body.store_target_per_month_tl ?? body.store_target_per_month ?? null, body.store_target_per_month_agent ?? body.store_target_per_month ?? null,
+    body.individual_target_per_week_agent ?? null, body.individual_target_per_month_agent ?? body.individual_target_per_month ?? null,
+    body.tl_target_is_agent_sum ?? 1, body.mgr_target_is_tl_sum ?? 1,
     userId
   ).run();
   return c.json({ success: true, data: { id }, message: 'Target rules created' }, 201);
