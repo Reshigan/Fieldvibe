@@ -235,6 +235,7 @@ app.post('/api/auth/login', rateLimiter(5, 900000), async (c) => {
     const loginField = email || normalizePhone(phone);
     const user = await db.prepare('SELECT * FROM users WHERE (email = ? OR phone = ?) AND is_active = 1').bind(loginField, loginField).first();
     if (!user) return c.json({ success: false, message: 'Invalid credentials' }, 401);
+    if (user.status === 'archived') return c.json({ success: false, message: 'Your account has been archived. Contact your administrator.' }, 403);
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) return c.json({ success: false, message: 'Invalid credentials' }, 401);
     const jwtSecret = c.env.JWT_SECRET;
@@ -282,6 +283,7 @@ app.post('/api/auth/mobile-login', rateLimiter(10, 900000), async (c) => {
     // Find agent by phone number (scoped to tenant if provided)
     const user = await db.prepare(`SELECT * FROM users WHERE phone = ? AND is_active = 1 AND role IN ('agent', 'team_lead', 'field_agent', 'sales_rep', 'manager')${tenantFilter}`).bind(...tenantBinds).first();
     if (!user) return c.json({ success: false, message: 'Invalid phone number or PIN' }, 401);
+    if (user.status === 'archived') return c.json({ success: false, message: 'Your account has been archived. Contact your manager.' }, 403);
     // Verify PIN (stored as pin_hash, fallback to password_hash for backward compat)
     const pinHash = user.pin_hash || user.password_hash;
     if (!pinHash) return c.json({ success: false, message: 'PIN not set. Contact your manager to set a PIN.' }, 401);
@@ -1444,8 +1446,9 @@ app.post('/api/auth/refresh', rateLimiter(10, 60000), async (c) => {
       const valid = await crypto.subtle.verify('HMAC', key, signatureBytes, new TextEncoder().encode(headerB64 + '.' + payloadB64));
       if (!valid) return c.json({ success: false, message: 'Invalid refresh token' }, 401);
       // Check user still exists and is active
-      const user = await db.prepare('SELECT id, tenant_id, role, email, first_name, last_name, is_active FROM users WHERE id = ? AND is_active = 1').bind(payload.userId).first();
+      const user = await db.prepare('SELECT id, tenant_id, role, email, first_name, last_name, is_active, status FROM users WHERE id = ? AND is_active = 1').bind(payload.userId).first();
       if (!user) return c.json({ success: false, message: 'User not found or inactive' }, 401);
+      if (user.status === 'archived') return c.json({ success: false, message: 'Your account has been archived. Contact your administrator.' }, 403);
       // Generate new tokens
       const newAccessToken = await generateToken({ userId: user.id, tenantId: user.tenant_id, role: user.role }, jwtSecret);
       const newRefreshToken = await generateToken({ userId: user.id, tenantId: user.tenant_id, role: user.role, type: 'refresh' }, jwtSecret, 604800);
@@ -1654,6 +1657,17 @@ api.delete('/users/:id', requireRole('admin'), async (c) => {
     db.prepare('UPDATE users SET is_active = 0, status = ? WHERE id = ? AND tenant_id = ?').bind('inactive', id, tenantId),
   ]);
   return c.json({ success: true, message: 'User deactivated' });
+});
+
+api.patch('/users/:id/archive', requireRole('admin'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { id } = c.req.param();
+  const user = await db.prepare('SELECT status FROM users WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!user) return c.json({ success: false, message: 'User not found' }, 404);
+  const newStatus = user.status === 'archived' ? 'active' : 'archived';
+  await db.prepare('UPDATE users SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?').bind(newStatus, id, tenantId).run();
+  return c.json({ success: true, message: newStatus === 'archived' ? 'User archived' : 'User unarchived', status: newStatus });
 });
 
 api.post('/users/:id/reset-password', requireRole('admin'), async (c) => {
@@ -5590,9 +5604,9 @@ api.get('/field-ops/hierarchy', authMiddleware, async (c) => {
   try {
     // Core user queries - filter by agent_type IN ('field_ops', 'both') or NULL (backward compat)
     const [managers, teamLeads, agents] = await Promise.all([
-      db.prepare("SELECT id, first_name, last_name, email, phone, role, agent_type FROM users WHERE tenant_id = ? AND role = 'manager' AND is_active = 1 AND (agent_type IS NULL OR agent_type IN ('field_ops', 'both')) ORDER BY first_name").bind(tenantId).all(),
-      db.prepare("SELECT id, first_name, last_name, email, phone, role, agent_type, manager_id FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1 AND (agent_type IS NULL OR agent_type IN ('field_ops', 'both')) ORDER BY first_name").bind(tenantId).all(),
-      db.prepare("SELECT id, first_name, last_name, email, phone, role, agent_type, team_lead_id, manager_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1 AND (agent_type IS NULL OR agent_type IN ('field_ops', 'both')) ORDER BY first_name").bind(tenantId).all(),
+      db.prepare("SELECT id, first_name, last_name, email, phone, role, agent_type, status FROM users WHERE tenant_id = ? AND role = 'manager' AND is_active = 1 AND (agent_type IS NULL OR agent_type IN ('field_ops', 'both')) ORDER BY first_name").bind(tenantId).all(),
+      db.prepare("SELECT id, first_name, last_name, email, phone, role, agent_type, manager_id, status FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1 AND (agent_type IS NULL OR agent_type IN ('field_ops', 'both')) ORDER BY first_name").bind(tenantId).all(),
+      db.prepare("SELECT id, first_name, last_name, email, phone, role, agent_type, team_lead_id, manager_id, status FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1 AND (agent_type IS NULL OR agent_type IN ('field_ops', 'both')) ORDER BY first_name").bind(tenantId).all(),
     ]);
     // Optional queries - query each separately so one missing table doesn't break the rest
     let mcLinks = [];
@@ -5688,9 +5702,9 @@ api.get('/marketing/hierarchy', authMiddleware, async (c) => {
   const tenantId = c.get('tenantId');
   try {
     const [managers, teamLeads, agents] = await Promise.all([
-      db.prepare("SELECT id, first_name, last_name, email, phone, role, agent_type FROM users WHERE tenant_id = ? AND role = 'manager' AND is_active = 1 AND agent_type IN ('marketing', 'both') ORDER BY first_name").bind(tenantId).all(),
-      db.prepare("SELECT id, first_name, last_name, email, phone, role, agent_type, manager_id FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1 AND agent_type IN ('marketing', 'both') ORDER BY first_name").bind(tenantId).all(),
-      db.prepare("SELECT id, first_name, last_name, email, phone, role, agent_type, team_lead_id, manager_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1 AND agent_type IN ('marketing', 'both') ORDER BY first_name").bind(tenantId).all(),
+      db.prepare("SELECT id, first_name, last_name, email, phone, role, agent_type, status FROM users WHERE tenant_id = ? AND role = 'manager' AND is_active = 1 AND agent_type IN ('marketing', 'both') ORDER BY first_name").bind(tenantId).all(),
+      db.prepare("SELECT id, first_name, last_name, email, phone, role, agent_type, manager_id, status FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1 AND agent_type IN ('marketing', 'both') ORDER BY first_name").bind(tenantId).all(),
+      db.prepare("SELECT id, first_name, last_name, email, phone, role, agent_type, team_lead_id, manager_id, status FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1 AND agent_type IN ('marketing', 'both') ORDER BY first_name").bind(tenantId).all(),
     ]);
     let mcLinks = [];
     let companiesList = [];
