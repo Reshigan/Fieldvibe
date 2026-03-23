@@ -181,24 +181,32 @@ function countWorkingDaysInMonth(config, month) {
 }
 
 // Build monthly targets from company_target_rules × working days when monthly_targets table is empty
-async function buildFallbackMonthlyTargets(db, tenantId, agentId, currentMonth, agentCompanyIds) {
+async function buildFallbackMonthlyTargets(db, tenantId, agentId, currentMonth, agentCompanyIds, roleType) {
   const fallbackTargets = [];
   if (!agentCompanyIds || agentCompanyIds.length === 0) return fallbackTargets;
   try {
+    const rt = roleType || 'agent';
     const ph = agentCompanyIds.map(() => '?').join(',');
-    const ctrResult = await db.prepare(`SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ? AND ctr.company_id IN (${ph})`).bind(tenantId, ...agentCompanyIds).all();
-    const rules = ctrResult.results || [];
+    // Try role-specific rules first, fall back to any rules for backward compat
+    let ctrResult = await db.prepare(`SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ? AND ctr.company_id IN (${ph}) AND ctr.role_type = ?`).bind(tenantId, ...agentCompanyIds, rt).all();
+    let rules = ctrResult.results || [];
+    if (rules.length === 0) {
+      ctrResult = await db.prepare(`SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ? AND ctr.company_id IN (${ph})`).bind(tenantId, ...agentCompanyIds).all();
+      rules = ctrResult.results || [];
+    }
     for (const ctr of rules) {
       const wdConfig = await resolveWorkingDaysConfig(db, tenantId, ctr.company_id, agentId);
       const workingDays = countWorkingDaysInMonth(wdConfig, currentMonth);
-      const dailyVisits = ctr.target_visits_per_day || 0;
-      const dailyRegs = ctr.target_registrations_per_day || 0;
+      // Use new per-role fields first, fall back to legacy fields
+      const indivPerDay = (ctr.individual_target_per_day != null ? ctr.individual_target_per_day : ctr.target_visits_per_day) ?? 0;
+      const indivPerMonth = ctr.individual_target_per_month != null ? ctr.individual_target_per_month : (indivPerDay * workingDays);
+      const storePerMonth = (ctr.store_target_per_month != null ? ctr.store_target_per_month : ((ctr.target_registrations_per_day || 0) * workingDays));
       const dailyConvs = ctr.target_conversions_per_day || 0;
       fallbackTargets.push({
         company_id: ctr.company_id,
         company_name: ctr.company_name,
-        target_visits: dailyVisits * workingDays,
-        target_registrations: dailyRegs * workingDays,
+        target_visits: indivPerMonth,
+        target_registrations: storePerMonth,
         target_conversions: dailyConvs * workingDays,
         actual_visits: 0,
         actual_registrations: 0,
@@ -216,21 +224,32 @@ async function buildFallbackMonthlyTargets(db, tenantId, agentId, currentMonth, 
 }
 
 // Build fallback targets for a single user (used in team lead / manager context)
-async function getUserMonthlyTargetFromRules(db, tenantId, userId, currentMonth) {
+async function getUserMonthlyTargetFromRules(db, tenantId, userId, currentMonth, roleType) {
   let totalTargetVisits = 0;
   let totalTargetRegs = 0;
   try {
+    const rt = roleType || 'agent';
     // Get user's companies
     const companiesResult = await db.prepare("SELECT fc.id FROM agent_company_links acl JOIN field_companies fc ON acl.company_id = fc.id WHERE acl.agent_id = ? AND acl.tenant_id = ? AND acl.is_active = 1 AND fc.status = 'active'").bind(userId, tenantId).all();
     const companyIds = (companiesResult.results || []).map(c => c.id);
     if (companyIds.length > 0) {
       const ph = companyIds.map(() => '?').join(',');
-      const rules = await db.prepare(`SELECT * FROM company_target_rules WHERE tenant_id = ? AND company_id IN (${ph})`).bind(tenantId, ...companyIds).all();
-      for (const ctr of (rules.results || [])) {
+      // Try role-specific rules first, fall back to any rules for backward compat
+      let rules = await db.prepare(`SELECT * FROM company_target_rules WHERE tenant_id = ? AND company_id IN (${ph}) AND role_type = ?`).bind(tenantId, ...companyIds, rt).all();
+      let ruleRows = rules.results || [];
+      if (ruleRows.length === 0) {
+        rules = await db.prepare(`SELECT * FROM company_target_rules WHERE tenant_id = ? AND company_id IN (${ph})`).bind(tenantId, ...companyIds).all();
+        ruleRows = rules.results || [];
+      }
+      for (const ctr of ruleRows) {
         const wdConfig = await resolveWorkingDaysConfig(db, tenantId, ctr.company_id, userId);
         const workingDays = countWorkingDaysInMonth(wdConfig, currentMonth);
-        totalTargetVisits += (ctr.target_visits_per_day || 0) * workingDays;
-        totalTargetRegs += (ctr.target_registrations_per_day || 0) * workingDays;
+        // Use new per-role fields first, fall back to legacy fields
+        const indivPerDay = (ctr.individual_target_per_day != null ? ctr.individual_target_per_day : ctr.target_visits_per_day) ?? 0;
+        const indivPerMonth = ctr.individual_target_per_month != null ? ctr.individual_target_per_month : (indivPerDay * workingDays);
+        const storePerMonth = (ctr.store_target_per_month != null ? ctr.store_target_per_month : ((ctr.target_registrations_per_day || 0) * workingDays));
+        totalTargetVisits += indivPerMonth;
+        totalTargetRegs += storePerMonth;
       }
     }
   } catch { /* */ }
@@ -1072,7 +1091,7 @@ app.get('/api/team-lead/dashboard', authMiddleware, async (c) => {
       let tlTR = tlOwnTargets?.target_registrations || 0;
       // Fall back to company_target_rules if monthly_targets are empty
       if (tlTV === 0 && tlTR === 0) {
-        const fb = await getUserMonthlyTargetFromRules(db, tenantId, userId, currentMonth);
+        const fb = await getUserMonthlyTargetFromRules(db, tenantId, userId, currentMonth, 'team_lead');
         tlTV = fb.target_visits;
         tlTR = fb.target_registrations;
       }
@@ -1226,7 +1245,7 @@ app.get('/api/team-lead/dashboard', authMiddleware, async (c) => {
     let tlOwnTR = tlOwnTargets?.target_registrations || 0;
     // Fall back to company_target_rules if monthly_targets are empty for team lead
     if (tlOwnTV === 0 && tlOwnTR === 0) {
-      const fb = await getUserMonthlyTargetFromRules(db, tenantId, userId, currentMonth);
+      const fb = await getUserMonthlyTargetFromRules(db, tenantId, userId, currentMonth, 'team_lead');
       tlOwnTV = fb.target_visits;
       tlOwnTR = fb.target_registrations;
     }
@@ -1443,7 +1462,7 @@ app.get('/api/manager/dashboard', authMiddleware, async (c) => {
       let tlOwnTgtTR = tlOwnTgt?.tr || 0;
       // Fall back to company_target_rules if monthly_targets are empty for team lead
       if (tlOwnTgtTV === 0 && tlOwnTgtTR === 0) {
-        const fb = await getUserMonthlyTargetFromRules(db, tenantId, tl.id, currentMonth);
+        const fb = await getUserMonthlyTargetFromRules(db, tenantId, tl.id, currentMonth, 'team_lead');
         tlOwnTgtTV = fb.target_visits;
         tlOwnTgtTR = fb.target_registrations;
       }
