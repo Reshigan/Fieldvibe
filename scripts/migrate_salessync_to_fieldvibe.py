@@ -294,6 +294,22 @@ class IDMapper:
         """Return all mappings for debugging."""
         return {t: {str(k): v for k, v in m.items()} for t, m in self.maps.items()}
 
+    def load_from_file(self, path):
+        """Load ID mappings from a previously saved JSON file."""
+        with open(path, "r") as f:
+            raw = json.load(f)
+        for table, mapping in raw.items():
+            if table not in self.maps:
+                self.maps[table] = {}
+            for old_id_str, new_uuid in mapping.items():
+                # Keys were stringified on dump; convert back to int if numeric
+                try:
+                    old_id = int(old_id_str)
+                except ValueError:
+                    old_id = old_id_str
+                self.maps[table][old_id] = new_uuid
+        print(f"  Loaded mappings from {path}: {sum(len(m) for m in self.maps.values())} total entries")
+
 
 # ── Data Transformation ─────────────────────────────────────────────────────
 
@@ -888,6 +904,8 @@ def main():
                         help="Skip photo import (faster)")
     parser.add_argument("--cleanup", action="store_true",
                         help="Clean up test tenant after validation")
+    parser.add_argument("--mapping-file", type=str, default=None,
+                        help="Path to ID mapping JSON from a previous run (required for photos-only mode)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -919,6 +937,11 @@ def main():
     # Load
     print("\n── Loading data into D1 ──")
     if args.mode == "photos-only":
+        if not args.mapping_file:
+            print("ERROR: --mapping-file is required for photos-only mode.")
+            print("Use the ID mapping JSON saved from a previous full/test run.")
+            sys.exit(1)
+        mapper.load_from_file(args.mapping_file)
         load_photos(data, mapper, tenant_id, dry_run=False)
     else:
         load_data(transformed, dry_run=(args.mode == "dry-run"))
