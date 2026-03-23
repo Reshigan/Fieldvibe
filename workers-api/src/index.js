@@ -1446,8 +1446,9 @@ app.post('/api/auth/refresh', rateLimiter(10, 60000), async (c) => {
       const valid = await crypto.subtle.verify('HMAC', key, signatureBytes, new TextEncoder().encode(headerB64 + '.' + payloadB64));
       if (!valid) return c.json({ success: false, message: 'Invalid refresh token' }, 401);
       // Check user still exists and is active
-      const user = await db.prepare('SELECT id, tenant_id, role, email, first_name, last_name, is_active FROM users WHERE id = ? AND is_active = 1').bind(payload.userId).first();
+      const user = await db.prepare('SELECT id, tenant_id, role, email, first_name, last_name, is_active, status FROM users WHERE id = ? AND is_active = 1').bind(payload.userId).first();
       if (!user) return c.json({ success: false, message: 'User not found or inactive' }, 401);
+      if (user.status === 'archived') return c.json({ success: false, message: 'Your account has been archived. Contact your administrator.' }, 403);
       // Generate new tokens
       const newAccessToken = await generateToken({ userId: user.id, tenantId: user.tenant_id, role: user.role }, jwtSecret);
       const newRefreshToken = await generateToken({ userId: user.id, tenantId: user.tenant_id, role: user.role, type: 'refresh' }, jwtSecret, 604800);

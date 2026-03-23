@@ -128,10 +128,10 @@ export default function AgentHierarchyPage() {
 
   const archiveMutation = useMutation({
     mutationFn: (userId: string) => apiClient.patch(`/users/${userId}/archive`),
-    onSuccess: (_data, _vars) => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['field-ops-hierarchy'] })
-      const wasArchived = archiveConfirm?.isArchived
-      toast.success(wasArchived ? 'Person unarchived' : 'Person archived')
+      const newStatus = (data as { data?: { status?: string } })?.data?.status
+      toast.success(newStatus === 'archived' ? 'Person archived' : 'Person unarchived')
       setArchiveConfirm(null)
     },
     onError: () => toast.error('Failed to archive/unarchive person'),
