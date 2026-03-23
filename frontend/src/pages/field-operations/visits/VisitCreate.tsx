@@ -5,8 +5,9 @@ import {
   Box, Stepper, Step, StepLabel, Button, Paper, Typography, Alert,
   TextField, FormControl, InputLabel, Select, MenuItem, CircularProgress,
   Card, CardContent, Chip, IconButton, FormControlLabel, Switch, Divider,
-  Grid, Autocomplete
+  Grid, Autocomplete, Radio, RadioGroup, Checkbox, FormGroup, FormLabel, FormHelperText
 } from '@mui/material'
+import { CloudUpload as UploadIcon } from '@mui/icons-material'
 import {
   MyLocation as GpsIcon,
   Person as PersonIcon,
@@ -366,8 +367,16 @@ export default function VisitCreate() {
       const res = await fieldOperationsService.getCompanyCustomQuestions(companyId, visitTargetType || undefined)
       const questions = res?.data || res || []
       const allQuestions = Array.isArray(questions) ? questions : []
-      // Filter out questions flagged as duplicates of built-in flow fields
-      setCustomQuestions(allQuestions.filter((q: CustomQuestion) => !isDuplicateFlowQuestion(q)))
+      const filtered = allQuestions.filter((q: CustomQuestion) => !isDuplicateFlowQuestion(q))
+      setCustomQuestions(filtered)
+      // Initialize toggle questions to 'No' so the visual state matches the stored value
+      const toggleDefaults: Record<string, string> = {}
+      for (const q of filtered) {
+        if (q.field_type === 'toggle') toggleDefaults[q.question_key] = 'No'
+      }
+      if (Object.keys(toggleDefaults).length > 0) {
+        setCustomQuestionValues(prev => ({ ...toggleDefaults, ...prev }))
+      }
     } catch (err) {
       console.error('Failed to load custom questions:', err)
     }
@@ -1018,20 +1027,120 @@ export default function VisitCreate() {
               Answer the following questions for this company.
             </Typography>
             <Grid container spacing={2}>
-              {customQuestions.map(q => (
+              {customQuestions.map(q => {
+                const opts: string[] = q.field_options ? (() => { try { return JSON.parse(q.field_options!) as string[] } catch { return [] } })() : []
+                const val = customQuestionValues[q.question_key] || ''
+                const lenHelper = q.min_length || q.max_length ? `${q.min_length ? `Min ${q.min_length}` : ''}${q.min_length && q.max_length ? ' / ' : ''}${q.max_length ? `Max ${q.max_length}` : ''} characters` : undefined
+                const lenError = !!(q.min_length && val.length > 0 && val.length < q.min_length)
+                return (
                 <Grid item xs={12} sm={6} key={q.id}>
-                  {q.field_type === 'select' && q.field_options ? (
+                  {q.field_type === 'select' && opts.length > 0 ? (
                     <FormControl fullWidth required={!!q.is_required}>
                       <InputLabel>{q.question_label}</InputLabel>
                       <Select
-                        value={customQuestionValues[q.question_key] || ''}
+                        value={val}
                         label={q.question_label}
                         onChange={(e) => setCustomQuestionValues(prev => ({ ...prev, [q.question_key]: e.target.value }))}
                       >
-                        {(() => { try { return JSON.parse(q.field_options!) as string[] } catch { return [] } })().map((opt: string) => (
+                        {opts.map((opt: string) => (
                           <MenuItem key={opt} value={opt}>{opt}</MenuItem>
                         ))}
                       </Select>
+                    </FormControl>
+                  ) : q.field_type === 'radio' && opts.length > 0 ? (
+                    <FormControl component="fieldset" required={!!q.is_required} fullWidth>
+                      <FormLabel component="legend">{q.question_label}</FormLabel>
+                      <RadioGroup
+                        value={val}
+                        onChange={(e) => setCustomQuestionValues(prev => ({ ...prev, [q.question_key]: e.target.value }))}
+                      >
+                        {opts.map((opt: string) => (
+                          <FormControlLabel key={opt} value={opt} control={<Radio />} label={opt} />
+                        ))}
+                      </RadioGroup>
+                    </FormControl>
+                  ) : q.field_type === 'checkbox' && opts.length > 0 ? (
+                    <FormControl component="fieldset" required={!!q.is_required} fullWidth>
+                      <FormLabel component="legend">{q.question_label}</FormLabel>
+                      <FormGroup>
+                        {opts.map((opt: string) => {
+                          const selected: string[] = val ? val.split(',') : []
+                          return (
+                            <FormControlLabel
+                              key={opt}
+                              control={
+                                <Checkbox
+                                  checked={selected.includes(opt)}
+                                  onChange={(e) => {
+                                    const newSelected = e.target.checked
+                                      ? [...selected, opt]
+                                      : selected.filter(s => s !== opt)
+                                    setCustomQuestionValues(prev => ({ ...prev, [q.question_key]: newSelected.join(',') }))
+                                  }}
+                                />
+                              }
+                              label={opt}
+                            />
+                          )
+                        })}
+                      </FormGroup>
+                    </FormControl>
+                  ) : q.field_type === 'toggle' ? (
+                    <FormControl component="fieldset" fullWidth>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={val === 'Yes'}
+                            onChange={(e) => setCustomQuestionValues(prev => ({ ...prev, [q.question_key]: e.target.checked ? 'Yes' : 'No' }))}
+                          />
+                        }
+                        label={q.question_label}
+                      />
+                      {val && <FormHelperText>{val}</FormHelperText>}
+                    </FormControl>
+                  ) : q.field_type === 'date' ? (
+                    <TextField
+                      fullWidth
+                      required={!!q.is_required}
+                      label={q.question_label}
+                      type="date"
+                      value={val}
+                      onChange={(e) => setCustomQuestionValues(prev => ({ ...prev, [q.question_key]: e.target.value }))}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  ) : q.field_type === 'image' ? (
+                    <FormControl fullWidth required={!!q.is_required}>
+                      <FormLabel sx={{ mb: 1 }}>{q.question_label}</FormLabel>
+                      <Button
+                        variant="outlined"
+                        component="label"
+                        startIcon={<UploadIcon />}
+                        fullWidth
+                      >
+                        {val ? 'Photo captured' : 'Take / Upload Photo'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          hidden
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0]
+                            if (!file) return
+                            const reader = new FileReader()
+                            reader.onload = async (ev) => {
+                              const rawDataUrl = ev.target?.result as string
+                              const compressed = await compressImage(rawDataUrl)
+                              setCustomQuestionValues(prev => ({ ...prev, [q.question_key]: compressed }))
+                            }
+                            reader.readAsDataURL(file)
+                          }}
+                        />
+                      </Button>
+                      {val && (
+                        <Box sx={{ mt: 1 }}>
+                          <img src={val} alt={q.question_label} style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8 }} />
+                        </Box>
+                      )}
                     </FormControl>
                   ) : q.field_type === 'textarea' ? (
                     <TextField
@@ -1040,27 +1149,28 @@ export default function VisitCreate() {
                       label={q.question_label}
                       multiline
                       rows={3}
-                      value={customQuestionValues[q.question_key] || ''}
+                      value={val}
                       onChange={(e) => setCustomQuestionValues(prev => ({ ...prev, [q.question_key]: e.target.value }))}
                       inputProps={{ minLength: q.min_length || undefined, maxLength: q.max_length || undefined }}
-                      helperText={q.min_length || q.max_length ? `${q.min_length ? `Min ${q.min_length}` : ''}${q.min_length && q.max_length ? ' / ' : ''}${q.max_length ? `Max ${q.max_length}` : ''} characters` : undefined}
-                      error={!!(q.min_length && (customQuestionValues[q.question_key] || '').length > 0 && (customQuestionValues[q.question_key] || '').length < q.min_length)}
+                      helperText={lenHelper}
+                      error={lenError}
                     />
                   ) : (
                     <TextField
                       fullWidth
                       required={!!q.is_required}
                       label={q.question_label}
-                      type={q.field_type === 'number' ? 'number' : 'text'}
-                      value={customQuestionValues[q.question_key] || ''}
+                      type={q.field_type === 'number' ? 'number' : q.field_type === 'email' ? 'email' : q.field_type === 'phone' ? 'tel' : 'text'}
+                      value={val}
                       onChange={(e) => setCustomQuestionValues(prev => ({ ...prev, [q.question_key]: e.target.value }))}
                       inputProps={{ minLength: q.min_length || undefined, maxLength: q.max_length || undefined }}
-                      helperText={q.min_length || q.max_length ? `${q.min_length ? `Min ${q.min_length}` : ''}${q.min_length && q.max_length ? ' / ' : ''}${q.max_length ? `Max ${q.max_length}` : ''} characters` : undefined}
-                      error={!!(q.min_length && (customQuestionValues[q.question_key] || '').length > 0 && (customQuestionValues[q.question_key] || '').length < q.min_length)}
+                      helperText={lenHelper}
+                      error={lenError}
                     />
                   )}
                 </Grid>
-              ))}
+                )
+              })}
             </Grid>
           </>
         )}
@@ -1374,7 +1484,13 @@ export default function VisitCreate() {
               <Typography variant="subtitle2" color="text.secondary">Company Questions</Typography>
               {Object.entries(customQuestionValues).map(([key, value]) => {
                 const cq = customQuestions.find(q => q.question_key === key)
-                return (
+                const isImage = cq?.field_type === 'image' || (typeof value === 'string' && value.startsWith('data:image/'))
+                return isImage ? (
+                  <Box key={key} sx={{ mb: 1 }}>
+                    <Typography variant="body2" fontWeight="medium">{cq?.question_label || key}:</Typography>
+                    <img src={value} alt={cq?.question_label || key} style={{ maxWidth: '100%', maxHeight: 120, borderRadius: 4, marginTop: 4 }} />
+                  </Box>
+                ) : (
                   <Typography key={key} variant="body2">{cq?.question_label || key}: {value}</Typography>
                 )
               })}
