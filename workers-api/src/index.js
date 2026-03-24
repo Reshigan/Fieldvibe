@@ -474,7 +474,7 @@ app.get('/api/agent/store-search', authMiddleware, async (c) => {
     const tenantId = c.get('tenantId');
     const userId = c.get('userId');
     const { search, company_id, limit = 200 } = c.req.query();
-    const limitNum = Math.min(parseInt(limit) || 200, 500);
+    const parsed = parseInt(limit); const limitNum = Math.min((Number.isFinite(parsed) && parsed > 0) ? parsed : 200, 500);
 
     // Get stores from customers table + stores this agent has visited before
     let where = 'WHERE c.tenant_id = ?';
