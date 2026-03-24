@@ -188,7 +188,7 @@ export default function VisitManagementPage({ visitType }: VisitManagementPagePr
                   <tr key={visit.id} className="hover:bg-surface-secondary dark:hover:bg-gray-700 cursor-pointer" onClick={() => navigate(`/field-operations/visits/${visit.id}`)}>
                     <td className="px-6 py-4">
                       {(visit.thumbnail_url || visit.photo_url) ? (
-                        <button onClick={(e) => { e.stopPropagation(); setExpandedPhoto(visit.thumbnail_url || visit.photo_url || null); }} className="block">
+                        <button onClick={(e) => { e.stopPropagation(); setExpandedPhoto(visit.photo_url || visit.thumbnail_url || null); }} className="block">
                           <img
                             src={visit.thumbnail_url || visit.photo_url}
                             alt="Visit photo"

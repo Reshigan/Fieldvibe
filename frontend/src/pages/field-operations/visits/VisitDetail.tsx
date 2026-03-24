@@ -309,6 +309,7 @@ export default function VisitDetail() {
   const durationStr = (() => {
     if (visit.check_in_time && visit.check_out_time) {
       const mins = Math.round((new Date(visit.check_out_time).getTime() - new Date(visit.check_in_time).getTime()) / 60000)
+      if (mins <= 0) return undefined
       if (mins < 60) return `${mins} min`
       return `${Math.floor(mins / 60)}h ${mins % 60}m`
     }
@@ -364,7 +365,7 @@ export default function VisitDetail() {
               <div key={idx} className="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
                 <div className="aspect-square">
                   <img
-                    src={photo.r2_url || photo.photo_url || photo.url || (photo.photo_base64 ? `data:image/jpeg;base64,${photo.photo_base64}` : '')}
+                    src={photo.r2_url || photo.photo_url || photo.url || (photo.photo_base64 ? `data:image/jpeg;base64,${photo.photo_base64}` : undefined)}
                     alt={`Photo ${idx + 1}`}
                     className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
                   />
@@ -409,7 +410,7 @@ export default function VisitDetail() {
               <div key={idx} className="space-y-2">
                 {Object.entries(parsed).map(([key, value]) => (
                   <div key={key} className="flex justify-between border-b border-gray-100 dark:border-gray-700 pb-2">
-                    <span className="text-sm text-gray-500 dark:text-gray-400">{key.replace(/_/g, ' ')}</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400 capitalize">{key.replace(/_/g, ' ')}</span>
                     <span className="text-sm font-medium text-gray-900 dark:text-white">{String(value)}</span>
                   </div>
                 ))}
