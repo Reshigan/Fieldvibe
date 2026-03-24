@@ -537,7 +537,7 @@ export default function CompanyDashboardPage() {
       {/* Store Analytics Tab (SSReports ShopsAnalytics equivalent) */}
       {activeTab === 'stores' && isCompanyPortal && (
         <>
-          <DateRangeBar dateRange={dateRange} setDateRange={setDateRange} />
+          <DateRangeBar dateRange={dateRange} setDateRange={(r) => { setDateRange(r); setStorePage(1) }} />
 
           {/* Store KPIs */}
           {storeData?.kpis && (
@@ -749,7 +749,7 @@ export default function CompanyDashboardPage() {
       {/* Visit Records Tab (SSReports CheckinsList equivalent) */}
       {activeTab === 'visits' && isCompanyPortal && (
         <>
-          <DateRangeBar dateRange={dateRange} setDateRange={setDateRange} />
+          <DateRangeBar dateRange={dateRange} setDateRange={(r) => { setDateRange(r); setVisitPage(1) }} />
 
           {/* Visit Type Breakdown */}
           {(visitData?.type_breakdown || []).length > 0 && (
@@ -758,7 +758,7 @@ export default function CompanyDashboardPage() {
                 onClick={() => { setVisitTypeFilter(''); setVisitPage(1) }}
                 className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${!visitTypeFilter ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 hover:bg-gray-200'}`}
               >
-                All ({visitData?.total || 0})
+                All ({(visitData?.type_breakdown || []).reduce((s: number, t: any) => s + (t.count || 0), 0) || visitData?.total || 0})
               </button>
               {(visitData.type_breakdown || []).map((tb: any) => (
                 <button
