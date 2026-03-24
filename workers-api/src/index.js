@@ -500,7 +500,7 @@ app.get('/api/agent/store-search', authMiddleware, async (c) => {
     return c.json({ success: true, data: customers.results || [] });
   } catch (err) {
     console.error('Store search error:', err);
-    return c.json({ success: true, data: [] });
+    return c.json({ success: false, data: [], error: err.message || 'Store search failed' }, 500);
   }
 });
 
