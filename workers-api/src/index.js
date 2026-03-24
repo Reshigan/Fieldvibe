@@ -531,7 +531,7 @@ app.get('/api/agent/store-search', authMiddleware, async (c) => {
     }
 
     const customers = await db.prepare(
-      `SELECT c.id, c.name, c.code, c.business_name, c.contact_person, c.contact_phone, c.address, c.latitude, c.longitude, c.customer_type,
+      `SELECT c.id, c.name, c.code, c.contact_person, c.contact_phone, c.address, c.latitude, c.longitude, c.customer_type,
         (SELECT MAX(v.visit_date) FROM visits v WHERE v.customer_id = c.id AND v.tenant_id = c.tenant_id AND v.agent_id = ?) as last_visit_date
       FROM customers c ${where} ORDER BY last_visit_date DESC NULLS LAST, c.name LIMIT ?`
     ).bind(userId, ...params, limitNum).all();
