@@ -12855,8 +12855,10 @@ app.get('/api/field-ops/company-portal/store-analytics', companyAuthMiddleware, 
     const countResult = await db.prepare(`SELECT COUNT(*) as total ${baseWhere}`).bind(...baseParams).first();
     const shops = await db.prepare(`SELECT s.id, s.name, s.address, s.latitude, s.longitude, COALESCE(vs.total_visits, 0) as total_visits, COALESCE(vs.completed_visits, 0) as completed_visits, vs.last_visit ${baseWhere} ORDER BY vs.total_visits DESC LIMIT ? OFFSET ?`).bind(...baseParams, pageSize, offset).all();
     const totalShops = countResult?.total || 0;
-    const allVisits = shops.results?.reduce((s, sh) => s + (sh.total_visits || 0), 0) || 0;
-    const allCompleted = shops.results?.reduce((s, sh) => s + (sh.completed_visits || 0), 0) || 0;
+    // Aggregate KPIs across ALL stores (not just current page)
+    const kpiAgg = await db.prepare(`SELECT COALESCE(SUM(vs.total_visits), 0) as total_visits, COALESCE(SUM(vs.completed_visits), 0) as completed_visits ${baseWhere}`).bind(...baseParams).first();
+    const allVisits = kpiAgg?.total_visits || 0;
+    const allCompleted = kpiAgg?.completed_visits || 0;
     return c.json({
       shops: shops.results || [],
       total: totalShops,
