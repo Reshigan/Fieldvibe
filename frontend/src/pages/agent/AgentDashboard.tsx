@@ -277,10 +277,21 @@ export default function AgentDashboard() {
 
       <div className="px-5 mb-4">
         <div className="grid grid-cols-2 gap-3">
-          <StatCard icon={<MapPin className="w-5 h-5" />} label="Today Individual" value={data?.today_individual_visits ?? data?.today_visits ?? 0} color="bg-blue-500" />
-          <StatCard icon={<Store className="w-5 h-5" />} label="Today Store" value={data?.today_store_visits ?? 0} color="bg-purple-500" />
-          <StatCard icon={<TrendingUp className="w-5 h-5" />} label="Month Individual" value={data?.month_individual_visits ?? data?.month_visits ?? 0} color="bg-emerald-500" />
-          <StatCard icon={<Target className="w-5 h-5" />} label="Month Store" value={data?.month_store_visits ?? 0} color="bg-amber-500" />
+          {/* Calculate daily targets from company targets */}
+          {(() => {
+            const dailyIndivTarget = data?.daily_targets?.reduce((s, t) => s + (t.target_visits || 0), 0) || data?.company_targets?.reduce((s, t) => s + (t.daily_target_visits || 0), 0) || 0
+            const dailyStoreTarget = data?.daily_targets?.reduce((s, t) => s + (t.target_registrations || 0), 0) || data?.company_targets?.reduce((s, t) => s + (t.daily_target_registrations || 0), 0) || 0
+            const monthIndivTarget = data?.monthly_targets?.target_visits || data?.company_targets?.reduce((s, t) => s + (t.month_target_visits || 0), 0) || 0
+            const monthStoreTarget = data?.monthly_targets?.target_registrations || data?.company_targets?.reduce((s, t) => s + (t.store_target_per_month || 0), 0) || 0
+            return (
+              <>
+                <StatCard icon={<MapPin className="w-5 h-5" />} label="Today Individual" value={data?.today_individual_visits ?? data?.today_visits ?? 0} target={dailyIndivTarget > 0 ? dailyIndivTarget : undefined} color="bg-blue-500" />
+                <StatCard icon={<Store className="w-5 h-5" />} label="Today Store" value={data?.today_store_visits ?? 0} target={dailyStoreTarget > 0 ? dailyStoreTarget : undefined} color="bg-purple-500" />
+                <StatCard icon={<TrendingUp className="w-5 h-5" />} label="Month Individual" value={data?.month_individual_visits ?? data?.month_visits ?? 0} target={monthIndivTarget > 0 ? monthIndivTarget : undefined} color="bg-emerald-500" />
+                <StatCard icon={<Target className="w-5 h-5" />} label="Month Store" value={data?.month_store_visits ?? 0} target={monthStoreTarget > 0 ? monthStoreTarget : undefined} color="bg-amber-500" />
+              </>
+            )
+          })()}
         </div>
       </div>
 
@@ -381,58 +392,79 @@ export default function AgentDashboard() {
       )}
 
       {/* Weekly & Monthly Targets */}
-      {(data?.weekly_targets || data?.monthly_targets) && (
-        <div className="px-5 mb-4">
-          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Week & Month Progress</h2>
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            {data?.weekly_targets && data.weekly_targets.target_visits > 0 && (
-              <div className={`border rounded-xl p-3 ${data.weekly_targets.actual_visits >= data.weekly_targets.target_visits ? 'bg-blue-500/10 border-blue-500/30' : 'bg-white/5 border-white/10'}`}>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Calendar className="w-3 h-3 text-blue-400" />
-                  <span className="text-[10px] text-gray-500 uppercase">Week Individual</span>
+      {(() => {
+        // Calculate weekly targets from company targets if not in weekly_targets
+        const weekIndivTarget = data?.weekly_targets?.target_visits || data?.company_targets?.reduce((s, t) => s + (t.week_target_visits || 0), 0) || 0
+        const weekIndivActual = data?.weekly_targets?.actual_visits || data?.week_individual_visits || 0
+        const monthIndivTarget = data?.monthly_targets?.target_visits || data?.company_targets?.reduce((s, t) => s + (t.month_target_visits || 0), 0) || 0
+        const monthIndivActual = data?.monthly_targets?.actual_visits || data?.month_individual_visits || 0
+        const monthStoreTarget = data?.monthly_targets?.target_registrations || data?.company_targets?.reduce((s, t) => s + (t.store_target_per_month || 0), 0) || 0
+        const monthStoreActual = data?.monthly_targets?.actual_registrations || data?.month_store_visits || 0
+        
+        if (!weekIndivTarget && !monthIndivTarget && !monthStoreTarget) return null
+        
+        return (
+          <div className="px-5 mb-4">
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Week & Month Progress</h2>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              {weekIndivTarget > 0 && (
+                <div className={`border rounded-xl p-3 ${weekIndivActual >= weekIndivTarget ? 'bg-blue-500/10 border-blue-500/30' : 'bg-white/5 border-white/10'}`}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Calendar className="w-3 h-3 text-blue-400" />
+                    <span className="text-[10px] text-gray-500 uppercase">Week Individual</span>
+                  </div>
+                  <p className="text-lg font-bold text-white">{weekIndivActual}<span className="text-sm text-gray-500">/{weekIndivTarget}</span></p>
+                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mt-1">
+                    <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min(100, Math.round((weekIndivActual / weekIndivTarget) * 100))}%` }} />
+                  </div>
+                  {weekIndivActual >= weekIndivTarget && (
+                    <p className="text-[8px] text-blue-400 mt-1 font-semibold">✓ Week target met! 🎉</p>
+                  )}
+                  {weekIndivActual < weekIndivTarget && weekIndivTarget - weekIndivActual > 0 && (
+                    <p className="text-[8px] text-amber-400 mt-1">{weekIndivTarget - weekIndivActual} more to go! 💪</p>
+                  )}
                 </div>
-                <p className="text-lg font-bold text-white">{data.weekly_targets.actual_visits}<span className="text-sm text-gray-500">/{data.weekly_targets.target_visits}</span></p>
-                <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mt-1">
-                  <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min(100, Math.round((data.weekly_targets.actual_visits / data.weekly_targets.target_visits) * 100))}%` }} />
+              )}
+              {monthIndivTarget > 0 && (
+                <div className={`border rounded-xl p-3 ${monthIndivActual >= monthIndivTarget ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/5 border-white/10'}`}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Target className="w-3 h-3 text-emerald-400" />
+                    <span className="text-[10px] text-gray-500 uppercase">Month Individual</span>
+                  </div>
+                  <p className="text-lg font-bold text-white">{monthIndivActual}<span className="text-sm text-gray-500">/{monthIndivTarget}</span></p>
+                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mt-1">
+                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${Math.min(100, Math.round((monthIndivActual / monthIndivTarget) * 100))}%` }} />
+                  </div>
+                  {monthIndivActual >= monthIndivTarget && (
+                    <p className="text-[8px] text-emerald-400 mt-1 font-semibold">✓ Month target met! 🏆</p>
+                  )}
+                  {monthIndivActual < monthIndivTarget && monthIndivTarget - monthIndivActual > 0 && (
+                    <p className="text-[8px] text-amber-400 mt-1">{monthIndivTarget - monthIndivActual} more to go! 💪</p>
+                  )}
                 </div>
-                {data.weekly_targets.actual_visits >= data.weekly_targets.target_visits && (
-                  <p className="text-[8px] text-blue-400 mt-1 font-semibold">✓ Week target met! 🎉</p>
-                )}
-              </div>
-            )}
-            {data?.monthly_targets && data.monthly_targets.target_visits > 0 && (
-              <div className={`border rounded-xl p-3 ${data.monthly_targets.actual_visits >= data.monthly_targets.target_visits ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/5 border-white/10'}`}>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Target className="w-3 h-3 text-emerald-400" />
-                  <span className="text-[10px] text-gray-500 uppercase">Month Individual</span>
+              )}
+              {monthStoreTarget > 0 && (
+                <div className={`border rounded-xl p-3 ${monthStoreActual >= monthStoreTarget ? 'bg-amber-500/10 border-amber-500/30' : 'bg-white/5 border-white/10'}`}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Users className="w-3 h-3 text-amber-400" />
+                    <span className="text-[10px] text-gray-500 uppercase">Month Store</span>
+                  </div>
+                  <p className="text-lg font-bold text-white">{monthStoreActual}<span className="text-sm text-gray-500">/{monthStoreTarget}</span></p>
+                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mt-1">
+                    <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.min(100, Math.round((monthStoreActual / monthStoreTarget) * 100))}%` }} />
+                  </div>
+                  {monthStoreActual >= monthStoreTarget && (
+                    <p className="text-[8px] text-amber-400 mt-1 font-semibold">✓ Store target met! 🎯</p>
+                  )}
+                  {monthStoreActual < monthStoreTarget && monthStoreTarget - monthStoreActual > 0 && (
+                    <p className="text-[8px] text-amber-400 mt-1">{monthStoreTarget - monthStoreActual} more to go! 💪</p>
+                  )}
                 </div>
-                <p className="text-lg font-bold text-white">{data.monthly_targets.actual_visits}<span className="text-sm text-gray-500">/{data.monthly_targets.target_visits}</span></p>
-                <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mt-1">
-                  <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${Math.min(100, Math.round((data.monthly_targets.actual_visits / data.monthly_targets.target_visits) * 100))}%` }} />
-                </div>
-                {data.monthly_targets.actual_visits >= data.monthly_targets.target_visits && (
-                  <p className="text-[8px] text-emerald-400 mt-1 font-semibold">✓ Month target met! 🏆</p>
-                )}
-              </div>
-            )}
-            {data?.monthly_targets && data.monthly_targets.target_registrations > 0 && (
-              <div className={`border rounded-xl p-3 ${data.monthly_targets.actual_registrations >= data.monthly_targets.target_registrations ? 'bg-amber-500/10 border-amber-500/30' : 'bg-white/5 border-white/10'}`}>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Users className="w-3 h-3 text-amber-400" />
-                  <span className="text-[10px] text-gray-500 uppercase">Month Store</span>
-                </div>
-                <p className="text-lg font-bold text-white">{data.monthly_targets.actual_registrations}<span className="text-sm text-gray-500">/{data.monthly_targets.target_registrations}</span></p>
-                <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mt-1">
-                  <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.min(100, Math.round((data.monthly_targets.actual_registrations / data.monthly_targets.target_registrations) * 100))}%` }} />
-                </div>
-                {data.monthly_targets.actual_registrations >= data.monthly_targets.target_registrations && (
-                  <p className="text-[8px] text-amber-400 mt-1 font-semibold">✓ Store target met! 🎯</p>
-                )}
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {data?.company_targets && data.company_targets.length > 0 ? (
         <div className="px-5 mb-4">
@@ -608,14 +640,25 @@ export default function AgentDashboard() {
   )
 }
 
-function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
+function StatCard({ icon, label, value, target, color }: { icon: React.ReactNode; label: string; value: number; target?: number; color: string }) {
+  const showTarget = target != null && target > 0
   return (
     <div className="bg-white/5 border border-white/10 rounded-xl p-3.5">
       <div className="flex items-center justify-between mb-2">
         <div className={`p-2 rounded-lg ${color} text-white`}>{icon}</div>
+        {showTarget && (
+          <span className={`text-[9px] font-semibold ${value >= target ? 'text-[#00E87B]' : 'text-amber-400'}`}>
+            {value}/{target}
+          </span>
+        )}
       </div>
       <p className="text-xl font-bold text-white">{value}</p>
       <p className="text-[10px] text-gray-500 uppercase tracking-wider">{label}</p>
+      {showTarget && (
+        <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mt-2">
+          <div className={`h-full rounded-full transition-all ${value >= target ? 'bg-gradient-to-r from-[#00E87B] to-[#00D06E]' : 'bg-gradient-to-r from-amber-500 to-orange-500'}`} style={{ width: `${Math.min(100, Math.round((value / target) * 100))}%` }} />
+        </div>
+      )}
     </div>
   )
 }
