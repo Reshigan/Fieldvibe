@@ -585,20 +585,43 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
     // Use role-specific rules: agents get 'agent' rules, team_leads get 'team_lead' rules, managers get 'manager' rules
     const dashRoleType = userRole === 'manager' ? 'manager' : userRole === 'team_lead' ? 'team_lead' : 'agent';
 
-    // All these queries are independent — run them all at once
-    const [todayVisits, monthVisits, todayRegs, monthRegs, recentVisits, companies, targets, visitBreakdown, weekVisits, weekRegs, weekVisitsByCompany] = await Promise.all([
-      db.prepare("SELECT COUNT(*) as count FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date = ?").bind(tenantId, userId, today).first().catch(() => ({ count: 0 })),
-      db.prepare("SELECT COUNT(*) as count FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date >= ?").bind(tenantId, userId, monthStart).first().catch(() => ({ count: 0 })),
-      db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND agent_id = ? AND DATE(created_at) = ?").bind(tenantId, userId, today).first().catch(() => ({ count: 0 })),
-      db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND agent_id = ? AND DATE(created_at) >= ?").bind(tenantId, userId, monthStart).first().catch(() => ({ count: 0 })),
+    // Optimized: Combine COUNT queries into single query with conditional aggregates (reduces 8 queries to 1)
+    const countsQuery = `
+      SELECT
+        (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date = ?) as today_visits,
+        (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date >= ?) as month_visits,
+        (SELECT COUNT(*) FROM individual_registrations WHERE tenant_id = ? AND agent_id = ? AND DATE(created_at) = ?) as today_regs,
+        (SELECT COUNT(*) FROM individual_registrations WHERE tenant_id = ? AND agent_id = ? AND DATE(created_at) >= ?) as month_regs,
+        (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date >= ?) as week_visits,
+        (SELECT COUNT(*) FROM individual_registrations WHERE tenant_id = ? AND agent_id = ? AND DATE(created_at) >= ?) as week_regs
+    `;
+    const countsResult = await db.prepare(countsQuery).bind(
+      tenantId, userId, today,
+      tenantId, userId, monthStart,
+      tenantId, userId, today,
+      tenantId, userId, monthStart,
+      tenantId, userId, weekStartStr,
+      tenantId, userId, weekStartStr
+    ).first().catch(() => ({
+      today_visits: 0, month_visits: 0, today_regs: 0, month_regs: 0, week_visits: 0, week_regs: 0
+    }));
+
+    // Batch: Fire remaining independent queries in parallel (reduced from 11 to 7)
+    const [recentVisits, companies, targets, visitBreakdown, weekVisitsByCompany] = await Promise.all([
       db.prepare("SELECT v.id, v.visit_date, v.visit_type, v.status, v.check_in_time, c.name as customer_name, v.individual_name FROM visits v LEFT JOIN customers c ON v.customer_id = c.id WHERE v.tenant_id = ? AND v.agent_id = ? ORDER BY v.created_at DESC LIMIT 10").bind(tenantId, userId).all().catch(() => ({ results: [] })),
       db.prepare(companySql).bind(userId, tenantId).all().catch(() => ({ results: [] })),
       db.prepare("SELECT dt.*, fc.name as company_name, (SELECT COUNT(*) FROM visits v2 WHERE v2.agent_id = dt.agent_id AND v2.company_id = dt.company_id AND v2.visit_date = dt.target_date AND v2.tenant_id = dt.tenant_id) as actual_visits, (SELECT COUNT(*) FROM individual_registrations ir2 WHERE ir2.agent_id = dt.agent_id AND ir2.company_id = dt.company_id AND DATE(ir2.created_at) = dt.target_date AND ir2.tenant_id = dt.tenant_id) as actual_registrations FROM daily_targets dt LEFT JOIN field_companies fc ON dt.company_id = fc.id WHERE dt.tenant_id = ? AND dt.agent_id = ? AND dt.target_date = ?").bind(tenantId, userId, today).all().catch(() => ({ results: [] })),
       db.prepare(`SELECT COALESCE(v.company_id, 'unassigned') as company_id, COALESCE(fc.name, 'Unassigned') as company_name, COALESCE(v.visit_type, 'unknown') as visit_type, COUNT(*) as count, SUM(CASE WHEN v.visit_date = ? THEN 1 ELSE 0 END) as today_count, SUM(CASE WHEN v.visit_date >= ? THEN 1 ELSE 0 END) as month_count FROM visits v LEFT JOIN field_companies fc ON v.company_id = fc.id WHERE v.tenant_id = ? AND v.agent_id = ? GROUP BY v.company_id, v.visit_type ORDER BY fc.name, v.visit_type`).bind(today, monthStart, tenantId, userId).all().catch(() => ({ results: [] })),
-      db.prepare("SELECT COUNT(*) as count FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date >= ?").bind(tenantId, userId, weekStartStr).first().catch(() => ({ count: 0 })),
-      db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND agent_id = ? AND DATE(created_at) >= ?").bind(tenantId, userId, weekStartStr).first().catch(() => ({ count: 0 })),
       db.prepare(`SELECT company_id, visit_type, COUNT(*) as count FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date >= ? GROUP BY company_id, visit_type`).bind(tenantId, userId, weekStartStr).all().catch(() => ({ results: [] })),
     ]);
+    
+    // Extract counts from optimized query
+    const todayVisits = { count: countsResult.today_visits || 0 };
+    const monthVisits = { count: countsResult.month_visits || 0 };
+    const todayRegs = { count: countsResult.today_regs || 0 };
+    const monthRegs = { count: countsResult.month_regs || 0 };
+    const weekVisits = { count: countsResult.week_visits || 0 };
+    const weekRegs = { count: countsResult.week_regs || 0 };
 
     // Build per-company visit/reg actuals lookup from visit_breakdown
     const perCompanyActuals = {};
@@ -7452,6 +7475,50 @@ api.post('/migrations/create-process-flows', authMiddleware, async (c) => {
 
     return c.json({ success: true, results });
   } catch (err) { return c.json({ error: 'Migration failed: ' + (err.message || err), results }, 500); }
+});
+
+// Add performance indexes for faster queries
+api.post('/migrations/add-performance-indexes', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const results = [];
+  try {
+    // Indexes for visits table - most queried table
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_visits_tenant_agent_date ON visits (tenant_id, agent_id, visit_date)").run();
+    results.push('idx_visits_tenant_agent_date created');
+    
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_visits_tenant_date ON visits (tenant_id, visit_date)").run();
+    results.push('idx_visits_tenant_date created');
+    
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_visits_agent_created ON visits (agent_id, created_at)").run();
+    results.push('idx_visits_agent_created created');
+    
+    // Indexes for individual_registrations
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_regs_tenant_agent_created ON individual_registrations (tenant_id, agent_id, created_at)").run();
+    results.push('idx_regs_tenant_agent_created created');
+    
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_regs_tenant_date ON individual_registrations (tenant_id, DATE(created_at))").run();
+    results.push('idx_regs_tenant_date created');
+    
+    // Indexes for daily_targets
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_targets_tenant_agent_date ON daily_targets (tenant_id, agent_id, target_date)").run();
+    results.push('idx_targets_tenant_agent_date created');
+    
+    // Indexes for company_target_rules
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_ctr_tenant_company_role ON company_target_rules (tenant_id, company_id, role_type)").run();
+    results.push('idx_ctr_tenant_company_role created');
+    
+    // Indexes for agent_company_links
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_acl_agent_tenant ON agent_company_links (agent_id, tenant_id, is_active)").run();
+    results.push('idx_acl_agent_tenant created');
+    
+    // Index for visit_photos (thumbnail lookup)
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_photos_visit_r2 ON visit_photos (visit_id, r2_url)").run();
+    results.push('idx_photos_visit_r2 created');
+    
+    return c.json({ success: true, results });
+  } catch (err) {
+    return c.json({ success: false, error: err.message });
+  }
 });
 
 // ==================== BRANDS ====================

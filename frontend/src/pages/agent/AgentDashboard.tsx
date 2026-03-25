@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react'
+import React, { useEffect, useState, useCallback, useMemo, memo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
 import {
@@ -126,6 +126,23 @@ export default function AgentDashboard() {
     return { dailyIndivTarget, dailyStoreTarget, monthIndivTarget, monthStoreTarget, weekIndivTarget, weekIndivActual, monthIndivActual, monthStoreActual }
   }, [data])
 
+  // Destructure data once to reduce repeated property access
+  const dataProps = useMemo(() => {
+    if (!data) return null
+    return {
+      today_individual_visits: data.today_individual_visits ?? data.today_visits ?? 0,
+      today_store_visits: data.today_store_visits ?? 0,
+      month_individual_visits: data.month_individual_visits ?? data.month_visits ?? 0,
+      month_store_visits: data.month_store_visits ?? 0,
+      recent_visits: data.recent_visits ?? [],
+      company_targets: data.company_targets ?? [],
+      weekly_targets: data.weekly_targets,
+      monthly_targets: data.monthly_targets,
+      daily_targets: data.daily_targets,
+      week_individual_visits: data.week_individual_visits,
+    }
+  }, [data])
+
   useEffect(() => {
     const handleOnline = () => setOnline(true)
     const handleOffline = () => setOnline(false)
@@ -174,11 +191,11 @@ export default function AgentDashboard() {
 
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     useAuthStore.getState().logout()
     localStorage.removeItem('token')
     navigate('/auth/mobile-login')
-  }
+  }, [navigate])
 
   const greeting = () => {
     const h = new Date().getHours()
@@ -291,13 +308,13 @@ export default function AgentDashboard() {
 
       <div className="px-5 mb-4">
         <div className="grid grid-cols-2 gap-3">
-          {/* Use memoized target calculations */}
-          {targets && (
+          {/* Use memoized target calculations and data props */}
+          {targets && dataProps && (
             <>
-              <StatCard icon={<MapPin className="w-5 h-5" />} label="Today Individual" value={data?.today_individual_visits ?? data?.today_visits ?? 0} target={targets.dailyIndivTarget > 0 ? targets.dailyIndivTarget : undefined} color="bg-blue-500" />
-              <StatCard icon={<Store className="w-5 h-5" />} label="Today Store" value={data?.today_store_visits ?? 0} target={targets.dailyStoreTarget > 0 ? targets.dailyStoreTarget : undefined} color="bg-purple-500" />
-              <StatCard icon={<TrendingUp className="w-5 h-5" />} label="Month Individual" value={data?.month_individual_visits ?? data?.month_visits ?? 0} target={targets.monthIndivTarget > 0 ? targets.monthIndivTarget : undefined} color="bg-emerald-500" />
-              <StatCard icon={<Target className="w-5 h-5" />} label="Month Store" value={data?.month_store_visits ?? 0} target={targets.monthStoreTarget > 0 ? targets.monthStoreTarget : undefined} color="bg-amber-500" />
+              <StatCard icon={<MapPin className="w-5 h-5" />} label="Today Individual" value={dataProps.today_individual_visits} target={targets.dailyIndivTarget > 0 ? targets.dailyIndivTarget : undefined} color="bg-blue-500" />
+              <StatCard icon={<Store className="w-5 h-5" />} label="Today Store" value={dataProps.today_store_visits} target={targets.dailyStoreTarget > 0 ? targets.dailyStoreTarget : undefined} color="bg-purple-500" />
+              <StatCard icon={<TrendingUp className="w-5 h-5" />} label="Month Individual" value={dataProps.month_individual_visits} target={targets.monthIndivTarget > 0 ? targets.monthIndivTarget : undefined} color="bg-emerald-500" />
+              <StatCard icon={<Target className="w-5 h-5" />} label="Month Store" value={dataProps.month_store_visits} target={targets.monthStoreTarget > 0 ? targets.monthStoreTarget : undefined} color="bg-amber-500" />
             </>
           )}
         </div>
@@ -568,9 +585,9 @@ export default function AgentDashboard() {
             View All <ChevronRight className="w-3 h-3" />
           </button>
         </div>
-        {data?.recent_visits && data.recent_visits.length > 0 ? (
+        {dataProps?.recent_visits && dataProps.recent_visits.length > 0 ? (
           <div className="space-y-2">
-            {data.recent_visits.slice(0, 5).map((visit) => (
+            {dataProps.recent_visits.slice(0, 5).map((visit) => (
               <div key={visit.id} className="bg-white/5 border border-white/10 rounded-xl p-3 flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
                   visit.status === 'completed' ? 'bg-green-500/10' : visit.status === 'in_progress' ? 'bg-blue-500/10' : 'bg-gray-500/10'
@@ -636,7 +653,7 @@ export default function AgentDashboard() {
   )
 }
 
-function StatCard({ icon, label, value, target, color }: { icon: React.ReactNode; label: string; value: number; target?: number; color: string }) {
+const StatCard = memo(({ icon, label, value, target, color }: { icon: React.ReactNode; label: string; value: number; target?: number; color: string }) => {
   const showTarget = target != null && target > 0
   return (
     <div className="bg-white/5 border border-white/10 rounded-xl p-3.5">
@@ -657,4 +674,6 @@ function StatCard({ icon, label, value, target, color }: { icon: React.ReactNode
       )}
     </div>
   )
-}
+})
+
+StatCard.displayName = 'StatCard'
