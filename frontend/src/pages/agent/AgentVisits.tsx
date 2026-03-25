@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MapPin, Clock, CheckCircle, Search, ChevronRight, Calendar, XCircle, Store, User, Plus } from 'lucide-react'
 import { apiClient } from '../../services/api.service'
+import { toast } from 'react-hot-toast'
 
 interface Visit {
   id: string
@@ -25,21 +26,38 @@ export default function AgentVisits() {
   const [search, setSearch] = useState('')
 
   useEffect(() => {
-    fetchVisits()
+    const abortController = new AbortController()
+    let isMounted = true
+    
+    fetchVisits(abortController.signal, isMounted)
+    
+    return () => {
+      isMounted = false
+      abortController.abort()
+    }
   }, [])
 
-  const fetchVisits = async () => {
+  const fetchVisits = async (signal?: AbortSignal, isMounted?: boolean) => {
     setLoading(true)
     try {
-      const res = await apiClient.get('/field-operations/visits?limit=100&agent_id=me')
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Visits timeout')), 15000))
+      const visitsPromise = apiClient.get('/field-operations/visits?limit=100&agent_id=me', { signal })
+      const res = await Promise.race([visitsPromise, timeoutPromise])
       const json = res.data
       // Response format: {data: [...], total: N} (no success field)
       const data = json.data || json
-      setVisits(Array.isArray(data) ? data : data?.results || data?.visits || [])
+      if (isMounted !== false) {
+        setVisits(Array.isArray(data) ? data : data?.results || data?.visits || [])
+      }
     } catch (err) {
       console.error('Fetch visits error:', err)
+      if (isMounted !== false) {
+        toast.error('Failed to load visits. Please check your connection.')
+      }
     } finally {
-      setLoading(false)
+      if (isMounted !== false) {
+        setLoading(false)
+      }
     }
   }
 

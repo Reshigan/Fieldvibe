@@ -779,11 +779,17 @@ export default function AgentStats() {
   const [showEarnings, setShowEarnings] = useState(false)
 
   useEffect(() => {
+    const abortController = new AbortController()
+    let isMounted = true
+
     const fetchAll = async () => {
       try {
-        // Load critical dashboard data first
-        const dashRes = await apiClient.get('/agent/dashboard').catch(() => null)
-        if (dashRes?.data?.success && dashRes?.data?.data) {
+        // Load critical dashboard data first with timeout
+        const dashPromise = apiClient.get('/agent/dashboard', { signal: abortController.signal })
+        const dashTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Dashboard timeout')), 15000))
+        const dashRes = await Promise.race([dashPromise, dashTimeout]).catch(() => null)
+        
+        if (isMounted && dashRes?.data?.success && dashRes?.data?.data) {
           setDashData(dashRes.data.data)
           // Show warning if no targets found
           if ((!dashRes.data.data.daily_targets?.length && !dashRes.data.data.company_targets?.length) ||
@@ -791,24 +797,40 @@ export default function AgentStats() {
             toast.error('No targets found. Please contact your manager to assign you to a company.')
           }
         }
-        // Load performance data separately (non-blocking)
-        apiClient.get('/agent/performance').then(perfRes => {
-          if (perfRes?.data?.success && perfRes?.data?.data) {
+        
+        // Load performance data separately with timeout (non-blocking)
+        const perfPromise = apiClient.get('/agent/performance', { signal: abortController.signal })
+        const perfTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Performance timeout')), 15000))
+        Promise.race([perfPromise, perfTimeout]).then(perfRes => {
+          if (isMounted && perfRes?.data?.success && perfRes?.data?.data) {
             setPerfData(perfRes.data.data)
           }
         }).catch(() => { /* ignore perf errors */ })
-        // Load settings separately (non-blocking, only needed for earnings tab)
-        apiClient.get('/settings').then(settingsRes => {
+        
+        // Load settings separately with timeout (non-blocking, only needed for earnings tab)
+        const settingsPromise = apiClient.get('/settings', { signal: abortController.signal })
+        const settingsTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Settings timeout')), 15000))
+        Promise.race([settingsPromise, settingsTimeout]).then(settingsRes => {
           const settings = settingsRes?.data?.data || settingsRes?.data || {}
-          if (settings.mobile_show_earnings === 'true' || settings.mobile_show_earnings === true) {
+          if (isMounted && (settings.mobile_show_earnings === 'true' || settings.mobile_show_earnings === true)) {
             setShowEarnings(true)
           }
         }).catch(() => { /* default: hide earnings */ })
       } catch (err) {
         console.error('Stats fetch error:', err)
+        toast.error('Failed to load stats. Please check your connection.')
       } finally {
-        setLoading(false)
+        if (isMounted) {
+          setLoading(false)
+        }
       }
+    }
+    
+    fetchAll()
+    
+    return () => {
+      isMounted = false
+      abortController.abort()
     }
   }, [])
 

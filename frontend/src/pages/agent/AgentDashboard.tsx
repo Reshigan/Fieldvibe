@@ -181,7 +181,9 @@ export default function AgentDashboard() {
 
     try {
       // Load dashboard first (critical data)
-      const dashRes = await apiClient.get('/agent/dashboard')
+      const dashTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Dashboard timeout')), 15000))
+      const dashPromise = apiClient.get('/agent/dashboard')
+      const dashRes = await Promise.race([dashPromise, dashTimeout])
       const json = dashRes.data
       if (json.success && json.data) {
         setData(json.data)
@@ -193,14 +195,16 @@ export default function AgentDashboard() {
         }
       }
       // Load performance data separately (non-critical, can be lazy-loaded)
-      apiClient.get('/agent/performance').then(perfRes => {
+      const perfTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Performance timeout')), 15000))
+      const perfPromise = apiClient.get('/agent/performance')
+      Promise.race([perfPromise, perfTimeout]).then(perfRes => {
         if (perfRes?.data?.success && perfRes?.data?.data) {
           setPerfSummary(perfRes.data.data)
         }
       }).catch(() => { /* ignore perf errors */ })
     } catch (err) {
       console.error('Dashboard fetch error:', err)
-      toast.error('Failed to load dashboard. Please try again.')
+      toast.error('Failed to load dashboard. Please check your connection.')
     } finally {
       setLoading(false)
       setRefreshing(false)
