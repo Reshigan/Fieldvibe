@@ -112,6 +112,9 @@ export default function AgentDashboard() {
   const [online, setOnline] = useState(navigator.onLine)
   const authUser = useAuthStore((s) => s.user)
 
+  // Critical data loaded (stats + targets) - show skeletons until this is ready
+  const [criticalLoaded, setCriticalLoaded] = useState(false)
+
   // Memoize target calculations to avoid recalculating on every render
   const targets = useMemo(() => {
     if (!data) return null
@@ -126,7 +129,7 @@ export default function AgentDashboard() {
     return { dailyIndivTarget, dailyStoreTarget, monthIndivTarget, monthStoreTarget, weekIndivTarget, weekIndivActual, monthIndivActual, monthStoreActual }
   }, [data])
 
-  // Destructure data once to reduce repeated property access
+  // Memoize data destructuring to reduce repeated property access
   const dataProps = useMemo(() => {
     if (!data) return null
     return {
@@ -140,6 +143,7 @@ export default function AgentDashboard() {
       monthly_targets: data.monthly_targets,
       daily_targets: data.daily_targets,
       week_individual_visits: data.week_individual_visits,
+      companies: data.companies ?? [],
     }
   }, [data])
 
@@ -168,6 +172,7 @@ export default function AgentDashboard() {
       const json = dashRes.data
       if (json.success && json.data) {
         setData(json.data)
+        setCriticalLoaded(true) // Mark critical data as loaded
         // Show warning if no targets found
         if ((!json.data.daily_targets?.length && !json.data.company_targets?.length) || 
             (!json.data.company_target_rules?.length && !json.data.monthly_targets?.target_visits)) {
@@ -206,12 +211,86 @@ export default function AgentDashboard() {
 
   const firstName = authUser?.first_name || (authUser as any)?.firstName || 'Agent'
 
-  if (loading) {
+  if (loading || !criticalLoaded) {
     return (
-      <div className="min-h-screen bg-[#06090F] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-[#00E87B] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-400 text-sm">Loading dashboard...</p>
+      <div className="min-h-screen bg-[#06090F] pb-24">
+        {/* Header skeleton */}
+        <div className="bg-[#0A1628] px-4 py-2 border-b border-white/5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-3.5 h-3.5 bg-gray-700 rounded animate-pulse" />
+              <div className="w-16 h-3 bg-gray-700 rounded animate-pulse" />
+            </div>
+            <div className="flex gap-3">
+              <div className="w-4 h-4 bg-gray-700 rounded animate-pulse" />
+              <div className="w-4 h-4 bg-gray-700 rounded animate-pulse" />
+            </div>
+          </div>
+        </div>
+
+        {/* Greeting skeleton */}
+        <div className="px-5 pt-5 pb-3">
+          <div className="w-24 h-4 bg-gray-800 rounded animate-pulse mb-2" />
+          <div className="w-32 h-7 bg-gray-700 rounded animate-pulse mb-2" />
+          <div className="w-40 h-3 bg-gray-800 rounded animate-pulse" />
+        </div>
+
+        {/* Stat cards skeleton - 4 cards */}
+        <div className="px-5 mb-4">
+          <div className="grid grid-cols-2 gap-3">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-3.5">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-8 h-8 bg-gray-700 rounded-lg animate-pulse" />
+                  <div className="w-12 h-3 bg-gray-700 rounded animate-pulse" />
+                </div>
+                <div className="w-16 h-6 bg-gray-700 rounded animate-pulse mb-1" />
+                <div className="w-20 h-3 bg-gray-800 rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Companies skeleton */}
+        <div className="px-5 mb-4">
+          <div className="w-28 h-4 bg-gray-800 rounded animate-pulse mb-2" />
+          <div className="flex gap-2">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="flex-shrink-0 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5">
+                <div className="w-24 h-4 bg-gray-700 rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Week & Month skeleton */}
+        <div className="px-5 mb-4">
+          <div className="w-32 h-4 bg-gray-800 rounded animate-pulse mb-2" />
+          <div className="grid grid-cols-2 gap-3">
+            {[...Array(2)].map((_, i) => (
+              <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-3">
+                <div className="w-20 h-3 bg-gray-700 rounded animate-pulse mb-2" />
+                <div className="w-16 h-5 bg-gray-600 rounded animate-pulse mb-2" />
+                <div className="w-full h-1.5 bg-gray-700 rounded-full animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Recent visits skeleton */}
+        <div className="px-5">
+          <div className="w-28 h-4 bg-gray-800 rounded animate-pulse mb-2" />
+          <div className="space-y-2">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-3 flex items-center gap-3">
+                <div className="w-10 h-10 bg-gray-700 rounded-xl animate-pulse" />
+                <div className="flex-1">
+                  <div className="w-32 h-4 bg-gray-600 rounded animate-pulse mb-1" />
+                  <div className="w-24 h-3 bg-gray-700 rounded animate-pulse" />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     )
