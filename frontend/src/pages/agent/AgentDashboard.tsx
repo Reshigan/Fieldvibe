@@ -120,16 +120,20 @@ export default function AgentDashboard() {
   const [criticalLoaded, setCriticalLoaded] = useState(false)
 
   // Memoize target calculations to avoid recalculating on every render
+  // Priority: company_targets (from company_target_rules) > daily_targets > monthly_targets
   const targets = useMemo(() => {
     if (!data) return null
-    const dailyIndivTarget = data.daily_targets?.reduce((s, t) => s + (t.target_visits || 0), 0) || data.company_targets?.reduce((s, t) => s + (t.daily_target_visits || 0), 0) || 0
-    const dailyStoreTarget = data.daily_targets?.reduce((s, t) => s + (t.target_registrations || 0), 0) || data.company_targets?.reduce((s, t) => s + (t.daily_target_registrations || 0), 0) || 0
-    const monthIndivTarget = data.monthly_targets?.target_visits || data.company_targets?.reduce((s, t) => s + (t.month_target_visits || 0), 0) || 0
-    const monthStoreTarget = data.monthly_targets?.target_registrations || data.company_targets?.reduce((s, t) => s + (t.store_target_per_month || 0), 0) || 0
-    const weekIndivTarget = data.weekly_targets?.target_visits || data.company_targets?.reduce((s, t) => s + (t.week_target_visits || 0), 0) || 0
-    const weekIndivActual = data.weekly_targets?.actual_visits || data.week_individual_visits || 0
-    const monthIndivActual = data.monthly_targets?.actual_visits || data.month_individual_visits || 0
-    const monthStoreActual = data.monthly_targets?.actual_registrations || data.month_store_visits || 0
+    // Company targets are the source of truth - they come from company_target_rules with role-specific filtering
+    const companyTargetSum = data.company_targets?.reduce((s, t) => s + (t.daily_target_visits || 0), 0) || 0
+    const companyRegTargetSum = data.company_targets?.reduce((s, t) => s + (t.daily_target_registrations || 0), 0) || 0
+    const dailyIndivTarget = companyTargetSum > 0 ? companyTargetSum : (data.daily_targets?.reduce((s, t) => s + (t.target_visits || 0), 0) || 0)
+    const dailyStoreTarget = companyRegTargetSum > 0 ? companyRegTargetSum : (data.daily_targets?.reduce((s, t) => s + (t.target_registrations || 0), 0) || 0)
+    const monthIndivTarget = data.company_targets?.reduce((s, t) => s + (t.month_target_visits || 0), 0) || data.monthly_targets?.target_visits || 0
+    const monthStoreTarget = data.company_targets?.reduce((s, t) => s + (t.store_target_per_month || 0), 0) || data.monthly_targets?.target_registrations || 0
+    const weekIndivTarget = data.company_targets?.reduce((s, t) => s + (t.week_target_visits || 0), 0) || data.weekly_targets?.target_visits || 0
+    const weekIndivActual = data.week_individual_visits || data.weekly_targets?.actual_visits || 0
+    const monthIndivActual = data.month_individual_visits || data.monthly_targets?.actual_visits || 0
+    const monthStoreActual = data.month_store_visits || data.monthly_targets?.actual_registrations || 0
     return { dailyIndivTarget, dailyStoreTarget, monthIndivTarget, monthStoreTarget, weekIndivTarget, weekIndivActual, monthIndivActual, monthStoreActual }
   }, [data])
 

@@ -477,13 +477,18 @@ function TargetsTab({ perfData, dashData }: { perfData: PerformanceData | null; 
         </div>
       </div>
 
-      {perfData?.monthly_targets && perfData.monthly_targets.length > 0 ? (
+      {const targetsToShow = dashData?.company_targets && dashData.company_targets.length > 0 ? dashData.company_targets : (perfData?.monthly_targets && perfData.monthly_targets.length > 0 ? perfData.monthly_targets : [])}
+      {targetsToShow.length > 0 ? (
         <div>
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Company Targets</h2>
           <div className="space-y-2">
-            {perfData.monthly_targets.map((t, i) => {
-              const vPct = t.target_visits > 0 ? Math.min(100, Math.round((t.actual_visits / t.target_visits) * 100)) : 0
-              const rPct = t.target_registrations > 0 ? Math.min(100, Math.round((t.actual_registrations / t.target_registrations) * 100)) : 0
+            {targetsToShow.map((t, i) => {
+              const vTarget = t.daily_target_visits ?? t.target_visits ?? 0
+              const vActual = t.daily_actual_visits ?? t.actual_visits ?? 0
+              const rTarget = t.daily_target_registrations ?? t.target_registrations ?? 0
+              const rActual = t.daily_actual_registrations ?? t.actual_registrations ?? 0
+              const vPct = vTarget > 0 ? Math.min(100, Math.round((vActual / vTarget) * 100)) : 0
+              const rPct = rTarget > 0 ? Math.min(100, Math.round((rActual / rTarget) * 100)) : 0
               return (
                 <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-3">
@@ -496,7 +501,7 @@ function TargetsTab({ perfData, dashData }: { perfData: PerformanceData | null; 
                     <div>
                       <div className="flex justify-between text-xs mb-1">
                         <span className="text-gray-400">Individual Visits</span>
-                        <span className="text-white font-medium">{t.actual_visits}/{t.target_visits} <span className={pctClass(vPct)}>({vPct}%)</span></span>
+                        <span className="text-white font-medium">{t.daily_actual_visits ?? t.actual_visits}/{t.target_visits} <span className={pctClass(vPct)}>({vPct}%)</span></span>
                       </div>
                       <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
                         <div className="h-full rounded-full transition-all" style={{ width: vPct + '%', background: progressBg(vPct, '#3B82F6') }} />
@@ -505,7 +510,7 @@ function TargetsTab({ perfData, dashData }: { perfData: PerformanceData | null; 
                     <div>
                       <div className="flex justify-between text-xs mb-1">
                         <span className="text-gray-400">Store Visits</span>
-                        <span className="text-white font-medium">{t.actual_registrations}/{t.target_registrations} <span className={pctClass(rPct)}>({rPct}%)</span></span>
+                        <span className="text-white font-medium">{t.daily_actual_registrations ?? t.actual_registrations}/{t.daily_target_registrations ?? t.target_registrations} <span className={pctClass(rPct)}>({rPct}%)</span></span>
                       </div>
                       <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
                         <div className="h-full rounded-full transition-all" style={{ width: rPct + '%', background: progressBg(rPct, '#8B5CF6') }} />
@@ -559,7 +564,7 @@ function TargetsTab({ perfData, dashData }: { perfData: PerformanceData | null; 
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Today&apos;s Targets</h2>
           <div className="space-y-2">
             {dashData.daily_targets.map((t, i) => {
-              const visitPct = t.target_visits > 0 ? Math.min(100, Math.round((t.actual_visits / t.target_visits) * 100)) : 0
+              const visitPct = t.target_visits > 0 ? Math.min(100, Math.round((t.daily_actual_visits ?? t.actual_visits / t.target_visits) * 100)) : 0
               return (
                 <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-3">
                   <div className="flex items-center justify-between mb-2">
@@ -570,8 +575,8 @@ function TargetsTab({ perfData, dashData }: { perfData: PerformanceData | null; 
                     <div className="h-full bg-gradient-to-r from-[#00E87B] to-[#00D06E] rounded-full transition-all" style={{ width: visitPct + '%' }} />
                   </div>
                   <div className="flex justify-between mt-1.5">
-                    <span className="text-[10px] text-gray-500">Individual: {t.actual_visits}/{t.target_visits}</span>
-                    <span className="text-[10px] text-gray-500">Store: {t.actual_registrations}/{t.target_registrations}</span>
+                    <span className="text-[10px] text-gray-500">Individual: {t.daily_actual_visits ?? t.actual_visits}/{t.target_visits}</span>
+                    <span className="text-[10px] text-gray-500">Store: {t.daily_actual_registrations ?? t.actual_registrations}/{t.daily_target_registrations ?? t.target_registrations}</span>
                   </div>
                 </div>
               )
@@ -843,7 +848,7 @@ export default function AgentStats() {
   }
 
   const dailyTargetVisits = dashData?.daily_targets?.reduce((s, t) => s + (t.target_visits || 0), 0) || 0
-  const dailyActualVisits = dashData?.daily_targets?.reduce((s, t) => s + (t.actual_visits || 0), 0) || 0
+  const dailyActualVisits = dashData?.daily_targets?.reduce((s, t) => s + (t.daily_actual_visits ?? t.actual_visits || 0), 0) || 0
   const overallPct = perfData?.overall_achievement ?? (dailyTargetVisits > 0 ? Math.round((dailyActualVisits / dailyTargetVisits) * 100) : 0)
 
   const totalEarnings = (perfData?.commission_summary?.paid || 0) + (perfData?.commission_summary?.approved || 0) + (perfData?.commission_summary?.pending || 0)
