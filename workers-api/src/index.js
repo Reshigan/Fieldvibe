@@ -2767,10 +2767,29 @@ api.get('/visits/:id', async (c) => {
   if (!visit) return c.json({ success: false, message: 'Visit not found' }, 404);
   const [responses, photos, individuals] = await Promise.all([
     db.prepare('SELECT vr.* FROM visit_responses vr JOIN visits v ON vr.visit_id = v.id WHERE vr.visit_id = ? AND v.tenant_id = ? LIMIT 500').bind(id, tenantId).all(),
-    db.prepare('SELECT * FROM visit_photos WHERE visit_id = ? AND tenant_id = ?').bind(id, tenantId).all().catch(() => ({ results: [] })),
+    db.prepare('SELECT id, photo_type, r2_key, r2_url, gps_latitude, gps_longitude, captured_at, photo_hash, ai_analysis_status, ai_compliance_score, ai_share_of_voice, board_placement_location, board_placement_position, board_condition, sample_board_match_score FROM visit_photos WHERE visit_id = ? AND tenant_id = ?').bind(id, tenantId).all().catch(() => ({ results: [] })),
     db.prepare('SELECT vi.*, i.first_name, i.last_name, i.id_number, i.phone, i.email FROM visit_individuals vi LEFT JOIN individuals i ON vi.individual_id = i.id WHERE vi.visit_id = ? AND vi.tenant_id = ?').bind(id, tenantId).all().catch(() => ({ results: [] }))
   ]);
-  return c.json({ success: true, data: { ...visit, responses: responses.results || [], photos: photos.results || [], individuals: individuals.results || [] } });
+  // Extract images from custom question responses (company questions with field_type='image')
+  let photoResults = photos.results || [];
+  const visitCompany = visit.company_id;
+  if (visitCompany && individuals.results && individuals.results.length > 0) {
+    try {
+      const vi = individuals.results[0];
+      const customFieldValues = typeof vi.custom_field_values === 'string' ? JSON.parse(vi.custom_field_values) : vi.custom_field_values;
+      if (customFieldValues) {
+        const imgQs = await db.prepare("SELECT question_key FROM company_custom_questions WHERE tenant_id = ? AND company_id = ? AND field_type = 'image' AND is_active = 1").bind(tenantId, visitCompany).all();
+        const imgKeys = (imgQs.results || []).map(q => q.question_key);
+        for (const key of imgKeys) {
+          const val = customFieldValues[key];
+          if (val && typeof val === 'string' && (val.startsWith('data:image') || val.startsWith('http'))) {
+            photoResults.push({ id: `q_${key}`, photo_type: 'question', r2_url: val, photo_url: val, url: val, captured_at: visit.created_at || new Date().toISOString() });
+          }
+        }
+      }
+    } catch { /* ok */ }
+  }
+  return c.json({ success: true, data: { ...visit, responses: responses.results || [], photos: photoResults, individuals: individuals.results || [] } });
 });
 
 api.post('/visits', async (c) => {
@@ -14324,15 +14343,28 @@ api.get('/field-operations/visits/:visitId', authMiddleware, async (c) => {
     const visitId = c.req.param('visitId');
     const visit = await db.prepare("SELECT v.*, c.name as customer_name, u.first_name || ' ' || u.last_name as agent_name, fc.name as company_name FROM visits v LEFT JOIN customers c ON v.customer_id = c.id LEFT JOIN users u ON v.agent_id = u.id LEFT JOIN field_companies fc ON fc.id = COALESCE(v.company_id, v.brand_id) WHERE v.id = ? AND v.tenant_id = ?").bind(visitId, tenantId).first();
     if (!visit) return c.json({ success: false, message: 'Visit not found' }, 404);
-    // Fetch photos for this visit
+    // Fetch photos for this visit - include all fields needed by frontend
     let photos = [];
-    try { const photosRes = await db.prepare("SELECT id, photo_type, r2_key, r2_url, gps_latitude, gps_longitude, captured_at, photo_hash, ai_analysis_status, ai_compliance_score FROM visit_photos WHERE visit_id = ? AND tenant_id = ?").bind(visitId, tenantId).all(); photos = photosRes?.results || []; } catch { /* visit_photos may not exist */ }
+    try { const photosRes = await db.prepare("SELECT id, photo_type, r2_key, r2_url, gps_latitude, gps_longitude, captured_at, photo_hash, ai_analysis_status, ai_compliance_score, ai_share_of_voice, board_placement_location, board_placement_position, board_condition, sample_board_match_score FROM visit_photos WHERE visit_id = ? AND tenant_id = ?").bind(visitId, tenantId).all(); photos = photosRes?.results || []; } catch { /* visit_photos may not exist */ }
     // Fetch survey responses
     let surveyResponses = null;
     try { const sr = await db.prepare("SELECT responses FROM visit_responses WHERE visit_id = ? AND tenant_id = ?").bind(visitId, tenantId).first(); if (sr?.responses) surveyResponses = typeof sr.responses === 'string' ? JSON.parse(sr.responses) : sr.responses; } catch { /* ok */ }
     // Fetch individual link + custom field values
     let customFieldValues = null;
     try { const vi = await db.prepare("SELECT custom_field_values FROM visit_individuals WHERE visit_id = ? AND tenant_id = ?").bind(visitId, tenantId).first(); if (vi?.custom_field_values) customFieldValues = typeof vi.custom_field_values === 'string' ? JSON.parse(vi.custom_field_values) : vi.custom_field_values; } catch { /* ok */ }
+    // Extract images from custom question responses (company questions with field_type='image')
+    if (visit.company_id && customFieldValues) {
+      try {
+        const imgQs = await db.prepare("SELECT question_key FROM company_custom_questions WHERE tenant_id = ? AND company_id = ? AND field_type = 'image' AND is_active = 1").bind(tenantId, visit.company_id).all();
+        const imgKeys = (imgQs.results || []).map(q => q.question_key);
+        for (const key of imgKeys) {
+          const val = customFieldValues[key];
+          if (val && typeof val === 'string' && (val.startsWith('data:image') || val.startsWith('http'))) {
+            photos.push({ id: `q_${key}`, photo_type: 'question', r2_url: val, photo_url: val, url: val, captured_at: visit.created_at || new Date().toISOString() });
+          }
+        }
+      } catch { /* ok */ }
+    }
     return c.json({ success: true, data: { ...visit, photos, survey_responses: surveyResponses, custom_field_values: customFieldValues } });
   }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }

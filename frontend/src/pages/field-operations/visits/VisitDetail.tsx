@@ -226,7 +226,7 @@ export default function VisitDetail() {
                   <div key={idx} className="rounded-lg overflow-hidden bg-white/5">
                     <div className="aspect-square">
                       <img
-                        src={photo.photo_url || photo.url || `data:image/jpeg;base64,${photo.photo_base64}`}
+                        src={photo.r2_url || photo.photo_url || photo.url || (photo.photo_base64 ? `data:image/jpeg;base64,${photo.photo_base64}` : undefined)}
                         alt={`Photo ${idx + 1}`}
                         className="w-full h-full object-cover"
                       />

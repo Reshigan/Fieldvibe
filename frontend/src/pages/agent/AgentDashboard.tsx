@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'react-hot-toast'
 import {
   MapPin, Plus, Clock, CheckCircle, TrendingUp, Users,
   Calendar, ChevronRight, RefreshCw, Target, Building2,
@@ -85,6 +86,21 @@ interface PerfSummary {
     approved: number
     paid: number
   }
+  team_performance?: {
+    team_lead_name: string
+    member_count: number
+    total_visits: number
+    total_registrations: number
+    target_visits: number
+    actual_visits: number
+    target_registrations: number
+    actual_registrations: number
+    achievement: number
+  } | null
+  manager_performance?: {
+    manager_name: string
+    achievement: number
+  } | null
 }
 
 export default function AgentDashboard() {
@@ -123,12 +139,18 @@ export default function AgentDashboard() {
       const json = dashRes.data
       if (json.success && json.data) {
         setData(json.data)
+        // Show warning if no targets found
+        if ((!json.data.daily_targets?.length && !json.data.company_targets?.length) || 
+            (!json.data.company_target_rules?.length && !json.data.monthly_targets?.target_visits)) {
+          toast.error('No targets found. Please contact your manager to assign you to a company.')
+        }
       }
       if (perfRes?.data?.success && perfRes?.data?.data) {
         setPerfSummary(perfRes.data.data)
       }
     } catch (err) {
       console.error('Dashboard fetch error:', err)
+      toast.error('Failed to load dashboard. Please try again.')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -303,6 +325,46 @@ export default function AgentDashboard() {
         </div>
       )}
 
+      {/* Team Performance */}
+      {perfSummary?.team_performance && (
+        <div className="px-5 mb-4">
+          <div className="bg-gradient-to-r from-indigo-600/20 to-cyan-600/20 border border-indigo-500/30 rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Users className="w-4 h-4 text-indigo-400" />
+              <span className="text-xs font-semibold text-indigo-300 uppercase">Team Performance</span>
+            </div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm text-white">
+                <span className="font-semibold">{perfSummary.team_performance.team_lead_name}</span>
+                <span className="text-gray-400"> • {perfSummary.team_performance.member_count} members</span>
+              </p>
+              <span className={`text-sm font-bold ${perfSummary.team_performance.achievement >= 100 ? 'text-[#00E87B]' : perfSummary.team_performance.achievement >= 75 ? 'text-amber-400' : 'text-red-400'}`}>
+                {perfSummary.team_performance.achievement}%
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <div className="bg-white/5 rounded-lg p-2">
+                <p className="text-[10px] text-gray-500 uppercase">Visits</p>
+                <p className="text-sm font-bold text-white">{perfSummary.team_performance.actual_visits}<span className="text-gray-500">/{perfSummary.team_performance.target_visits}</span></p>
+              </div>
+              <div className="bg-white/5 rounded-lg p-2">
+                <p className="text-[10px] text-gray-500 uppercase">Regs</p>
+                <p className="text-sm font-bold text-white">{perfSummary.team_performance.actual_registrations}<span className="text-gray-500">/{perfSummary.team_performance.target_registrations}</span></p>
+              </div>
+            </div>
+            <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden mt-3">
+              <div className={`h-full rounded-full transition-all ${perfSummary.team_performance.achievement >= 100 ? 'bg-gradient-to-r from-indigo-500 to-cyan-500' : 'bg-gradient-to-r from-indigo-500 to-cyan-500'}`} style={{ width: `${Math.min(100, perfSummary.team_performance.achievement)}%` }} />
+            </div>
+            {perfSummary.team_performance.achievement >= 100 && (
+              <p className="text-[9px] text-indigo-400 mt-2 font-semibold">✓ Team crushing targets! 🚀</p>
+            )}
+            {perfSummary.team_performance.achievement < 100 && perfSummary.team_performance.achievement >= 75 && (
+              <p className="text-[9px] text-amber-400 mt-2">So close! Keep pushing! 💪</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {data?.companies && data.companies.length > 0 && (
         <div className="px-5 mb-4">
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Assigned Companies</h2>
@@ -323,7 +385,7 @@ export default function AgentDashboard() {
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Week & Month Progress</h2>
           <div className="grid grid-cols-2 gap-3 mb-3">
             {data?.weekly_targets && data.weekly_targets.target_visits > 0 && (
-              <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+              <div className={`border rounded-xl p-3 ${data.weekly_targets.actual_visits >= data.weekly_targets.target_visits ? 'bg-blue-500/10 border-blue-500/30' : 'bg-white/5 border-white/10'}`}>
                 <div className="flex items-center gap-1.5 mb-1">
                   <Calendar className="w-3 h-3 text-blue-400" />
                   <span className="text-[10px] text-gray-500 uppercase">Week Individual</span>
@@ -332,10 +394,13 @@ export default function AgentDashboard() {
                 <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mt-1">
                   <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min(100, Math.round((data.weekly_targets.actual_visits / data.weekly_targets.target_visits) * 100))}%` }} />
                 </div>
+                {data.weekly_targets.actual_visits >= data.weekly_targets.target_visits && (
+                  <p className="text-[8px] text-blue-400 mt-1 font-semibold">✓ Week target met! 🎉</p>
+                )}
               </div>
             )}
             {data?.monthly_targets && data.monthly_targets.target_visits > 0 && (
-              <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+              <div className={`border rounded-xl p-3 ${data.monthly_targets.actual_visits >= data.monthly_targets.target_visits ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-white/5 border-white/10'}`}>
                 <div className="flex items-center gap-1.5 mb-1">
                   <Target className="w-3 h-3 text-emerald-400" />
                   <span className="text-[10px] text-gray-500 uppercase">Month Individual</span>
@@ -344,10 +409,13 @@ export default function AgentDashboard() {
                 <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mt-1">
                   <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${Math.min(100, Math.round((data.monthly_targets.actual_visits / data.monthly_targets.target_visits) * 100))}%` }} />
                 </div>
+                {data.monthly_targets.actual_visits >= data.monthly_targets.target_visits && (
+                  <p className="text-[8px] text-emerald-400 mt-1 font-semibold">✓ Month target met! 🏆</p>
+                )}
               </div>
             )}
             {data?.monthly_targets && data.monthly_targets.target_registrations > 0 && (
-              <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+              <div className={`border rounded-xl p-3 ${data.monthly_targets.actual_registrations >= data.monthly_targets.target_registrations ? 'bg-amber-500/10 border-amber-500/30' : 'bg-white/5 border-white/10'}`}>
                 <div className="flex items-center gap-1.5 mb-1">
                   <Users className="w-3 h-3 text-amber-400" />
                   <span className="text-[10px] text-gray-500 uppercase">Month Store</span>
@@ -356,6 +424,9 @@ export default function AgentDashboard() {
                 <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mt-1">
                   <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.min(100, Math.round((data.monthly_targets.actual_registrations / data.monthly_targets.target_registrations) * 100))}%` }} />
                 </div>
+                {data.monthly_targets.actual_registrations >= data.monthly_targets.target_registrations && (
+                  <p className="text-[8px] text-amber-400 mt-1 font-semibold">✓ Store target met! 🎯</p>
+                )}
               </div>
             )}
           </div>
@@ -429,19 +500,31 @@ export default function AgentDashboard() {
           <div className="space-y-2">
             {data.daily_targets.map((t, i) => {
               const visitPct = t.target_visits > 0 ? Math.min(100, Math.round((t.actual_visits / t.target_visits) * 100)) : 0
+              const isAchieved = visitPct >= 100
+              const remaining = Math.max(0, t.target_visits - t.actual_visits)
               return (
-                <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-3">
+                <div key={i} className={`border rounded-xl p-3 ${isAchieved ? 'bg-[#00E87B]/10 border-[#00E87B]/30' : 'bg-white/5 border-white/10'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium text-white">{t.company_name}</span>
-                    <span className={'text-xs font-semibold ' + (visitPct >= 100 ? 'text-[#00E87B]' : 'text-amber-400')}>{visitPct}%</span>
+                    <span className={'text-xs font-semibold flex items-center gap-1 ' + (visitPct >= 100 ? 'text-[#00E87B]' : visitPct >= 75 ? 'text-amber-400' : 'text-red-400')}>
+                      {visitPct}% {isAchieved ? '🎯' : visitPct >= 75 ? '🔥' : ''}
+                    </span>
                   </div>
                   <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-[#00E87B] to-[#00D06E] rounded-full transition-all" style={{ width: `${visitPct}%` }} />
+                    <div className={`h-full rounded-full transition-all ${isAchieved ? 'bg-gradient-to-r from-[#00E87B] to-[#00D06E]' : 'bg-gradient-to-r from-[#00E87B] to-[#00D06E]'}`} style={{ width: `${visitPct}%` }} />
                   </div>
                   <div className="flex justify-between mt-1.5">
                     <span className="text-[10px] text-gray-500">Individual: {t.actual_visits}/{t.target_visits}</span>
                     <span className="text-[10px] text-gray-500">Store: {t.actual_registrations}/{t.target_registrations}</span>
                   </div>
+                  {!isAchieved && remaining > 0 && (
+                    <p className="text-[9px] text-amber-400 mt-1.5 flex items-center gap-1">
+                      <Target className="w-2.5 h-2.5" /> {remaining} more visit{remaining > 1 ? 's' : ''} to hit target!
+                    </p>
+                  )}
+                  {isAchieved && (
+                    <p className="text-[9px] text-[#00E87B] mt-1.5 font-semibold">✓ Target Achieved! Great job! 🎉</p>
+                  )}
                 </div>
               )
             })}
