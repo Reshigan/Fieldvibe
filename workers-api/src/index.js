@@ -631,6 +631,8 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
         // Use new per-role fields first, fall back to legacy fields (use ?? to preserve explicit 0)
         const indivPerDay = (ctr.individual_target_per_day != null ? ctr.individual_target_per_day : ctr.target_visits_per_day) ?? 0;
         const storePerDay = (ctr.store_target_per_day != null ? ctr.store_target_per_day : ctr.target_registrations_per_day) ?? 0;
+        const indivPerWeek = ctr.individual_target_per_week_agent ?? 0;
+        const indivPerMonth = ctr.individual_target_per_month_agent ?? (indivPerDay * 22);
         return {
           company_name: ctr.company_name,
           company_id: ctr.company_id,
@@ -642,6 +644,8 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
           actual_store_visits: ca.today_store_visits || 0,
           actual_individual_visits: ca.today_individual_visits || 0,
           individual_target_per_day: indivPerDay,
+          individual_target_per_week: indivPerWeek,
+          individual_target_per_month: indivPerMonth,
           store_target_per_day: storePerDay,
           source: 'company_rule',
           role_type: ctr.role_type || 'agent',
@@ -914,7 +918,7 @@ app.get('/api/agent/performance', authMiddleware, async (c) => {
         const teamMemberIds = (teamMembers?.results || []).map(m => m.id);
         const allTeamUserIds = [teamLeadId, ...teamMemberIds];
         for (const uid of allTeamUserIds) {
-          const fb = await getUserMonthlyTargetFromRules(db, tenantId, uid, currentMonth);
+          const fb = await getUserMonthlyTargetFromRules(db, tenantId, uid, currentMonth, 'agent');
           teamTargetVisits += fb.target_visits;
           teamTargetRegs += fb.target_registrations;
         }
@@ -965,7 +969,7 @@ app.get('/api/agent/performance', authMiddleware, async (c) => {
           // Fall back to company_target_rules if monthly_targets are empty for manager scope
           if (mgrTargetVisits === 0) {
             for (const uid of perfAllMgrUserIds) {
-              const fb = await getUserMonthlyTargetFromRules(db, tenantId, uid, currentMonth);
+              const fb = await getUserMonthlyTargetFromRules(db, tenantId, uid, currentMonth, 'agent');
               mgrTargetVisits += fb.target_visits;
             }
           }
@@ -1008,14 +1012,14 @@ app.get('/api/agent/performance', authMiddleware, async (c) => {
       // Get agent's assigned companies
       const agentCompanies = await db.prepare("SELECT fc.id FROM agent_company_links acl JOIN field_companies fc ON acl.company_id = fc.id WHERE acl.agent_id = ? AND acl.tenant_id = ? AND acl.is_active = 1 AND fc.status = 'active'").bind(userId, tenantId).all();
       const agentCompanyIds = (agentCompanies.results || []).map(co => co.id);
-      targets = await buildFallbackMonthlyTargets(db, tenantId, userId, currentMonth, agentCompanyIds);
+      targets = await buildFallbackMonthlyTargets(db, tenantId, userId, currentMonth, agentCompanyIds, perfRoleType);
     }
     // Enrich monthly targets with live visit/reg counts (actual_visits in DB may be stale)
     const monthStartDate = currentMonth + '-01';
 
     // Fallback: if monthly_targets is empty, generate from company_target_rules
     if (targets.length === 0) {
-      targets = await generateTargetsFromRules(db, tenantId, userId, monthStartDate);
+      targets = await generateTargetsFromRules(db, tenantId, userId, monthStartDate, perfRoleType);
     } else {
       // Enrich all targets in parallel instead of sequentially
       await Promise.all(targets.map(async (t) => {
@@ -1202,7 +1206,7 @@ app.get('/api/team-lead/dashboard', authMiddleware, async (c) => {
           // Fall back to company_target_rules if monthly_targets are empty for manager scope
           if (mTV === 0 && earlyAllMgrUserIds.length > 0) {
             for (const uid of earlyAllMgrUserIds) {
-              const fb = await getUserMonthlyTargetFromRules(db, tenantId, uid, currentMonth);
+              const fb = await getUserMonthlyTargetFromRules(db, tenantId, uid, currentMonth, 'agent');
               mTV += fb.target_visits;
             }
           }
@@ -1245,7 +1249,7 @@ app.get('/api/team-lead/dashboard', authMiddleware, async (c) => {
       let tr = targets?.target_registrations || 0;
       // Fall back to company_target_rules if monthly_targets are empty
       if (tv === 0 && tr === 0) {
-        const fb = await getUserMonthlyTargetFromRules(db, tenantId, member.id, currentMonth);
+        const fb = await getUserMonthlyTargetFromRules(db, tenantId, member.id, currentMonth, 'agent');
         tv = fb.target_visits;
         tr = fb.target_registrations;
       }
@@ -1255,7 +1259,7 @@ app.get('/api/team-lead/dashboard', authMiddleware, async (c) => {
 
       // Fallback: if monthly_targets yields 0, use company_target_rules
       if (tv === 0) {
-        const agentRuleTargets = await generateTargetsFromRules(db, tenantId, member.id, currentMonth + '-01');
+        const agentRuleTargets = await generateTargetsFromRules(db, tenantId, member.id, currentMonth + '-01', 'agent');
         tv = agentRuleTargets.reduce((s, t) => s + (t.target_visits || 0), 0);
       }
 
@@ -1385,7 +1389,7 @@ app.get('/api/team-lead/dashboard', authMiddleware, async (c) => {
         // Fall back to company_target_rules if monthly_targets are empty for manager scope
         if (mgrTV === 0 && allMgrUserIds2.length > 0) {
           for (const uid of allMgrUserIds2) {
-            const fb = await getUserMonthlyTargetFromRules(db, tenantId, uid, currentMonth);
+            const fb = await getUserMonthlyTargetFromRules(db, tenantId, uid, currentMonth, 'agent');
             mgrTV += fb.target_visits;
           }
         }
@@ -1494,7 +1498,7 @@ app.get('/api/manager/dashboard', authMiddleware, async (c) => {
         teamTargetRegs = tRes?.tr || 0;
         teamActualRegs = teamRegs;
         if (teamTargetVisits === 0 && teamTargetRegs === 0) {
-          const fbs = await Promise.all(memberIds.map(mid => getUserMonthlyTargetFromRules(db, tenantId, mid, currentMonth)));
+          const fbs = await Promise.all(memberIds.map(mid => getUserMonthlyTargetFromRules(db, tenantId, mid, currentMonth, 'agent')));
           for (const fb of fbs) { teamTargetVisits += fb.target_visits; teamTargetRegs += fb.target_registrations; }
         }
       }
@@ -1684,7 +1688,7 @@ app.get('/api/team-lead/agent/:agentId', authMiddleware, async (c) => {
     let tv = targets?.target_visits || 0;
     let tr = targets?.target_registrations || 0;
     if (tv === 0 && tr === 0) {
-      const fb = await getUserMonthlyTargetFromRules(db, tenantId, agentId, currentMonth);
+      const fb = await getUserMonthlyTargetFromRules(db, tenantId, agentId, currentMonth, 'agent');
       tv = fb.target_visits;
       tr = fb.target_registrations;
     }
@@ -1780,7 +1784,7 @@ app.get('/api/manager/team/:teamLeadId/agents', authMiddleware, async (c) => {
       let tv = targets?.target_visits || 0;
       let tr = targets?.target_registrations || 0;
       if (tv === 0 && tr === 0) {
-        const fb = await getUserMonthlyTargetFromRules(db, tenantId, member.id, currentMonth);
+        const fb = await getUserMonthlyTargetFromRules(db, tenantId, member.id, currentMonth, 'agent');
         tv = fb.target_visits;
         tr = fb.target_registrations;
       }
@@ -1866,7 +1870,7 @@ app.get('/api/manager/agent/:agentId', authMiddleware, async (c) => {
     let tv = targets?.target_visits || 0;
     let tr = targets?.target_registrations || 0;
     if (tv === 0 && tr === 0) {
-      const fb = await getUserMonthlyTargetFromRules(db, tenantId, agentId, currentMonth);
+      const fb = await getUserMonthlyTargetFromRules(db, tenantId, agentId, currentMonth, 'agent');
       tv = fb.target_visits;
       tr = fb.target_registrations;
     }

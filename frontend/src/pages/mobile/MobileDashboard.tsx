@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { 
   MapPin, Clock, CheckCircle, AlertTriangle, TrendingUp, 
   Users, Package, DollarSign, Calendar, ChevronRight,
-  Wifi, WifiOff, RefreshCw
+  Wifi, WifiOff, RefreshCw, Target, Store, User
 } from 'lucide-react'
 import { useAuthStore } from '../../store/auth.store'
 import { isOnline, getSyncQueueCount } from '../../utils/offline-storage'
+import { apiClient } from '../../services/api.service'
 
 // MOB-03: Mobile Dashboard with role-aware widgets
 
@@ -32,6 +33,19 @@ export default function MobileDashboard() {
   const [online, setOnline] = useState(isOnline())
   const [syncCount, setSyncCount] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
+  const [statsData, setStatsData] = useState({
+    today_visits: 0,
+    month_visits: 0,
+    today_registrations: 0,
+    month_registrations: 0,
+    today_individual_visits: 0,
+    today_store_visits: 0,
+    month_individual_visits: 0,
+    month_store_visits: 0,
+    daily_targets: [],
+    monthly_targets: []
+  })
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const handleOnline = () => setOnline(true)
@@ -39,6 +53,22 @@ export default function MobileDashboard() {
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
     getSyncQueueCount().then(setSyncCount)
+    
+    // Fetch dashboard stats
+    const fetchStats = async () => {
+      try {
+        const dashRes = await apiClient.get('/agent/dashboard').catch(() => null)
+        if (dashRes?.data?.success && dashRes?.data?.data) {
+          setStatsData(dashRes.data.data)
+        }
+      } catch (err) {
+        console.error('Dashboard fetch error:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchStats()
+    
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
@@ -48,10 +78,10 @@ export default function MobileDashboard() {
   const role = user?.role || 'agent'
 
   const stats: StatCard[] = [
-    { label: 'Today\'s Visits', value: 8, icon: <MapPin className="w-5 h-5" />, color: 'bg-blue-500', trend: { value: 12, direction: 'up' } },
-    { label: 'Completed', value: 5, icon: <CheckCircle className="w-5 h-5" />, color: 'bg-green-500' },
-    { label: 'Pending', value: 3, icon: <Clock className="w-5 h-5" />, color: 'bg-yellow-500' },
-    { label: 'Revenue', value: 'R 12,450', icon: <DollarSign className="w-5 h-5" />, color: 'bg-purple-500', trend: { value: 8, direction: 'up' } },
+    { label: 'Today\'s Visits', value: statsData.today_individual_visits || statsData.today_visits || 0, icon: <MapPin className="w-5 h-5" />, color: 'bg-blue-500' },
+    { label: 'Completed', value: statsData.today_store_visits || 0, icon: <CheckCircle className="w-5 h-5" />, color: 'bg-green-500' },
+    { label: 'Month Visits', value: statsData.month_individual_visits || statsData.month_visits || 0, icon: <TrendingUp className="w-5 h-5" />, color: 'bg-purple-500' },
+    { label: 'Targets', value: statsData.daily_targets?.length || statsData.monthly_targets?.length || 0, icon: <Target className="w-5 h-5" />, color: 'bg-orange-500' },
   ]
 
   const quickActions: QuickAction[] = [
@@ -119,6 +149,139 @@ export default function MobileDashboard() {
           ))}
         </div>
       </div>
+
+      {/* Company Targets Section */}
+      {!loading && ((statsData.daily_targets && statsData.daily_targets.length > 0) || (statsData.monthly_targets && statsData.monthly_targets.length > 0)) && (
+        <div className="px-4 py-3">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+            <Target className="w-4 h-4 text-orange-500" /> Company Targets
+          </h2>
+          <div className="space-y-3">
+            {/* Daily Targets */}
+            {statsData.daily_targets && statsData.daily_targets.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wider">Today's Targets</h3>
+                <div className="space-y-2">
+                  {statsData.daily_targets.map((target, i) => {
+                    const actualVisits = target.actual_visits ?? target.actual_individual_visits ?? 0
+                    // Use weekly target if available, otherwise daily target
+                    const targetVisits = target.individual_target_per_week && target.individual_target_per_week > 0 ? target.individual_target_per_week : (target.target_visits ?? target.individual_target_per_day ?? 0)
+                    const targetVisitsDaily = target.target_visits ?? target.individual_target_per_day ?? 0
+                    const actualRegs = target.actual_registrations ?? target.actual_store_visits ?? 0
+                    const targetRegs = target.target_registrations ?? target.store_target_per_day ?? 0
+                    const vPct = targetVisits > 0 ? Math.min(100, Math.round((actualVisits / targetVisits) * 100)) : 0
+                    const rPct = targetRegs > 0 ? Math.min(100, Math.round((actualRegs / targetRegs) * 100)) : 0
+                    const hasWeeklyTarget = target.individual_target_per_week && target.individual_target_per_week > 0
+                    return (
+                      <div key={`daily-${i}`} className="bg-white dark:bg-night-50 rounded-xl p-3 shadow-sm border border-gray-200 dark:border-night-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{target.company_name}</p>
+                          <div className="flex items-center gap-1">
+                            {hasWeeklyTarget && (
+                              <span className="text-[9px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 rounded">Weekly</span>
+                            )}
+                            <span className="text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-2 py-0.5 rounded">Today</span>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-gray-500 dark:text-gray-400">Individual Visits</span>
+                              <span className="text-gray-700 dark:text-gray-300 font-medium">{actualVisits}/{targetVisits} <span className={vPct >= 100 ? 'text-green-600' : vPct >= 75 ? 'text-amber-500' : 'text-red-500'}>({vPct}%)</span></span>
+                            </div>
+                            <div className="w-full h-2 bg-gray-200 dark:bg-night-200 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all bg-blue-500" style={{ width: vPct + '%' }} />
+                            </div>
+                            {hasWeeklyTarget && targetVisitsDaily > 0 && (
+                              <p className="text-[9px] text-gray-500 mt-1">Daily target: {targetVisitsDaily} visits/day</p>
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-gray-500 dark:text-gray-400">Store Visits</span>
+                              <span className="text-gray-700 dark:text-gray-300 font-medium">{actualRegs}/{targetRegs} <span className={rPct >= 100 ? 'text-green-600' : rPct >= 75 ? 'text-amber-500' : 'text-red-500'}>({rPct}%)</span></span>
+                            </div>
+                            <div className="w-full h-2 bg-gray-200 dark:bg-night-200 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all bg-purple-500" style={{ width: rPct + '%' }} />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+            {/* Monthly Targets */}
+            {statsData.monthly_targets && statsData.monthly_targets.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wider">Monthly Targets</h3>
+                <div className="space-y-2">
+                  {statsData.monthly_targets.map((target, i) => {
+                    const actualVisits = target.actual_visits ?? target.individual_visits ?? 0
+                    const targetVisits = target.target_visits ?? 0
+                    const actualRegs = target.actual_registrations ?? target.store_visits ?? 0
+                    const targetRegs = target.target_registrations ?? 0
+                    const vPct = targetVisits > 0 ? Math.min(100, Math.round((actualVisits / targetVisits) * 100)) : 0
+                    const rPct = targetRegs > 0 ? Math.min(100, Math.round((actualRegs / targetRegs) * 100)) : 0
+                    return (
+                      <div key={`monthly-${i}`} className="bg-white dark:bg-night-50 rounded-xl p-3 shadow-sm border border-gray-200 dark:border-night-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{target.company_name}</p>
+                          <span className="text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-2 py-0.5 rounded">Month</span>
+                        </div>
+                        <div className="space-y-2">
+                          <div>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-gray-500 dark:text-gray-400">Individual Visits</span>
+                              <span className="text-gray-700 dark:text-gray-300 font-medium">{actualVisits}/{targetVisits} <span className={vPct >= 100 ? 'text-green-600' : vPct >= 75 ? 'text-amber-500' : 'text-red-500'}>({vPct}%)</span></span>
+                            </div>
+                            <div className="w-full h-2 bg-gray-200 dark:bg-night-200 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all bg-blue-500" style={{ width: vPct + '%' }} />
+                            </div>
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-gray-500 dark:text-gray-400">Store Visits</span>
+                              <span className="text-gray-700 dark:text-gray-300 font-medium">{actualRegs}/{targetRegs} <span className={rPct >= 100 ? 'text-green-600' : rPct >= 75 ? 'text-amber-500' : 'text-red-500'}>({rPct}%)</span></span>
+                            </div>
+                            <div className="w-full h-2 bg-gray-200 dark:bg-night-200 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all bg-purple-500" style={{ width: rPct + '%' }} />
+                            </div>
+                          </div>
+                        </div>
+                        {/* Store vs Individual breakdown */}
+                        {((target.store_visits || 0) > 0 || (target.individual_visits || 0) > 0) && (
+                          <div className="grid grid-cols-2 gap-2 mt-3">
+                            {(target.store_visits || 0) > 0 && (
+                              <div className="bg-purple-50 dark:bg-purple-500/10 rounded-lg p-2">
+                                <div className="flex items-center gap-1 mb-0.5">
+                                  <Store className="w-3 h-3 text-purple-500" />
+                                  <span className="text-[10px] text-purple-600 dark:text-purple-400 font-medium">Store</span>
+                                </div>
+                                <p className="text-xs text-gray-900 dark:text-gray-100 font-semibold">{target.store_visits} visits</p>
+                              </div>
+                            )}
+                            {(target.individual_visits || 0) > 0 && (
+                              <div className="bg-cyan-50 dark:bg-cyan-500/10 rounded-lg p-2">
+                                <div className="flex items-center gap-1 mb-0.5">
+                                  <User className="w-3 h-3 text-cyan-500" />
+                                  <span className="text-[10px] text-cyan-600 dark:text-cyan-400 font-medium">Individual</span>
+                                </div>
+                                <p className="text-xs text-gray-900 dark:text-gray-100 font-semibold">{target.individual_visits} visits</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Quick Actions */}
       <div className="px-4 py-3">
