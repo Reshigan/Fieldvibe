@@ -8255,9 +8255,9 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
       data.push([]); // Empty row
       data.push(['--- Detailed Registrations (All Agents) ---']);
       const allRegDetails = await db.prepare("SELECT ir.created_at, ir.first_name, ir.last_name, ir.phone, ir.converted, u.first_name || ' ' || u.last_name as agent_name, fc.name as company_name FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id LEFT JOIN field_companies fc ON ir.company_id = fc.id WHERE ir.tenant_id = ? AND ir.agent_id IN (" + placeholders + ") AND ir.created_at >= ? AND ir.created_at <= ? ORDER BY ir.created_at DESC LIMIT 100").bind(tenantId, ...agentIds, startD + ' 00:00:00', endD + ' 23:59:59').all();
-      headers = ['Agent', 'Visits', 'Individuals', 'Conversions', 'Conversion Rate', 'Date', 'Name', 'Status', 'Company'];
+      data.push(['Date', 'Agent', 'Name', 'Phone', 'Status', 'Company']);
       for (const r of (allRegDetails.results || [])) {
-        data.push(['', '', '', '', '', r.created_at, `${r.first_name} ${r.last_name}`, r.converted ? 'Converted' : 'Pending', r.company_name || 'N/A']);
+        data.push([r.created_at, r.agent_name, `${r.first_name} ${r.last_name}`, r.phone || '', r.converted ? 'Converted' : 'Pending', r.company_name || 'N/A']);
       }
       
     } else {
@@ -8282,7 +8282,7 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
         const tRegs = allIds.reduce((s, id) => s + (rMap[id] || 0), 0);
         const tConvs = allIds.reduce((s, id) => s + (cMap[id] || 0), 0);
         const convRate = tRegs > 0 ? Math.round((tConvs / tRegs) * 100) + '%' : '0%';
-        return [tl.first_name + ' ' + tl.last_name, teamAgts.length, tVisits, tRegs, tConvs, convRate];
+        return [tl.first_name + ' ' + tl.last_name, teamAgts.length, tVisits, tRegs, tConvs, convRate, '', '', '', ''];
       });
       
       // Add drilldown: team breakdown with agent details
@@ -8291,11 +8291,16 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
       headers = ['Team Lead', 'Agents', 'Visits', 'Individuals', 'Conversions', 'Conversion Rate', 'Agent Name', 'Agent Visits', 'Agent Regs', 'Agent Convs'];
       for (const tl of (allTeamLeads.results || [])) {
         const teamAgts = (allAgents.results || []).filter(a => a.team_lead_id === tl.id);
+        const allIds = [tl.id, ...teamAgts.map(a => a.id)];
+        const tVisits = allIds.reduce((s, id) => s + (vMap[id] || 0), 0);
+        const tRegs = allIds.reduce((s, id) => s + (rMap[id] || 0), 0);
+        const tConvs = allIds.reduce((s, id) => s + (cMap[id] || 0), 0);
         for (const agent of teamAgts) {
           const aVisits = vMap[agent.id] || 0;
           const aRegs = rMap[agent.id] || 0;
           const aConvs = cMap[agent.id] || 0;
-          data.push([tl.first_name + ' ' + tl.last_name, teamAgts.length, '', '', '', '', agent.first_name + ' ' + agent.last_name, aVisits, aRegs, aConvs]);
+          const aConvRate = aRegs > 0 ? Math.round((aConvs / aRegs) * 100) + '%' : '0%';
+          data.push([tl.first_name + ' ' + tl.last_name, teamAgts.length, tVisits, tRegs, tConvs, aConvRate, agent.first_name + ' ' + agent.last_name, aVisits, aRegs, aConvs]);
         }
       }
     }
