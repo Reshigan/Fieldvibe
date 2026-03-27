@@ -198,6 +198,32 @@ const VisitManagement: React.FC = () => {
     })
   }
 
+  const handleExport = async () => {
+    try {
+      const params = new URLSearchParams()
+      if (filterStatus !== 'all') params.append('status', filterStatus)
+      if (filterAgent !== 'all') params.append('agent_id', filterAgent)
+      if (filterType !== 'all') params.append('visit_type', filterType)
+      if (dateFrom) params.append('date_from', dateFrom)
+      if (dateTo) params.append('date_to', dateTo)
+      
+      const response = await apiClient.get(`/field-operations/visits/export?${params.toString()}`)
+      const blob = new Blob([response.data], { type: 'application/vnd.ms-excel' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `visits-export-${new Date().toISOString().split('T')[0]}.xls`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+      toast.success('Visits exported successfully!')
+    } catch (error: any) {
+      console.error('Export failed:', error)
+      toast.error('Failed to export visits')
+    }
+  }
+
   const getStatusBadge = (status: string) => {
     const badges = {
       planned: 'bg-blue-100 text-blue-800',
@@ -231,13 +257,23 @@ const VisitManagement: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900">Visit Management</h1>
           <p className="text-sm text-gray-500 mt-1">Schedule and manage field agent visits</p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          <Plus className="w-5 h-5" />
-          Schedule Visit
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+            title="Export to Excel"
+          >
+            <Download className="w-5 h-5" />
+            Export
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Plus className="w-5 h-5" />
+            Schedule Visit
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}

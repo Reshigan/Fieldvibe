@@ -4890,6 +4890,59 @@ api.get('/field-operations/stats', authMiddleware, async (c) => {
   return c.json({ total_agents: totalAgents?.count || 0, today_visits: todayVisits?.count || 0, completed_visits: completedVisits?.count || 0, active_agents: activeAgents?.count || 0 });
 });
 
+// ==================== FIELD OPERATIONS: VISITS EXPORT ====================
+api.get('/field-operations/visits/export', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { status, agent_id, visit_type, date_from, date_to } = c.req.query();
+  
+  let where = 'WHERE v.tenant_id = ?';
+  const params = [tenantId];
+  
+  if (status) { where += ' AND v.status = ?'; params.push(status); }
+  if (agent_id) { where += ' AND v.agent_id = ?'; params.push(agent_id === 'me' ? c.get('userId') : agent_id); }
+  if (visit_type) { where += ' AND v.visit_type = ?'; params.push(visit_type); }
+  if (date_from) { where += ' AND v.visit_date >= ?'; params.push(date_from); }
+  if (date_to) { where += ' AND v.visit_date <= ?'; params.push(date_to); }
+  
+  const visits = await db.prepare("SELECT v.id, v.visit_date, v.visit_type, v.status, v.check_in_time, v.check_out_time, v.notes, c.name as customer_name, u.first_name || ' ' || u.last_name as agent_name, v.latitude, v.longitude FROM visits v LEFT JOIN customers c ON v.customer_id = c.id LEFT JOIN users u ON v.agent_id = u.id " + where + " ORDER BY v.visit_date DESC").bind(...params).all();
+  
+  const headers = ['Visit ID', 'Date', 'Type', 'Status', 'Agent', 'Customer', 'Check-in', 'Check-out', 'Notes'];
+  const data = (visits.results || []).map(v => [
+    v.id,
+    v.visit_date,
+    v.visit_type || 'N/A',
+    v.status,
+    v.agent_name || 'N/A',
+    v.customer_name || 'N/A',
+    v.check_in_time || '-',
+    v.check_out_time || '-',
+    v.notes || '-'
+  ]);
+  
+  const headerRow = headers.map(h => `<th>${h}</th>`).join('');
+  const bodyRows = data.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('');
+  
+  const html = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="UTF-8">
+<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
+<x:Name>Visits Export</x:Name>
+<x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+<style>th{font-weight:bold;background:#4472C4;color:white;padding:8px;} td{padding:6px;border:1px solid #D6DCE4;} .header{background:#2563EB;color:white;font-size:14pt;font-weight:bold;}</style>
+</head><body>
+<table border="1">
+  <tr><td colspan="${headers.length}" class="header">Visits Export - ${new Date().toLocaleString('en-GB')}</td></tr>
+  <thead><tr>${headerRow}</tr></thead>
+  <tbody>${bodyRows}</tbody>
+</table>
+</body></html>`;
+
+  return c.html(html);
+});
+
 // ==================== VAN SALES ROUTES ====================
 api.get('/van-sales/vans', authMiddleware, async (c) => {
   const db = c.env.DB;
@@ -14048,16 +14101,28 @@ api.get('/field-ops/reports/kpis', authMiddleware, async (c) => {
     const tenantId = c.get('tenantId');
     const { startDate, endDate } = c.req.query();
     let dateFilter = '';
+    let regDateFilter = '';
     const binds = [tenantId];
-    if (startDate) { dateFilter += " AND v.visit_date >= ?"; binds.push(startDate); }
-    if (endDate) { dateFilter += " AND v.visit_date <= ?"; binds.push(endDate); }
+    const regBinds = [tenantId];
+    if (startDate) { 
+      dateFilter += " AND v.visit_date >= ?"; 
+      binds.push(startDate);
+      regDateFilter += " AND DATE(ir.created_at) >= ?";
+      regBinds.push(startDate);
+    }
+    if (endDate) { 
+      dateFilter += " AND v.visit_date <= ?"; 
+      binds.push(endDate);
+      regDateFilter += " AND DATE(ir.created_at) <= ?";
+      regBinds.push(endDate);
+    }
 
     const totalVisits = await db.prepare(`SELECT COUNT(*) as count FROM visits v WHERE v.tenant_id = ?${dateFilter}`).bind(...binds).first();
     const completedVisits = await db.prepare(`SELECT COUNT(*) as count FROM visits v WHERE v.tenant_id = ? AND v.status = 'completed'${dateFilter}`).bind(...binds).first();
     const activeAgents = await db.prepare(`SELECT COUNT(DISTINCT v.agent_id) as count FROM visits v WHERE v.tenant_id = ?${dateFilter}`).bind(...binds).first();
     const totalCustomers = await db.prepare(`SELECT COUNT(DISTINCT v.customer_id) as count FROM visits v WHERE v.tenant_id = ? AND v.customer_id IS NOT NULL${dateFilter}`).bind(...binds).first();
-    const totalIndividuals = await db.prepare('SELECT COUNT(*) as count FROM individual_registrations WHERE tenant_id = ?').bind(tenantId).first();
-    const conversions = await db.prepare(`SELECT COUNT(*) as count FROM visits v WHERE v.tenant_id = ? AND v.status = 'completed' AND v.visit_type = 'individual'${dateFilter}`).bind(...binds).first();
+    const totalIndividuals = await db.prepare(`SELECT COUNT(*) as count FROM individual_registrations ir WHERE ir.tenant_id = ?${regDateFilter}`).bind(...regBinds).first();
+    const conversions = await db.prepare(`SELECT COUNT(*) as count FROM individual_registrations ir WHERE ir.tenant_id = ? AND ir.converted = 1${regDateFilter}`).bind(...regBinds).first();
 
     return c.json({ success: true, kpis: {
       total_checkins: totalVisits?.count || 0,
@@ -14078,14 +14143,26 @@ api.get('/field-ops/reports/agent-performance', authMiddleware, async (c) => {
     const tenantId = c.get('tenantId');
     const { startDate, endDate } = c.req.query();
     let dateFilter = '';
+    let regDateFilter = '';
     const binds = [tenantId];
-    if (startDate) { dateFilter += " AND v.visit_date >= ?"; binds.push(startDate); }
-    if (endDate) { dateFilter += " AND v.visit_date <= ?"; binds.push(endDate); }
+    const regBinds = [tenantId];
+    if (startDate) { 
+      dateFilter += " AND v.visit_date >= ?"; 
+      binds.push(startDate);
+      regDateFilter += " AND DATE(ir.created_at) >= ?";
+      regBinds.push(startDate);
+    }
+    if (endDate) { 
+      dateFilter += " AND v.visit_date <= ?"; 
+      binds.push(endDate);
+      regDateFilter += " AND DATE(ir.created_at) <= ?";
+      regBinds.push(endDate);
+    }
 
     const agents = await db.prepare(`
       SELECT v.agent_id, u.first_name || ' ' || u.last_name as agent_name,
         COUNT(*) as checkin_count,
-        SUM(CASE WHEN v.status = 'completed' AND v.visit_type = 'individual' THEN 1 ELSE 0 END) as conversions
+        (SELECT COUNT(*) FROM individual_registrations ir WHERE ir.agent_id = v.agent_id AND ir.tenant_id = v.tenant_id${regDateFilter}) as conversions
       FROM visits v
       LEFT JOIN users u ON v.agent_id = u.id
       WHERE v.tenant_id = ?${dateFilter}
@@ -14167,17 +14244,30 @@ api.get('/field-ops/reports/conversion-stats', authMiddleware, async (c) => {
     const tenantId = c.get('tenantId');
     const { startDate, endDate } = c.req.query();
     let dateFilter = '';
+    let regDateFilter = '';
     const binds = [tenantId];
-    if (startDate) { dateFilter += " AND visit_date >= ?"; binds.push(startDate); }
-    if (endDate) { dateFilter += " AND visit_date <= ?"; binds.push(endDate); }
+    const regBinds = [tenantId];
+    if (startDate) { 
+      dateFilter += " AND visit_date >= ?"; 
+      binds.push(startDate);
+      regDateFilter += " AND DATE(created_at) >= ?";
+      regBinds.push(startDate);
+    }
+    if (endDate) { 
+      dateFilter += " AND visit_date <= ?"; 
+      binds.push(endDate);
+      regDateFilter += " AND DATE(created_at) <= ?";
+      regBinds.push(endDate);
+    }
 
     const total = await db.prepare(`SELECT COUNT(*) as count FROM visits WHERE tenant_id = ?${dateFilter}`).bind(...binds).first();
-    const converted = await db.prepare(`SELECT COUNT(*) as count FROM visits WHERE tenant_id = ? AND status = 'completed' AND visit_type = 'individual'${dateFilter}`).bind(...binds).first();
+    const converted = await db.prepare(`SELECT COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND converted = 1${regDateFilter}`).bind(...regBinds).first();
+    const totalRegs = await db.prepare(`SELECT COUNT(*) as count FROM individual_registrations WHERE tenant_id = ?${regDateFilter}`).bind(...regBinds).first();
     const storeVisits = await db.prepare(`SELECT COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_type = 'store'${dateFilter}`).bind(...binds).first();
 
     return c.json({ success: true, data: {
       converted_yes: converted?.count || 0,
-      converted_no: (total?.count || 0) - (converted?.count || 0),
+      converted_no: (totalRegs?.count || 0) - (converted?.count || 0),
       betting_yes: storeVisits?.count || 0,
       betting_no: (total?.count || 0) - (storeVisits?.count || 0),
     }});
