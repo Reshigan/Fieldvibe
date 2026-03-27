@@ -8207,6 +8207,23 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
         ['Conversions', convCount, targetConvs, targetConvs > 0 ? Math.round((convCount / targetConvs) * 100) + '%' : 'N/A'],
         ['Conversion Rate', regCount > 0 ? Math.round((convCount / regCount) * 100) + '%' : '0%', '-', '-']
       ];
+      
+      // Add drilldown details for agent
+      data.push([]); // Empty row
+      data.push(['--- Visit Details ---']);
+      const visitDetails = await db.prepare("SELECT v.visit_date, v.visit_type, v.status, c.name as customer_name, v.individual_name FROM visits v LEFT JOIN customers c ON v.customer_id = c.id WHERE v.agent_id = ? AND v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? ORDER BY v.visit_date DESC LIMIT 50").bind(userId, tenantId, startD, endD).all();
+      headers = ['Metric', 'Value', 'Target', 'Achievement %', 'Date', 'Type', 'Customer/Individual'];
+      for (const v of (visitDetails.results || [])) {
+        data.push(['Visit', v.visit_date, '', '', v.visit_date, v.visit_type || 'N/A', v.customer_name || v.individual_name || 'N/A']);
+      }
+      
+      data.push([]); // Empty row
+      data.push(['--- Registration Details ---']);
+      const regDetails = await db.prepare("SELECT ir.created_at, ir.first_name, ir.last_name, ir.phone, ir.converted, fc.name as company_name FROM individual_registrations ir LEFT JOIN field_companies fc ON ir.company_id = fc.id WHERE ir.agent_id = ? AND ir.tenant_id = ? AND ir.created_at >= ? AND ir.created_at <= ? ORDER BY ir.created_at DESC LIMIT 50").bind(userId, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all();
+      for (const r of (regDetails.results || [])) {
+        data.push(['Registration', r.created_at, '', '', r.created_at, r.converted ? 'Converted' : 'Pending', `${r.first_name} ${r.last_name} (${r.company_name || 'N/A'})`]);
+      }
+      
     } else if (role === 'team_lead') {
       headers = ['Agent', 'Visits', 'Individuals', 'Conversions', 'Conversion Rate'];
       const teamAgents = await db.prepare("SELECT id, first_name, last_name FROM users WHERE team_lead_id = ? AND tenant_id = ? AND is_active = 1").bind(userId, tenantId).all();
@@ -8231,6 +8248,16 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
         const convRate = r > 0 ? Math.round((c / r) * 100) + '%' : '0%';
         return [(agent.first_name + ' ' + agent.last_name).trim(), v, r, c, convRate];
       });
+      
+      // Add drilldown: detailed registration list for all agents
+      data.push([]); // Empty row
+      data.push(['--- Detailed Registrations (All Agents) ---']);
+      const allRegDetails = await db.prepare("SELECT ir.created_at, ir.first_name, ir.last_name, ir.phone, ir.converted, u.first_name || ' ' || u.last_name as agent_name, fc.name as company_name FROM individual_registrations ir LEFT JOIN users u ON ir.agent_id = u.id LEFT JOIN field_companies fc ON ir.company_id = fc.id WHERE ir.tenant_id = ? AND ir.agent_id IN (" + placeholders + ") AND ir.created_at >= ? AND ir.created_at <= ? ORDER BY ir.created_at DESC LIMIT 100").bind(tenantId, ...agentIds, startD + ' 00:00:00', endD + ' 23:59:59').all();
+      headers = ['Agent', 'Visits', 'Individuals', 'Conversions', 'Conversion Rate', 'Date', 'Name', 'Status', 'Company'];
+      for (const r of (allRegDetails.results || [])) {
+        data.push(['', '', '', '', '', r.created_at, `${r.first_name} ${r.last_name}`, r.converted ? 'Converted' : 'Pending', r.company_name || 'N/A']);
+      }
+      
     } else {
       headers = ['Team Lead', 'Agents', 'Visits', 'Individuals', 'Conversions', 'Conversion Rate'];
       const allTeamLeads = await db.prepare("SELECT id, first_name, last_name FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1").bind(tenantId).all();
@@ -8255,11 +8282,30 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
         const convRate = tRegs > 0 ? Math.round((tConvs / tRegs) * 100) + '%' : '0%';
         return [tl.first_name + ' ' + tl.last_name, teamAgts.length, tVisits, tRegs, tConvs, convRate];
       });
+      
+      // Add drilldown: team breakdown with agent details
+      data.push([]); // Empty row
+      data.push(['--- Team Breakdown with Agent Details ---']);
+      headers = ['Team Lead', 'Agents', 'Visits', 'Individuals', 'Conversions', 'Conversion Rate', 'Agent Name', 'Agent Visits', 'Agent Regs', 'Agent Convs'];
+      for (const tl of (allTeamLeads.results || [])) {
+        const teamAgts = (allAgents.results || []).filter(a => a.team_lead_id === tl.id);
+        for (const agent of teamAgts) {
+          const aVisits = vMap[agent.id] || 0;
+          const aRegs = rMap[agent.id] || 0;
+          const aConvs = cMap[agent.id] || 0;
+          data.push([tl.first_name + ' ' + tl.last_name, teamAgts.length, '', '', '', '', agent.first_name + ' ' + agent.last_name, aVisits, aRegs, aConvs]);
+        }
+      }
     }
     
     // Build Excel-compatible HTML
     const headerRow = headers.map(h => `<th>${h}</th>`).join('');
-    const bodyRows = data.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('');
+    const bodyRows = data.map(row => {
+      if (row.length === 1 && row[0].startsWith('---')) {
+        return `<tr><td colspan="${headers.length}" style="background:#f0f0f0;font-weight:bold;padding:8px;">${row[0].replace(/---/g, '')}</td></tr>`;
+      }
+      return `<tr>${row.map(cell => `<td>${cell || ''}</td>`).join('')}</tr>`;
+    }).join('');
     const periodLabel = period === 'day' ? 'Day' : period === 'week' ? 'Week to Date' : period === 'month' ? 'Month to Date' : 'Custom Period';
     
     const html = `<?xml version="1.0" encoding="UTF-8"?>
