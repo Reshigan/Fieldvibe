@@ -199,7 +199,7 @@ export default function FieldOpsPerformancePage() {
               color="blue"
             />
             <ProgressCard
-              title="Registrations"
+              title="Individuals"
               current={performance?.registrations || 0}
               target={performance?.targets?.registrations || 10}
               icon={<UserCheck className="w-6 h-6 text-green-600" />}
@@ -222,7 +222,7 @@ export default function FieldOpsPerformancePage() {
                 {performance?.conversion_rate || 0}%
               </div>
               <div className="text-sm text-gray-500">
-                {performance?.conversions || 0} out of {performance?.registrations || 0} registrations converted
+                {performance?.conversions || 0} out of {performance?.registrations || 0} individuals converted
               </div>
             </div>
           </div>
@@ -236,7 +236,7 @@ export default function FieldOpsPerformancePage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <MetricCard title="Team Size" value={performance?.team_size || 0} icon={<Users className="w-6 h-6 text-blue-600" />} />
             <MetricCard title="Total Visits" value={performance?.total_visits || 0} icon={<Target className="w-6 h-6 text-green-600" />} />
-            <MetricCard title="Registrations" value={performance?.total_registrations || 0} icon={<UserCheck className="w-6 h-6 text-purple-600" />} />
+            <MetricCard title="Individuals" value={performance?.total_registrations || 0} icon={<UserCheck className="w-6 h-6 text-purple-600" />} />
             <MetricCard title="Conversion Rate" value={`${performance?.conversion_rate || 0}%`} icon={<TrendingUp className="w-6 h-6 text-yellow-600" />} />
           </div>
 
@@ -249,7 +249,7 @@ export default function FieldOpsPerformancePage() {
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Agent</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Visits</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Registrations</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Individuals</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Conversions</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                   </tr>
@@ -312,7 +312,7 @@ export default function FieldOpsPerformancePage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <MetricCard title="Total Registrations" value={performance?.total_registrations || 0} icon={<BarChart3 className="w-5 h-5 text-indigo-600" />} />
+            <MetricCard title="Total Individuals" value={performance?.total_registrations || 0} icon={<BarChart3 className="w-5 h-5 text-indigo-600" />} />
             <MetricCard title="Total Conversions" value={performance?.total_conversions || 0} icon={<Award className="w-5 h-5 text-emerald-600" />} />
             <MetricCard title="Avg Visits/Team" value={performance?.total_team_leads ? Math.round((performance?.total_visits || 0) / (performance?.total_team_leads || 1)) : 0} icon={<Target className="w-5 h-5 text-orange-600" />} />
           </div>
@@ -327,7 +327,7 @@ export default function FieldOpsPerformancePage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team Lead</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Agents</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Visits</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Registrations</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Individuals</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Conversions</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Conv. Rate</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
@@ -376,7 +376,7 @@ export default function FieldOpsPerformancePage() {
                     <YAxis />
                     <Tooltip />
                     <Bar dataKey="visits" fill="#3B82F6" name="Visits" />
-                    <Bar dataKey="registrations" fill="#F59E0B" name="Registrations" />
+                    <Bar dataKey="registrations" fill="#F59E0B" name="Individuals" />
                     <Bar dataKey="conversions" fill="#10B981" name="Conversions" />
                   </BarChart>
                 </ResponsiveContainer>

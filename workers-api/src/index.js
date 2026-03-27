@@ -8135,12 +8135,12 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
       
       data = [
         ['Visits', visitCount, targetVisits, targetVisits > 0 ? Math.round((visitCount / targetVisits) * 100) + '%' : 'N/A'],
-        ['Registrations', regCount, targetRegs, targetRegs > 0 ? Math.round((regCount / targetRegs) * 100) + '%' : 'N/A'],
+        ['Individuals', regCount, targetRegs, targetRegs > 0 ? Math.round((regCount / targetRegs) * 100) + '%' : 'N/A'],
         ['Conversions', convCount, targetConvs, targetConvs > 0 ? Math.round((convCount / targetConvs) * 100) + '%' : 'N/A'],
         ['Conversion Rate', regCount > 0 ? Math.round((convCount / regCount) * 100) + '%' : '0%', '-', '-']
       ];
     } else if (role === 'team_lead') {
-      headers = ['Agent', 'Visits', 'Registrations', 'Conversions', 'Conversion Rate'];
+      headers = ['Agent', 'Visits', 'Individuals', 'Conversions', 'Conversion Rate'];
       const teamAgents = await db.prepare("SELECT id, first_name, last_name FROM users WHERE team_lead_id = ? AND tenant_id = ? AND is_active = 1").bind(userId, tenantId).all();
       const agentIds = [userId, ...(teamAgents.results || []).map(a => a.id)];
       const placeholders = agentIds.map(() => '?').join(',');
@@ -8164,7 +8164,7 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
         return [(agent.first_name + ' ' + agent.last_name).trim(), v, r, c, convRate];
       });
     } else {
-      headers = ['Team Lead', 'Agents', 'Visits', 'Registrations', 'Conversions', 'Conversion Rate'];
+      headers = ['Team Lead', 'Agents', 'Visits', 'Individuals', 'Conversions', 'Conversion Rate'];
       const allTeamLeads = await db.prepare("SELECT id, first_name, last_name FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1").bind(tenantId).all();
       const allAgents = await db.prepare("SELECT id, first_name, last_name, team_lead_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1").bind(tenantId).all();
       
@@ -8316,7 +8316,7 @@ api.get('/field-ops/drill-down/:userId/export', authMiddleware, async (c) => {
     let data = [];
     
     if (user.role === 'team_lead') {
-      headers = ['Agent', 'Visits', 'Registrations', 'Conversions', 'Conversion Rate'];
+      headers = ['Agent', 'Visits', 'Individuals', 'Conversions', 'Conversion Rate'];
       const teamAgents = await db.prepare("SELECT id, first_name, last_name FROM users WHERE team_lead_id = ? AND tenant_id = ? AND is_active = 1").bind(targetUserId, tenantId).all();
       
       for (const agent of (teamAgents.results || [])) {

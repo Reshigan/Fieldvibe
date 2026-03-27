@@ -192,7 +192,7 @@ export default function PerformanceDrillDownPage() {
         <div className="card p-4 flex items-center gap-3">
           <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30"><UserCheck className="w-5 h-5 text-green-600" /></div>
           <div>
-            <p className="text-sm text-gray-500">Registrations</p>
+            <p className="text-sm text-gray-500">Individuals</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white">{totalRegistrations}</p>
           </div>
         </div>
@@ -243,7 +243,7 @@ export default function PerformanceDrillDownPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Visits</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Registrations</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Individuals</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Conversions</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
