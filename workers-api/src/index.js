@@ -7869,7 +7869,7 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
       ).run();
     }
 
-    // 2. If individual visit, create or link the individual
+    // 2. If individual visit, create or link the individual AND create individual_registrations record
     let individualId = null;
     if (body.visit_target_type === 'individual' && (body.individual_first_name || body.individual_id_number)) {
       // Check if individual already exists
@@ -7901,6 +7901,17 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
       const viId = crypto.randomUUID();
       await db.prepare('INSERT INTO visit_individuals (id, tenant_id, visit_id, individual_id, custom_field_values) VALUES (?, ?, ?, ?, ?)').bind(
         viId, tenantId, visitId, individualId, JSON.stringify(body.custom_field_values || {})
+      ).run();
+
+      // CRITICAL: Create individual_registrations record for reporting
+      const regId = crypto.randomUUID();
+      const isConverted = body.converted === true || body.product_app_player_id ? 1 : 0;
+      await db.prepare('INSERT INTO individual_registrations (id, tenant_id, agent_id, company_id, visit_id, first_name, last_name, id_number, phone, email, product_app_player_id, converted, conversion_date, notes, gps_latitude, gps_longitude, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
+        regId, tenantId, body.agent_id || userId, body.company_id || null, visitId,
+        body.individual_first_name || '', body.individual_last_name || '',
+        body.individual_id_number || null, body.individual_phone || null, body.individual_email || null,
+        body.product_app_player_id || null, isConverted, isConverted ? now : null,
+        body.notes || null, body.checkin_latitude ?? null, body.checkin_longitude ?? null, now
       ).run();
     }
 
