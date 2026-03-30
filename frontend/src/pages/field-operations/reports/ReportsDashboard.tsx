@@ -52,6 +52,8 @@ const ReportsDashboard: React.FC = () => {
       const res = await apiClient.get(`/field-ops/reports/kpis${dateParams}`)
       return (res.data?.kpis || {}) as KPIs
     },
+    staleTime: 1000 * 30,
+    refetchInterval: 1000 * 30,
   })
 
   const { data: agentPerf = [], isLoading: agentLoading } = useQuery({
@@ -60,6 +62,8 @@ const ReportsDashboard: React.FC = () => {
       const res = await apiClient.get(`/field-ops/reports/agent-performance${dateParams}`)
       return (res.data?.data || []) as AgentPerformance[]
     },
+    staleTime: 1000 * 30,
+    refetchInterval: 1000 * 30,
   })
 
   const { data: hourlyData = [] } = useQuery({
@@ -68,6 +72,8 @@ const ReportsDashboard: React.FC = () => {
       const res = await apiClient.get(`/field-ops/reports/checkins-by-hour${dateParams}`)
       return (res.data?.data || []) as HourlyData[]
     },
+    staleTime: 1000 * 30,
+    refetchInterval: 1000 * 30,
   })
 
   const { data: dailyData = [] } = useQuery({
@@ -76,6 +82,8 @@ const ReportsDashboard: React.FC = () => {
       const res = await apiClient.get(`/field-ops/reports/checkins-by-day${dateParams}`)
       return (res.data?.data || []) as DailyData[]
     },
+    staleTime: 1000 * 30,
+    refetchInterval: 1000 * 30,
   })
 
   const { data: conversionStats } = useQuery({
@@ -84,6 +92,8 @@ const ReportsDashboard: React.FC = () => {
       const res = await apiClient.get(`/field-ops/reports/conversion-stats${dateParams}`)
       return (res.data?.data || {}) as ConversionStats
     },
+    staleTime: 1000 * 30,
+    refetchInterval: 1000 * 30,
   })
 
   if (kpisLoading) return <LoadingSpinner />

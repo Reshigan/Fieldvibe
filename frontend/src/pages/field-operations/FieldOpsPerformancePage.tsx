@@ -57,7 +57,8 @@ export default function FieldOpsPerformancePage() {
       console.log('[PERF-FRONTEND] Received data:', result)
       return result
     },
-    staleTime: 1000 * 60 * 2,
+    staleTime: 1000 * 30,
+    refetchInterval: 1000 * 30,
   })
 
   const handleExport = async () => {

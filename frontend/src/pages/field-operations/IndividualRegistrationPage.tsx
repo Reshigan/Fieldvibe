@@ -44,6 +44,11 @@ export default function IndividualRegistrationPage() {
     mutationFn: (data: typeof form) => fieldOperationsService.registerIndividual(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['individuals'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-performance'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-kpis'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-drill-down'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-agent-perf'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-conversions'] })
       toast.success('Individual registered successfully')
       setShowRegister(false)
       setForm({ first_name: '', last_name: '', id_number: '', phone: '', email: '', product_app_player_id: '', company_id: '', notes: '', converted: false })
@@ -55,6 +60,11 @@ export default function IndividualRegistrationPage() {
     mutationFn: ({ id, playerId }: { id: string; playerId?: string }) => fieldOperationsService.convertIndividual(id, playerId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['individuals'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-performance'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-kpis'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-drill-down'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-agent-perf'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-conversions'] })
       toast.success('Individual marked as converted')
       setConvertingId(null)
       setPlayerIdInput('')

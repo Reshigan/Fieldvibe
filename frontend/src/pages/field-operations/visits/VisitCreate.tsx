@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../../../services/api.service'
 import {
   Box, Stepper, Step, StepLabel, Button, Paper, Typography, Alert,
@@ -149,6 +150,7 @@ const DEFAULT_INDIVIDUAL_STEPS: ProcessFlowStep[] = [
 export default function VisitCreate() {
   const navigate = useNavigate()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const { toast } = useToast()
   const isMobileContext = location.pathname.startsWith('/agent/')
   const [activeStep, setActiveStep] = useState(0)
@@ -739,6 +741,14 @@ export default function VisitCreate() {
       }
 
       await fieldOperationsService.createVisitWorkflow(payload as Parameters<typeof fieldOperationsService.createVisitWorkflow>[0])
+      // Invalidate performance caches so reports update immediately
+      queryClient.invalidateQueries({ queryKey: ['field-ops-performance'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-kpis'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-drill-down'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-agent-perf'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-conversions'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-hourly'] })
+      queryClient.invalidateQueries({ queryKey: ['field-ops-daily'] })
       toast.success('Visit created successfully!')
       // Navigate back to the correct context (agent or admin)
       const isAgentContext = window.location.pathname.startsWith('/agent/')
