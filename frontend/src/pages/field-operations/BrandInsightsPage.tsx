@@ -94,8 +94,8 @@ export default function BrandInsightsPage() {
           <DateRangePresets
             startDate={dateRange.start_date}
             endDate={dateRange.end_date}
-            onStartDateChange={(d) => setDateRange({ ...dateRange, start_date: d })}
-            onEndDateChange={(d) => setDateRange({ ...dateRange, end_date: d })}
+            onStartDateChange={(d) => setDateRange(prev => ({ ...prev, start_date: d }))}
+            onEndDateChange={(d) => setDateRange(prev => ({ ...prev, end_date: d }))}
           />
         </div>
       </div>
