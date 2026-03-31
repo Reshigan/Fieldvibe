@@ -1,12 +1,14 @@
 import React, { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../../../services/api.service'
+import { fieldOperationsService } from '../../../services/field-operations.service'
 import LoadingSpinner from '../../../components/ui/LoadingSpinner'
-import { Download, Users, Search, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
+import { Download, Users, Search, CheckCircle, XCircle, AlertTriangle, Edit2, Save, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 interface GoldrushIndividual {
   id: string
+  visit_id: string
   first_name: string
   last_name: string
   id_number: string
@@ -32,10 +34,45 @@ interface GoldrushIndividual {
 }
 
 const GoldrushIndividualReport: React.FC = () => {
+  const queryClient = useQueryClient()
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [search, setSearch] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const handleEditGoldrushId = (ind: GoldrushIndividual) => {
+    setEditingId(ind.id)
+    setEditValue(ind.goldrush_id || '')
+  }
+
+  const handleSaveGoldrushId = async (ind: GoldrushIndividual) => {
+    if (!ind.visit_id) {
+      toast.error('Cannot update: no visit linked to this record')
+      return
+    }
+    setSaving(true)
+    try {
+      await fieldOperationsService.updateVisit(ind.visit_id, {
+        custom_field_values: { goldrush_id: editValue.trim() }
+      })
+      toast.success('Goldrush ID updated')
+      setEditingId(null)
+      setEditValue('')
+      queryClient.invalidateQueries({ queryKey: ['goldrush-individuals'] })
+    } catch {
+      toast.error('Failed to update Goldrush ID')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setEditingId(null)
+    setEditValue('')
+  }
 
   const dateParams = startDate || endDate
     ? `?${startDate ? `startDate=${startDate}` : ''}${endDate ? `${startDate ? '&' : ''}endDate=${endDate}` : ''}`
@@ -233,16 +270,41 @@ const GoldrushIndividualReport: React.FC = () => {
                   </td>
                 </tr>
               ) : filtered.map((ind) => (
-                <tr key={ind.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                <tr key={ind.id} className="group border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
                   <td className="py-3 px-4 text-gray-900 dark:text-white font-medium whitespace-nowrap">
                     {ind.first_name} {ind.last_name}
                   </td>
                   <td className="py-3 px-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{ind.id_number || '—'}</td>
                   <td className="py-3 px-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{ind.phone || '—'}</td>
                   <td className="py-3 px-4 whitespace-nowrap">
-                    <span className={`font-medium ${ind.goldrush_id ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'}`}>
-                      {ind.goldrush_id || '—'}
-                    </span>
+                    {editingId === ind.id ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={editValue}
+                          onChange={e => setEditValue(e.target.value)}
+                          className="w-28 px-2 py-1 text-sm border border-blue-300 dark:border-blue-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-1 focus:ring-blue-500"
+                          placeholder="Goldrush ID"
+                          autoFocus
+                          onKeyDown={e => { if (e.key === 'Enter') handleSaveGoldrushId(ind); if (e.key === 'Escape') handleCancelEdit(); }}
+                        />
+                        <button onClick={() => handleSaveGoldrushId(ind)} disabled={saving} className="p-1 text-green-600 hover:text-green-800 disabled:opacity-50" title="Save">
+                          <Save className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={handleCancelEdit} className="p-1 text-gray-400 hover:text-gray-600" title="Cancel">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <span className={`font-medium ${ind.goldrush_id ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'}`}>
+                          {ind.goldrush_id || '—'}
+                        </span>
+                        <button onClick={() => handleEditGoldrushId(ind)} className="p-1 text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity" title="Edit Goldrush ID">
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
                   </td>
                   <td className="py-3 px-4 text-center">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${

@@ -2923,6 +2923,16 @@ api.put('/visits/:id', async (c) => {
       await db.prepare('INSERT INTO visit_responses (id, tenant_id, visit_id, responses) VALUES (?, ?, ?, ?)').bind(respId, tenantId, id, JSON.stringify(body.responses)).run();
     }
   }
+  // Update custom_field_values on visit_individuals (e.g. Goldrush ID backfill)
+  if (body.custom_field_values && typeof body.custom_field_values === 'object') {
+    const vi = await db.prepare('SELECT id, custom_field_values FROM visit_individuals WHERE visit_id = ? AND tenant_id = ?').bind(id, tenantId).first();
+    if (vi) {
+      let existing = {};
+      try { existing = JSON.parse(vi.custom_field_values || '{}'); } catch(e) {}
+      const merged = { ...existing, ...body.custom_field_values };
+      await db.prepare('UPDATE visit_individuals SET custom_field_values = ? WHERE id = ? AND tenant_id = ?').bind(JSON.stringify(merged), vi.id, tenantId).run();
+    }
+  }
   return c.json({ success: true, message: 'Visit updated' });
 });
 
@@ -8023,11 +8033,13 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
   try {
     if (role === 'agent' || role === 'field_agent') {
       // Agent sees own performance
-      const [visits, registrations, conversions, targets] = await Promise.all([
+      const [visits, registrations, conversions, targets, individualVisits, storeVisits] = await Promise.all([
         db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed'").bind(userId, tenantId, startD, endD).first(),
         db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ?").bind(userId, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').first(),
         db.prepare("SELECT COUNT(*) as count FROM individual_registrations WHERE agent_id = ? AND tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ?").bind(userId, tenantId, startD + ' 00:00:00', endD + ' 23:59:59').first(),
-        db.prepare("SELECT * FROM daily_targets WHERE agent_id = ? AND tenant_id = ? AND target_date = ?").bind(userId, tenantId, today.toISOString().split('T')[0]).first()
+        db.prepare("SELECT * FROM daily_targets WHERE agent_id = ? AND tenant_id = ? AND target_date = ?").bind(userId, tenantId, today.toISOString().split('T')[0]).first(),
+        db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND LOWER(visit_type) = 'individual'").bind(userId, tenantId, startD, endD).first(),
+        db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND LOWER(visit_type) = 'store'").bind(userId, tenantId, startD, endD).first(),
       ]);
       
       const visitCount = visits?.count || 0;
@@ -8041,6 +8053,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
         user_id: userId,
         period: { start: startD, end: endD, type: period || 'custom' },
         visits: visitCount,
+        individual_visits: individualVisits?.count || 0,
+        store_visits: storeVisits?.count || 0,
         registrations: regCount,
         conversions: convCount,
         targets: targets ? { visits: targets.target_visits, conversions: targets.target_conversions, registrations: targets.target_registrations } : { visits: 20, conversions: 5, registrations: 10 },
@@ -8053,15 +8067,19 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
       const agentIds = [userId, ...(teamAgents.results || []).map(a => a.id)];
       const placeholders = agentIds.map(() => '?').join(',');
       
-      const [totalVisits, totalRegs, totalConvs] = await Promise.all([
+      const [totalVisits, totalRegs, totalConvs, totalIndivVisits, totalStoreVisits] = await Promise.all([
         db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD, endD, ...agentIds).all(),
         db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND created_at >= ? AND created_at <= ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59', ...agentIds).all(),
-        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59', ...agentIds).all()
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59', ...agentIds).all(),
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND LOWER(visit_type) = 'individual' AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD, endD, ...agentIds).all(),
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND LOWER(visit_type) = 'store' AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD, endD, ...agentIds).all(),
       ]);
       
       const visitMap = Object.fromEntries((totalVisits.results || []).map(r => [r.agent_id, r.count]));
       const regMap = Object.fromEntries((totalRegs.results || []).map(r => [r.agent_id, r.count]));
       const convMap = Object.fromEntries((totalConvs.results || []).map(r => [r.agent_id, r.count]));
+      const indivMap = Object.fromEntries((totalIndivVisits.results || []).map(r => [r.agent_id, r.count]));
+      const storeMap = Object.fromEntries((totalStoreVisits.results || []).map(r => [r.agent_id, r.count]));
       
       const agentPerformance = agentIds.map(aid => {
         const agent = aid === userId ? { first_name: 'You', last_name: '' } : (teamAgents.results || []).find(a => a.id === aid) || {};
@@ -8069,12 +8087,16 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
           agent_id: aid, 
           agent_name: (agent.first_name + ' ' + agent.last_name).trim(), 
           visits: visitMap[aid] || 0, 
+          individual_visits: indivMap[aid] || 0,
+          store_visits: storeMap[aid] || 0,
           registrations: regMap[aid] || 0, 
           conversions: convMap[aid] || 0 
         };
       });
       
       const totalV = agentPerformance.reduce((s, a) => s + a.visits, 0);
+      const totalIV = agentPerformance.reduce((s, a) => s + a.individual_visits, 0);
+      const totalSV = agentPerformance.reduce((s, a) => s + a.store_visits, 0);
       const totalR = agentPerformance.reduce((s, a) => s + a.registrations, 0);
       const totalC = agentPerformance.reduce((s, a) => s + a.conversions, 0);
       
@@ -8084,6 +8106,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
         period: { start: startD, end: endD, type: period || 'custom' },
         team_size: agentIds.length, 
         total_visits: totalV, 
+        total_individual_visits: totalIV,
+        total_store_visits: totalSV,
         total_registrations: totalR, 
         total_conversions: totalC, 
         conversion_rate: totalR > 0 ? Math.round((totalC / totalR) * 100) : 0, 
@@ -8094,20 +8118,26 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
       const allTeamLeads = await db.prepare("SELECT id, first_name, last_name FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1").bind(tenantId).all();
       const allAgents = await db.prepare("SELECT id, first_name, last_name, team_lead_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1").bind(tenantId).all();
       
-      const [allVisits, allRegs, allConvs] = await Promise.all([
+      const [allVisits, allRegs, allConvs, allIndivVisits, allStoreVisits] = await Promise.all([
         db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' GROUP BY agent_id").bind(tenantId, startD, endD).all(),
         db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND created_at >= ? AND created_at <= ? GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all(),
-        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ? GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all()
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND converted = 1 AND created_at >= ? AND created_at <= ? GROUP BY agent_id").bind(tenantId, startD + ' 00:00:00', endD + ' 23:59:59').all(),
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND LOWER(visit_type) = 'individual' GROUP BY agent_id").bind(tenantId, startD, endD).all(),
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND LOWER(visit_type) = 'store' GROUP BY agent_id").bind(tenantId, startD, endD).all(),
       ]);
       
       const vMap = Object.fromEntries((allVisits.results || []).map(r => [r.agent_id, r.count]));
       const rMap = Object.fromEntries((allRegs.results || []).map(r => [r.agent_id, r.count]));
       const cMap = Object.fromEntries((allConvs.results || []).map(r => [r.agent_id, r.count]));
+      const iMap = Object.fromEntries((allIndivVisits.results || []).map(r => [r.agent_id, r.count]));
+      const sMap = Object.fromEntries((allStoreVisits.results || []).map(r => [r.agent_id, r.count]));
       
       const teams = (allTeamLeads.results || []).map(tl => {
         const teamAgts = (allAgents.results || []).filter(a => a.team_lead_id === tl.id);
         const allIds = [tl.id, ...teamAgts.map(a => a.id)];
         const tVisits = allIds.reduce((s, id) => s + (vMap[id] || 0), 0);
+        const tIndiv = allIds.reduce((s, id) => s + (iMap[id] || 0), 0);
+        const tStore = allIds.reduce((s, id) => s + (sMap[id] || 0), 0);
         const tRegs = allIds.reduce((s, id) => s + (rMap[id] || 0), 0);
         const tConvs = allIds.reduce((s, id) => s + (cMap[id] || 0), 0);
         return { 
@@ -8115,6 +8145,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
           team_lead_name: tl.first_name + ' ' + tl.last_name, 
           agent_count: teamAgts.length, 
           visits: tVisits, 
+          individual_visits: tIndiv,
+          store_visits: tStore,
           registrations: tRegs, 
           conversions: tConvs, 
           conversion_rate: tRegs > 0 ? Math.round((tConvs / tRegs) * 100) : 0 
@@ -8122,6 +8154,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
       });
       
       const grandVisits = Object.values(vMap).reduce((s, c) => s + c, 0);
+      const grandIndiv = Object.values(iMap).reduce((s, c) => s + c, 0);
+      const grandStore = Object.values(sMap).reduce((s, c) => s + c, 0);
       const grandRegs = Object.values(rMap).reduce((s, c) => s + c, 0);
       const grandConvs = Object.values(cMap).reduce((s, c) => s + c, 0);
       
@@ -8131,6 +8165,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
         total_team_leads: (allTeamLeads.results || []).length, 
         total_agents: (allAgents.results || []).length, 
         total_visits: grandVisits, 
+        total_individual_visits: grandIndiv,
+        total_store_visits: grandStore,
         total_registrations: grandRegs, 
         total_conversions: grandConvs, 
         conversion_rate: grandRegs > 0 ? Math.round((grandConvs / grandRegs) * 100) : 0, 
@@ -14382,6 +14418,7 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
 
       return {
         id: row.id,
+        visit_id: row.visit_id,
         first_name: row.first_name,
         last_name: row.last_name,
         id_number: row.id_number,
