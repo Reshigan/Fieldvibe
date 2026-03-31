@@ -8509,25 +8509,25 @@ api.get('/field-ops/drill-down/:userId/export', authMiddleware, async (c) => {
       const teamAgents = await db.prepare("SELECT id, first_name, last_name FROM users WHERE team_lead_id = ? AND tenant_id = ? AND is_active = 1").bind(targetUserId, tenantId).all();
       
       for (const agent of (teamAgents.results || [])) {
-        const [v, r, cv] = await Promise.all([
+        const [v, iv, cv] = await Promise.all([
           db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed'").bind(agent.id, tenantId, startD, endD).first(),
-          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND LOWER(visit_type) = 'store' AND visit_date >= ? AND created_at <= ?").bind(agent.id, tenantId, startD, endD).first(),
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND LOWER(visit_type) = 'individual'").bind(agent.id, tenantId, startD, endD).first(),
           db.prepare("SELECT COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.agent_id = ? AND v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ?").bind(agent.id, tenantId, startD, endD).first()
         ]);
         const vCount = v?.count || 0;
-        const rCount = r?.count || 0;
+        const ivCount = iv?.count || 0;
         const cvCount = cv?.count || 0;
-        const convRate = rCount > 0 ? Math.round((cvCount / rCount) * 100) + '%' : '0%';
-        data.push([agent.first_name + ' ' + agent.last_name, vCount, rCount, cvCount, convRate]);
+        const convRate = ivCount > 0 ? Math.round((cvCount / ivCount) * 100) + '%' : '0%';
+        data.push([agent.first_name + ' ' + agent.last_name, vCount, ivCount, cvCount, convRate]);
       }
     } else {
-      headers = ['Date', 'Visits', 'Registrations', 'Conversions'];
+      headers = ['Date', 'Visits', 'Individuals', 'Conversions'];
       const dailyVisits = await db.prepare("SELECT visit_date, COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' GROUP BY visit_date ORDER BY visit_date").bind(targetUserId, tenantId, startD, endD).all();
-      const dailyRegs = await db.prepare("SELECT DATE(created_at) as day, COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND LOWER(visit_type) = 'store' AND visit_date >= ? AND created_at <= ? GROUP BY day ORDER BY day").bind(targetUserId, tenantId, startD, endD).all();
+      const dailyIndivs = await db.prepare("SELECT visit_date as day, COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND LOWER(visit_type) = 'individual' AND visit_date >= ? AND visit_date <= ? GROUP BY visit_date ORDER BY visit_date").bind(targetUserId, tenantId, startD, endD).all();
       const dailyConvs = await db.prepare("SELECT DATE(created_at) as day, COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.agent_id = ? AND v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ? GROUP BY day ORDER BY day").bind(targetUserId, tenantId, startD, endD).all();
       
       const visitMap = Object.fromEntries((dailyVisits.results || []).map(r => [r.visit_date, r.count]));
-      const regMap = Object.fromEntries((dailyRegs.results || []).map(r => [r.day, r.count]));
+      const indivMap = Object.fromEntries((dailyIndivs.results || []).map(r => [r.day, r.count]));
       const convMap = Object.fromEntries((dailyConvs.results || []).map(r => [r.day, r.count]));
       
       // Generate all dates in range
@@ -8541,7 +8541,7 @@ api.get('/field-ops/drill-down/:userId/export', authMiddleware, async (c) => {
       data = dates.map(date => [
         date,
         visitMap[date] || 0,
-        regMap[date] || 0,
+        indivMap[date] || 0,
         convMap[date] || 0
       ]);
     }
