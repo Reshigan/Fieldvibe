@@ -246,6 +246,11 @@ export default function FieldOpsPerformancePage() {
             <MetricCard title="Conversion Rate" value={`${performance?.conversion_rate || 0}%`} icon={<TrendingUp className="w-6 h-6 text-yellow-600" />} />
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <MetricCard title="Individual Visits" value={performance?.total_individual_visits || 0} icon={<UserCheck className="w-5 h-5 text-indigo-600" />} />
+            <MetricCard title="Store Visits" value={performance?.total_store_visits || 0} icon={<Target className="w-5 h-5 text-orange-600" />} />
+          </div>
+
           {/* Agent Breakdown */}
           <div className="card p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Agent Performance</h3>
@@ -255,7 +260,9 @@ export default function FieldOpsPerformancePage() {
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Agent</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Visits</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Individuals</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Individual</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Store</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Registrations</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Conversions</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                   </tr>
@@ -265,6 +272,8 @@ export default function FieldOpsPerformancePage() {
                     <tr key={agent.agent_id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                       <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{agent.agent_name}</td>
                       <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{agent.visits}</td>
+                      <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{agent.individual_visits || 0}</td>
+                      <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{agent.store_visits || 0}</td>
                       <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{agent.registrations}</td>
                       <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{agent.conversions}</td>
                       <td className="px-4 py-3 text-right">
@@ -278,7 +287,7 @@ export default function FieldOpsPerformancePage() {
                     </tr>
                   ))}
                   {(performance?.agents || []).length === 0 && (
-                    <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">No agent data available</td></tr>
+                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">No agent data available</td></tr>
                   )}
                 </tbody>
               </table>
@@ -317,10 +326,11 @@ export default function FieldOpsPerformancePage() {
             <MetricCard title="Conversion Rate" value={`${performance?.conversion_rate || 0}%`} icon={<TrendingUp className="w-6 h-6 text-yellow-600" />} />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <MetricCard title="Total Individuals" value={performance?.total_registrations || 0} icon={<BarChart3 className="w-5 h-5 text-indigo-600" />} />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <MetricCard title="Individual Visits" value={performance?.total_individual_visits || 0} icon={<UserCheck className="w-5 h-5 text-indigo-600" />} />
+            <MetricCard title="Store Visits" value={performance?.total_store_visits || 0} icon={<Target className="w-5 h-5 text-orange-600" />} />
+            <MetricCard title="Total Registrations" value={performance?.total_registrations || 0} icon={<BarChart3 className="w-5 h-5 text-indigo-600" />} />
             <MetricCard title="Total Conversions" value={performance?.total_conversions || 0} icon={<Award className="w-5 h-5 text-emerald-600" />} />
-            <MetricCard title="Avg Visits/Team" value={performance?.total_team_leads ? Math.round((performance?.total_visits || 0) / (performance?.total_team_leads || 1)) : 0} icon={<Target className="w-5 h-5 text-orange-600" />} />
           </div>
 
           {/* Team Breakdown */}
@@ -333,7 +343,9 @@ export default function FieldOpsPerformancePage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team Lead</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Agents</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Visits</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Individuals</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Individual</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Store</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Registrations</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Conversions</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Conv. Rate</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
@@ -345,6 +357,8 @@ export default function FieldOpsPerformancePage() {
                       <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{team.team_lead_name}</td>
                       <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{team.agent_count}</td>
                       <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{team.visits}</td>
+                      <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{team.individual_visits || 0}</td>
+                      <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{team.store_visits || 0}</td>
                       <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{team.registrations}</td>
                       <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{team.conversions}</td>
                       <td className="px-4 py-3 text-right">
@@ -363,7 +377,7 @@ export default function FieldOpsPerformancePage() {
                     </tr>
                   ))}
                   {(performance?.teams || []).length === 0 && (
-                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">No team data available</td></tr>
+                    <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">No team data available</td></tr>
                   )}
                 </tbody>
               </table>

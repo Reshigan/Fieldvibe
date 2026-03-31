@@ -501,6 +501,7 @@ def transform_data(data, tenant_id, company_id, mapper):
         individual_surname = None
         individual_id_number = None
         individual_phone = None
+        goldrush_id = None
         responses_json = None
 
         if vr:
@@ -514,14 +515,16 @@ def transform_data(data, tenant_id, company_id, mapper):
 
             responses_json = vr.get("responses")
 
-            # Extract individual data from responses
+            # Extract individual data from responses (nested under consumerDetails)
             if visit_type == "individual" and responses_json:
                 try:
                     resp = json.loads(responses_json)
-                    individual_name = resp.get("consumerName")
-                    individual_surname = resp.get("consumerSurname")
-                    individual_id_number = resp.get("idPassportNumber")
-                    individual_phone = resp.get("cellphoneNumber")
+                    cd = resp.get("consumerDetails", {})
+                    individual_name = cd.get("consumerName") or resp.get("consumerName")
+                    individual_surname = cd.get("consumerSurname") or resp.get("consumerSurname")
+                    individual_id_number = cd.get("idPassportNumber") or resp.get("idPassportNumber")
+                    individual_phone = cd.get("cellphoneNumber") or resp.get("cellphoneNumber")
+                    goldrush_id = cd.get("goldrushId") or resp.get("goldrushId")
                 except (json.JSONDecodeError, TypeError):
                     pass
 
@@ -548,6 +551,7 @@ def transform_data(data, tenant_id, company_id, mapper):
             "individual_surname": individual_surname,
             "individual_id_number": individual_id_number,
             "individual_phone": individual_phone,
+            "_goldrush_id": goldrush_id,
             "company_id": company_id,
             "created_at": check_in_time or datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat(),
@@ -582,12 +586,31 @@ def transform_data(data, tenant_id, company_id, mapper):
                     "updated_at": datetime.utcnow().isoformat(),
                 }
 
+    # Build visit_individuals junction records
+    visit_individuals = []
+    for v in visits:
+        if v["visit_type"] == "individual" and v["individual_name"]:
+            key = (v["individual_name"], v.get("individual_surname") or "", v.get("individual_id_number") or "")
+            ind = individuals_map.get(key)
+            if ind:
+                cfv = json.dumps({"goldrush_id": v.get("_goldrush_id", "")}) if v.get("_goldrush_id") else None
+                visit_individuals.append({
+                    "id": gen_uuid(),
+                    "tenant_id": tenant_id,
+                    "visit_id": v["id"],
+                    "individual_id": ind["id"],
+                    "custom_field_values": cfv,
+                    "created_at": v["created_at"],
+                })
+
     transformed["visits"] = visits
     transformed["visit_responses"] = visit_responses
     transformed["individuals"] = list(individuals_map.values())
+    transformed["visit_individuals"] = visit_individuals
     print(f"  Transformed {len(visits)} visits")
     print(f"  Transformed {len(visit_responses)} visit responses")
     print(f"  Extracted {len(transformed['individuals'])} unique individuals")
+    print(f"  Created {len(visit_individuals)} visit_individuals records")
 
     # ── Questionnaires ──────────────────────────────────────────────────
     print("\nTransforming questionnaires...")
@@ -721,6 +744,7 @@ def load_data(transformed, dry_run=False):
         ("questionnaires", ["id", "tenant_id", "name", "visit_type", "brand_id", "questions", "is_default", "is_active", "company_id", "created_at", "updated_at"]),
         ("visits", ["id", "tenant_id", "agent_id", "customer_id", "visit_date", "visit_type", "check_in_time", "latitude", "longitude", "notes", "status", "brand_id", "category_id", "product_id", "individual_name", "individual_surname", "individual_id_number", "individual_phone", "company_id", "created_at", "updated_at"]),
         ("visit_responses", ["id", "tenant_id", "visit_id", "visit_type", "responses", "created_at"]),
+        ("visit_individuals", ["id", "tenant_id", "visit_id", "individual_id", "custom_field_values", "created_at"]),
         ("goals", ["id", "tenant_id", "title", "description", "goal_type", "target_value", "current_value", "start_date", "end_date", "status", "created_by", "created_at", "updated_at"]),
         ("goal_assignments", ["id", "goal_id", "user_id", "target_value", "current_value"]),
     ]

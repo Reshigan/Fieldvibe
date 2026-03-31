@@ -5,7 +5,8 @@ import { fieldOperationsService } from '../../../services/field-operations.servi
 import { formatDate } from '../../../utils/format'
 import ErrorState from '../../../components/ui/ErrorState'
 import LoadingSpinner from '../../../components/ui/LoadingSpinner'
-import { MapPin, Calendar, User, Store, Clock, CheckCircle, XCircle, ChevronLeft, Camera, FileText, MessageSquare, BarChart3, ImageIcon, Hash, Timer, UserCheck } from 'lucide-react'
+import { MapPin, Calendar, User, Store, Clock, CheckCircle, XCircle, ChevronLeft, Camera, FileText, MessageSquare, BarChart3, ImageIcon, Hash, Timer, UserCheck, Edit2, Save, X } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 export default function VisitDetail() {
   const { id } = useParams()
@@ -13,6 +14,39 @@ export default function VisitDetail() {
   const navigate = useNavigate()
   const [visit, setVisit] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [editingGoldrushId, setEditingGoldrushId] = useState(false)
+  const [goldrushIdValue, setGoldrushIdValue] = useState('')
+  const [savingGoldrushId, setSavingGoldrushId] = useState(false)
+
+  const getGoldrushId = (v: any): string => {
+    const individuals = v?.individuals || []
+    if (individuals.length > 0) {
+      try {
+        const cfv = typeof individuals[0].custom_field_values === 'string'
+          ? JSON.parse(individuals[0].custom_field_values)
+          : individuals[0].custom_field_values || {}
+        return cfv.goldrush_id || ''
+      } catch { return '' }
+    }
+    return ''
+  }
+
+  const handleSaveGoldrushId = async () => {
+    if (!id) return
+    setSavingGoldrushId(true)
+    try {
+      await fieldOperationsService.updateVisit(id, {
+        custom_field_values: { goldrush_id: goldrushIdValue.trim() }
+      })
+      toast.success('Goldrush ID updated')
+      setEditingGoldrushId(false)
+      loadVisit()
+    } catch {
+      toast.error('Failed to update Goldrush ID')
+    } finally {
+      setSavingGoldrushId(false)
+    }
+  }
 
   // Detect mobile context by checking if path starts with /agent/
   const isMobileContext = location.pathname.startsWith('/agent/')
@@ -187,6 +221,38 @@ export default function VisitDetail() {
                   )}
                 </div>
               ))}
+              {/* Goldrush ID edit */}
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-gray-500">Goldrush ID</span>
+                {editingGoldrushId ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      value={goldrushIdValue}
+                      onChange={e => setGoldrushIdValue(e.target.value)}
+                      className="w-28 px-2 py-1 text-sm bg-white/10 border border-white/20 rounded text-white placeholder-gray-500 focus:ring-1 focus:ring-[#00E87B]"
+                      placeholder="Enter ID"
+                      autoFocus
+                      onKeyDown={e => { if (e.key === 'Enter') handleSaveGoldrushId(); if (e.key === 'Escape') setEditingGoldrushId(false); }}
+                    />
+                    <button onClick={handleSaveGoldrushId} disabled={savingGoldrushId} className="p-1 text-[#00E87B] disabled:opacity-50">
+                      <Save className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => setEditingGoldrushId(false)} className="p-1 text-gray-500">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <span className={`text-sm ${getGoldrushId(visit) ? 'text-blue-400' : 'text-gray-600'}`}>
+                      {getGoldrushId(visit) || '—'}
+                    </span>
+                    <button onClick={() => { setGoldrushIdValue(getGoldrushId(visit)); setEditingGoldrushId(true); }} className="p-1 text-gray-500 hover:text-[#00E87B]">
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
