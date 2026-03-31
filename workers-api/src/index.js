@@ -998,8 +998,11 @@ app.get('/api/agent/performance', authMiddleware, async (c) => {
         let mgrTargetVisits = 0, mgrActualVisits = 0;
         if (mgrTlIds.length > 0) {
           const mgrTlPh = mgrTlIds.map(() => '?').join(',');
-          const perfMgrAgentIds = await db.prepare(`SELECT id FROM users WHERE tenant_id = ? AND team_lead_id IN (${mgrTlPh}) AND is_active = 1`).bind(tenantId, ...mgrTlIds).all();
-          const perfAllMgrUserIds = [...mgrTlIds, ...(perfMgrAgentIds.results || []).map(a => a.id)];
+          const [perfMgrAgentIds, perfMgrDirectAgents] = await Promise.all([
+            db.prepare(`SELECT id FROM users WHERE tenant_id = ? AND team_lead_id IN (${mgrTlPh}) AND is_active = 1`).bind(tenantId, ...mgrTlIds).all(),
+            db.prepare(`SELECT id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent', 'sales_rep') AND is_active = 1 AND manager_id = ? AND team_lead_id IS NULL`).bind(tenantId, managerId).all(),
+          ]);
+          const perfAllMgrUserIds = [...mgrTlIds, ...(perfMgrAgentIds.results || []).map(a => a.id), ...(perfMgrDirectAgents.results || []).map(a => a.id)];
           if (perfAllMgrUserIds.length > 0) {
             const perfAllPh = perfAllMgrUserIds.map(() => '?').join(',');
             const [perfMgrTargets, perfMgrLiveVisits] = await Promise.all([
@@ -1593,13 +1596,53 @@ app.get('/api/manager/dashboard', authMiddleware, async (c) => {
       };
     }));
 
-    // Org-wide totals (use teamsData which already includes team lead own targets)
+    // Build "Unassigned Agents" pseudo-team for agents with no team_lead_id
+    const unassignedAgents = (allAgents.results || []).filter(a => !a.team_lead_id);
+    const unassignedIds = unassignedAgents.map(a => a.id);
+    let unassignedTeam = null;
+    if (unassignedIds.length > 0) {
+      const uaPh = unassignedIds.map(() => '?').join(',');
+      const [uaVRes, uaRRes, uaTRes] = await Promise.all([
+        db.prepare(`SELECT COUNT(*) as count FROM visits WHERE tenant_id = ? AND agent_id IN (${uaPh}) AND visit_date >= ?`).bind(tenantId, ...unassignedIds, currentMonth + '-01').first(),
+        db.prepare(`SELECT COUNT(*) as count FROM individual_registrations WHERE tenant_id = ? AND agent_id IN (${uaPh}) AND created_at >= ?`).bind(tenantId, ...unassignedIds, currentMonth + '-01').first(),
+        db.prepare(`SELECT COALESCE(SUM(target_visits),0) as tv, COALESCE(SUM(target_registrations),0) as tr FROM monthly_targets WHERE tenant_id = ? AND agent_id IN (${uaPh}) AND target_month = ?`).bind(tenantId, ...unassignedIds, currentMonth).first(),
+      ]);
+      let uaTargetVisits = uaTRes?.tv || 0;
+      let uaTargetRegs = uaTRes?.tr || 0;
+      let uaActualVisits = uaVRes?.count || 0;
+      const uaActualRegs = uaRRes?.count || 0;
+      if (uaTargetVisits === 0 && uaTargetRegs === 0) {
+        const fbs = await Promise.all(unassignedIds.map(mid => getUserMonthlyTargetFromRules(db, tenantId, mid, currentMonth, 'agent')));
+        for (const fb of fbs) { uaTargetVisits += fb.target_visits; uaTargetRegs += fb.target_registrations; }
+      }
+      if (uaTargetVisits === 0 && unassignedIds.length > 0) {
+        const ruleTotals = await computeTargetTotalsFromRules(db, tenantId, unassignedIds, currentMonth + '-01');
+        uaTargetVisits = ruleTotals.totalTargetVisits;
+        uaActualVisits = ruleTotals.totalActualVisits;
+      }
+      unassignedTeam = {
+        team_lead_id: null,
+        team_lead_name: 'Unassigned Agents',
+        agent_count: unassignedIds.length,
+        month_visits: uaVRes?.count || 0,
+        month_registrations: uaRRes?.count || 0,
+        target_visits: uaTargetVisits,
+        actual_visits: uaActualVisits,
+        target_registrations: uaTargetRegs,
+        actual_registrations: uaActualRegs,
+        achievement: uaTargetVisits > 0 ? Math.round((uaActualVisits / uaTargetVisits) * 100) : 0,
+        team_lead_own: { target_visits: 0, actual_visits: 0, target_registrations: 0, actual_registrations: 0 },
+      };
+      teamsData.push(unassignedTeam);
+    }
+
+    // Org-wide totals (use teamsData which already includes team lead own targets + unassigned)
     const allAgentIds = (allAgents.results || []).map(a => a.id);
     let orgTodayVisits = 0, orgMonthVisits = 0, orgTodayRegs = 0, orgMonthRegs = 0;
     let orgTodayIndividual = 0, orgTodayStoreV = 0, orgMonthIndividual = 0, orgMonthStoreV = 0;
     let orgPending = 0, orgApproved = 0, orgPaid = 0;
 
-    // Org targets = sum from all teams (which now include TL own targets)
+    // Org targets = sum from all teams (which now include TL own targets + unassigned agents)
     const orgTargetVisits = teamsData.reduce((s, t) => s + t.target_visits, 0);
     const orgActualVisits = teamsData.reduce((s, t) => s + t.actual_visits, 0);
     const orgTargetRegs = teamsData.reduce((s, t) => s + t.target_registrations, 0);
@@ -1662,15 +1705,12 @@ app.get('/api/manager/dashboard', authMiddleware, async (c) => {
       }
     }
 
-    // Unassigned agents (no team lead)
-    const unassigned = (allAgents.results || []).filter(a => !a.team_lead_id);
-
     return c.json({
       success: true,
       data: {
         total_team_leads: (teamLeads.results || []).length,
         total_agents: allAgentIds.length,
-        unassigned_agents: unassigned.length,
+        unassigned_agents: unassignedIds.length,
         teams: teamsData,
         org_totals: {
           today_visits: orgTodayVisits,
