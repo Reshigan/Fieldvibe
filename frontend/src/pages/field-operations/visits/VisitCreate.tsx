@@ -420,7 +420,7 @@ export default function VisitCreate() {
       loadCustomFields(selectedCompany)
       loadCustomQuestions(selectedCompany)
       loadSurveyConfig(selectedCompany)
-      loadQuestionnaires()
+      loadQuestionnaires(selectedCompany)
     }
   }, [selectedCompany, visitTargetType])
 
