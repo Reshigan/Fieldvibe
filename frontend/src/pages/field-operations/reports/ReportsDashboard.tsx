@@ -60,8 +60,8 @@ const ReportsDashboard: React.FC = () => {
     }
   }, [companies, selectedCompany])
 
-  const companyParam = selectedCompany ? `${dateParams ? '&' : '?'}company_id=${selectedCompany}` : ''
   const dateParams = startDate || endDate ? `?${startDate ? `startDate=${startDate}` : ''}${endDate ? `&endDate=${endDate}` : ''}` : ''
+  const companyParam = selectedCompany ? `${dateParams ? '&' : '?'}company_id=${selectedCompany}` : ''
 
   const { data: kpis, isLoading: kpisLoading , isError: kpisError } = useQuery({
     queryKey: ['field-ops-kpis', startDate, endDate, selectedCompany],

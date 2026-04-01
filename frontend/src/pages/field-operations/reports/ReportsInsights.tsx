@@ -32,8 +32,8 @@ const ReportsInsights: React.FC = () => {
     }
   }, [companies, selectedCompany])
 
-  const companyParam = selectedCompany ? `${dateParams ? '&' : '?'}company_id=${selectedCompany}` : ''
   const dateParams = startDate || endDate ? `?${startDate ? `startDate=${startDate}` : ''}${endDate ? `&endDate=${endDate}` : ''}` : ''
+  const companyParam = selectedCompany ? `${dateParams ? '&' : '?'}company_id=${selectedCompany}` : ''
 
   const { data: agentPerf = [], isLoading, isError } = useQuery({
     queryKey: ['field-ops-insights-agents', startDate, endDate, selectedCompany],

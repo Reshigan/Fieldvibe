@@ -26,8 +26,8 @@ const ReportsExport: React.FC = () => {
     }
   }, [companies, selectedCompany])
 
-  const companyParam = selectedCompany ? `${dateParams ? '&' : '?'}company_id=${selectedCompany}` : ''
   const dateParams = `${startDate ? `&startDate=${startDate}` : ''}${endDate ? `&endDate=${endDate}` : ''}`
+  const companyParam = selectedCompany ? `${dateParams ? '&' : '?'}company_id=${selectedCompany}` : ''
 
   const { data: agentPerf = [] } = useQuery({
     queryKey: ['export-agent-perf', startDate, endDate, selectedCompany],
