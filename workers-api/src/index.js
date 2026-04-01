@@ -8122,7 +8122,7 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
         store_visits: storeCount,
         individuals: indivCount,
         conversions: convCount,
-        targets: targets ? { visits: targets.target_visits, conversions: targets.target_conversions, individuals: targets.target_registrations, stores: targets.target_registrations } : { visits: 20, conversions: 5, individuals: 10, stores: 5 },
+        targets: targets ? { visits: targets.target_visits, conversions: targets.target_conversions, individuals: targets.target_visits, stores: targets.target_registrations } : { visits: 20, conversions: 5, individuals: 10, stores: 5 },
         visit_progress: targets ? Math.round(((visitCount) / (targets.target_visits || 1)) * 100) : 0,
         conversion_rate: indivCount > 0 ? Math.round((convCount / indivCount) * 100) : 0
       });
@@ -14820,7 +14820,7 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
 
     let dateFilter = '';
     const binds = [tenantId, goldrushId];
-    if (company_id) { dateFilter += " AND v.company_id = ?"; binds.push(company_id); }
+    // company_id filter not applicable here - endpoint already scoped to Goldrush company
     if (startDate) { dateFilter += " AND v.visit_date >= ?"; binds.push(startDate); }
     if (endDate) { dateFilter += " AND v.visit_date <= ?"; binds.push(endDate); }
 
@@ -14947,7 +14947,7 @@ api.get('/field-ops/reports/shops-analytics', authMiddleware, async (c) => {
       GROUP BY c.id
       ORDER BY total_checkins DESC
       LIMIT ? OFFSET ?
-    `).bind(...dateBinds, tenantId, parseInt(limit), offset).all();
+    `).bind(...dateBinds, ...dateBinds, tenantId, parseInt(limit), offset).all();
 
     return c.json({ success: true, shops: shops.results || [], total: totalResult?.count || 0 });
   } catch (e) { return c.json({ success: false, message: e.message }, 500); }
