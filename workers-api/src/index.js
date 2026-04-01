@@ -14670,33 +14670,36 @@ api.get('/field-ops/reports/agent-performance', authMiddleware, async (c) => {
     const { startDate, endDate, company_id } = c.req.query();
     let dateFilter = '';
     let regDateFilter = '';
-    const binds = [tenantId];
+    const dateBinds = [];
     const regBinds = [tenantId];
-    if (company_id) { dateFilter += " AND v.company_id = ?"; binds.push(company_id); }
+    if (company_id) { dateFilter += " AND v.company_id = ?"; dateBinds.push(company_id); }
     if (startDate) { 
       dateFilter += " AND v.visit_date >= ?"; 
-      binds.push(startDate);
+      dateBinds.push(startDate);
       regDateFilter += " AND DATE(ir.created_at) >= ?";
       regBinds.push(startDate);
     }
     if (endDate) { 
       dateFilter += " AND v.visit_date <= ?"; 
-      binds.push(endDate);
+      dateBinds.push(endDate);
       regDateFilter += " AND DATE(ir.created_at) <= ?";
       regBinds.push(endDate);
     }
 
+    // dateFilter is used twice (subquery + WHERE), so dateBinds must be spread twice
+    // Subquery uses v2 alias, so replace v. references for correct scoping
+    const subqueryDateFilter = dateFilter.replace(/v\./g, 'v2.');
     const agents = await db.prepare(`
       SELECT v.agent_id, u.first_name || ' ' || u.last_name as agent_name,
         COUNT(*) as checkin_count,
-        (SELECT COUNT(*) FROM visit_individuals vi2 JOIN visits v2 ON vi2.visit_id = v2.id WHERE v2.agent_id = v.agent_id AND v2.tenant_id = v.tenant_id AND COALESCE(JSON_EXTRACT(vi2.custom_field_values, '$.converted'), 0) = 1${dateFilter}) as conversions
+        (SELECT COUNT(*) FROM visit_individuals vi2 JOIN visits v2 ON vi2.visit_id = v2.id WHERE v2.agent_id = v.agent_id AND v2.tenant_id = v.tenant_id AND COALESCE(JSON_EXTRACT(vi2.custom_field_values, '$.converted'), 0) = 1${subqueryDateFilter}) as conversions
       FROM visits v
       LEFT JOIN users u ON v.agent_id = u.id
       WHERE v.tenant_id = ?${dateFilter}
       GROUP BY v.agent_id
       ORDER BY checkin_count DESC
       LIMIT 50
-    `).bind(...binds).all();
+    `).bind(...dateBinds, tenantId, ...dateBinds).all();
 
     const data = (agents.results || []).map(a => ({
       ...a,
