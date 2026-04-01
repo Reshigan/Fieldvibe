@@ -43,7 +43,7 @@ const ReportsShopsAnalytics: React.FC = () => {
   }, [companies, selectedCompany])
 
   const dateParams = `${startDate ? `&startDate=${startDate}` : ''}${endDate ? `&endDate=${endDate}` : ''}`
-  const companyParam = selectedCompany ? `${dateParams ? '&' : '?'}company_id=${selectedCompany}` : ''
+  const companyParam = selectedCompany ? `&company_id=${selectedCompany}` : ''
 
   const { data, isLoading , isError } = useQuery({
     queryKey: ['shops-analytics', page, startDate, endDate, selectedCompany],
