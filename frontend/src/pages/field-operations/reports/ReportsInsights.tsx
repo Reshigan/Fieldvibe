@@ -32,7 +32,7 @@ const ReportsInsights: React.FC = () => {
     }
   }, [companies, selectedCompany])
 
-  const companyParam = selectedCompany ? `&company_id=${selectedCompany}` : ''
+  const companyParam = selectedCompany ? `${dateParams ? '&' : '?'}company_id=${selectedCompany}` : ''
   const dateParams = startDate || endDate ? `?${startDate ? `startDate=${startDate}` : ''}${endDate ? `&endDate=${endDate}` : ''}` : ''
 
   const { data: agentPerf = [], isLoading, isError } = useQuery({

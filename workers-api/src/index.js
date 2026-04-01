@@ -14706,6 +14706,7 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
 
     let dateFilter = '';
     const binds = [tenantId, goldrushId];
+    if (company_id) { dateFilter += " AND v.company_id = ?"; binds.push(company_id); }
     if (startDate) { dateFilter += " AND v.visit_date >= ?"; binds.push(startDate); }
     if (endDate) { dateFilter += " AND v.visit_date <= ?"; binds.push(endDate); }
 
