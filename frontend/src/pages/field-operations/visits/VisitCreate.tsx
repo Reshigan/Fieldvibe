@@ -354,12 +354,9 @@ export default function VisitCreate() {
       }
       if (autoSelectedCompanyId) {
         setSelectedCompany(autoSelectedCompanyId)
-        // Directly load custom questions/fields for the auto-selected company
-        // (don't rely solely on useEffect — React state batching may delay the trigger)
-        loadCustomFields(autoSelectedCompanyId)
-        loadCustomQuestions(autoSelectedCompanyId, visitTargetType || undefined)
-        loadSurveyConfig(autoSelectedCompanyId)
-        loadQuestionnaires(autoSelectedCompanyId)
+        // The useEffect on [selectedCompany, visitTargetType] will trigger
+        // loadCustomFields/loadCustomQuestions/loadSurveyConfig/loadQuestionnaires
+        // automatically — no need to call them here (avoids duplicate API calls)
       }
       // Load customers/stores: use store-search endpoint on mobile for better results (includes visit history)
       if (isMobileContext) {
@@ -696,7 +693,10 @@ export default function VisitCreate() {
   }
 
   const handleNext = async () => {
-    if (navigating || stepDataLoading) return // Prevent double-click and clicking while data loads
+    // Only block navigation for stepDataLoading on the details step (where custom questions/fields are needed)
+    // GPS and visit_type steps should not be blocked by background data loading
+    const blockForLoading = stepDataLoading && (currentStepKey === 'details' || currentStepKey === 'survey')
+    if (navigating || blockForLoading) return
     setNavigating(true)
     setError(null)
     try {
@@ -1786,11 +1786,11 @@ export default function VisitCreate() {
           <Button
             variant="contained"
             onClick={handleNext}
-            disabled={navigating || stepDataLoading}
-            endIcon={navigating || stepDataLoading ? <CircularProgress size={16} color="inherit" /> : <NextIcon />}
+            disabled={navigating || (stepDataLoading && (currentStepKey === 'details' || currentStepKey === 'survey'))}
+            endIcon={navigating || (stepDataLoading && (currentStepKey === 'details' || currentStepKey === 'survey')) ? <CircularProgress size={16} color="inherit" /> : <NextIcon />}
             size={isMobileContext ? 'medium' : 'large'}
           >
-            {stepDataLoading ? 'Loading...' : 'Next'}
+            {(stepDataLoading && (currentStepKey === 'details' || currentStepKey === 'survey')) ? 'Loading...' : 'Next'}
           </Button>
         ) : (
           <Button
