@@ -28,7 +28,8 @@ export default function CustomerCreatePage() {
       options: [
         { value: 'retail', label: 'Retail' },
         { value: 'wholesale', label: 'Wholesale' },
-        { value: 'distributor', label: 'Distributor' }
+        { value: 'distributor', label: 'Distributor' },
+        { value: 'store', label: 'Store' }
       ]
     },
     {
