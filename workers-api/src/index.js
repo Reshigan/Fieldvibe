@@ -8342,14 +8342,16 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
       const indivCount = individualVisits?.count || 0;
       const storeCount = storeVisits?.count || 0;
       const convCount = conversions?.count || 0;
-      const targetVisits = targets?.target_visits || 20;
-      const targetIndivs = targets?.target_registrations || 10;
+      // target_visits = individual monthly target, target_registrations = store monthly target
+      // (column names are legacy; see generateTargetsFromRules/buildFallbackMonthlyTargets)
+      const targetIndivs = targets?.target_visits || 20;
+      const targetStores = targets?.target_registrations || 10;
       const targetConvs = targets?.target_conversions || 5;
       
       data = [
-        ['Visits', visitCount, targetVisits, targetVisits > 0 ? Math.round((visitCount / targetVisits) * 100) + '%' : 'N/A'],
+        ['Visits', visitCount, targetIndivs + targetStores, (targetIndivs + targetStores) > 0 ? Math.round((visitCount / (targetIndivs + targetStores)) * 100) + '%' : 'N/A'],
         ['Individual Visits', indivCount, targetIndivs, targetIndivs > 0 ? Math.round((indivCount / targetIndivs) * 100) + '%' : 'N/A'],
-        ['Store Visits', storeCount, '-', '-']
+        ['Store Visits', storeCount, targetStores, targetStores > 0 ? Math.round((storeCount / targetStores) * 100) + '%' : 'N/A']
       ];
       
       // Add drilldown details for agent

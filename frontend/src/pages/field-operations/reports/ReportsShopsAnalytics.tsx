@@ -145,7 +145,7 @@ const ReportsShopsAnalytics: React.FC = () => {
                   ...companies.map((c: any) => ({ value: c.id, label: c.name }))
                 ]}
                 value={selectedCompany || null}
-                onChange={(val) => setSelectedCompany(val || '')}
+                onChange={(val) => { setSelectedCompany(val || ''); setPage(1) }}
                 placeholder="All Companies"
               />
             )}
