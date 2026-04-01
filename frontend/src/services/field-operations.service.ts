@@ -809,7 +809,7 @@ class FieldOperationsService extends ApiService {
   }
 
   // ==================== FIELD OPS: DRILL-DOWN ====================
-  async getDrillDown(userId: string, filter: { start_date?: string; end_date?: string } = {}) {
+  async getDrillDown(userId: string, filter: { period?: string; start_date?: string; end_date?: string } = {}) {
     const params = new URLSearchParams()
     Object.entries(filter).forEach(([key, value]) => {
       if (value) params.append(key, String(value))

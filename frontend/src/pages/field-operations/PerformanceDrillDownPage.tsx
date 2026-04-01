@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useParams, useNavigate } from 'react-router-dom'
 import { fieldOperationsService } from '../../services/field-operations.service'
 import LoadingSpinner from '../../components/ui/LoadingSpinner'
-import { ArrowLeft, User, Target, TrendingUp, Calendar, Building2, ChevronRight, UserCheck, Award, FileSpreadsheet } from 'lucide-react'
+import { ArrowLeft, User, Target, TrendingUp, Calendar, Building2, ChevronRight, UserCheck, Award, FileSpreadsheet, Store } from 'lucide-react'
 import {
   BarChart,
   Bar,
@@ -85,17 +85,21 @@ export default function PerformanceDrillDownPage() {
   }
 
   const user = drillDown.user || {}
-  // Backend returns 'agents' for team_lead drill-down, 'visits'/'stores'/'daily_visits' for agent
+  // Backend returns 'agents' for manager/team_lead drill-down, 'visits'/'stores'/'daily_visits' for agent
   const subordinates = drillDown.agents || []
   const dailyData = drillDown.daily_visits || []
+  const hasSubordinates = user.role === 'manager' || user.role === 'team_lead'
   // Compute totals from subordinates or visits arrays
-  const totalVisits = user.role === 'team_lead'
+  const totalVisits = hasSubordinates
     ? subordinates.reduce((s: number, a: any) => s + (a.visits || 0), 0)
     : (drillDown.visits || []).length
-  const totalIndividuals = user.role === 'team_lead'
+  const totalIndividuals = hasSubordinates
     ? subordinates.reduce((s: number, a: any) => s + (a.individuals || a.individual_visits || 0), 0)
     : (drillDown.individuals || []).length
-  const totalConversions = user.role === 'team_lead'
+  const totalStoreVisits = hasSubordinates
+    ? subordinates.reduce((s: number, a: any) => s + (a.store_visits || 0), 0)
+    : (drillDown.visits || []).filter((v: any) => (v.visit_type || '').toLowerCase() === 'store').length
+  const totalConversions = hasSubordinates
     ? subordinates.reduce((s: number, a: any) => s + (a.conversions || 0), 0)
     : (drillDown.individuals || []).filter((r: any) => r.converted).length
   const conversionRate = totalIndividuals > 0 ? Math.round((totalConversions / totalIndividuals) * 100) : 0
@@ -183,7 +187,7 @@ export default function PerformanceDrillDownPage() {
       </div>
 
       {/* Summary KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="card p-4 flex items-center gap-3">
           <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30"><Target className="w-5 h-5 text-blue-600" /></div>
           <div>
@@ -194,8 +198,15 @@ export default function PerformanceDrillDownPage() {
         <div className="card p-4 flex items-center gap-3">
           <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30"><UserCheck className="w-5 h-5 text-green-600" /></div>
           <div>
-            <p className="text-sm text-gray-500">Individuals</p>
+            <p className="text-sm text-gray-500">Individual</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white">{totalIndividuals}</p>
+          </div>
+        </div>
+        <div className="card p-4 flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/30"><Store className="w-5 h-5 text-indigo-600" /></div>
+          <div>
+            <p className="text-sm text-gray-500">Store</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-white">{totalStoreVisits}</p>
           </div>
         </div>
         <div className="card p-4 flex items-center gap-3">
@@ -208,7 +219,7 @@ export default function PerformanceDrillDownPage() {
         <div className="card p-4 flex items-center gap-3">
           <div className="p-2 rounded-lg bg-yellow-100 dark:bg-yellow-900/30"><TrendingUp className="w-5 h-5 text-yellow-600" /></div>
           <div>
-            <p className="text-sm text-gray-500">Conversion Rate</p>
+            <p className="text-sm text-gray-500">Conv. Rate</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white">{conversionRate}%</p>
           </div>
         </div>
@@ -245,22 +256,24 @@ export default function PerformanceDrillDownPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Visits</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Individuals</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Individual</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Store</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Conversions</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {subordinates.map((sub: any) => (
-                  <tr key={sub.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <tr key={sub.id || sub.agent_id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{sub.agent_name || `${sub.first_name || ''} ${sub.last_name || ''}`}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300 capitalize">{(sub.role || sub.email || '').replace('_', ' ')}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300 capitalize">{(sub.role || 'agent').replace('_', ' ')}</td>
                     <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{sub.visits || 0}</td>
                     <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{sub.individuals || sub.individual_visits || 0}</td>
+                    <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{sub.store_visits || 0}</td>
                     <td className="px-4 py-3 text-right text-gray-700 dark:text-gray-300">{sub.conversions || 0}</td>
                     <td className="px-4 py-3 text-right">
                       <button
-                        onClick={() => navigate(`/field-operations/drill-down/${sub.id}`)}
+                        onClick={() => navigate(`/field-operations/drill-down/${sub.id || sub.agent_id}`)}
                         className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1 justify-end"
                       >
                         Drill Down <ChevronRight className="w-4 h-4" />
