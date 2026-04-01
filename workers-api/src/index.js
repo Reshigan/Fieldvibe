@@ -8144,8 +8144,29 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
       const indivMap = Object.fromEntries((totalIndivVisits.results || []).map(r => [r.agent_id, r.count]));
       const storeMap = Object.fromEntries((totalStoreVisits.results || []).map(r => [r.agent_id, r.count]));
       
+      // Get monthly targets for each agent
+      const currentMonth = startD.substring(0, 7);
+      const monthStartDate = currentMonth + '-01';
+      const agentTargetMap = {};
+      await Promise.all(agentIds.map(async (aid) => {
+        try {
+          // Try monthly_targets first
+          const mt = await db.prepare("SELECT COALESCE(SUM(target_visits), 0) as target_visits, COALESCE(SUM(target_registrations), 0) as target_registrations FROM monthly_targets WHERE tenant_id = ? AND agent_id = ? AND target_month = ?").bind(tenantId, aid, currentMonth).first();
+          if (mt && (mt.target_visits > 0 || mt.target_registrations > 0)) {
+            agentTargetMap[aid] = { target_visits: mt.target_visits || 0, target_stores: mt.target_registrations || 0 };
+          } else {
+            // Fall back to company_target_rules
+            const targets = await generateTargetsFromRules(db, tenantId, aid, monthStartDate, 'agent');
+            const tv = targets.reduce((s, t) => s + (t.target_visits || 0), 0);
+            const ts = targets.reduce((s, t) => s + (t.target_registrations || 0), 0);
+            agentTargetMap[aid] = { target_visits: tv, target_stores: ts };
+          }
+        } catch { agentTargetMap[aid] = { target_visits: 0, target_stores: 0 }; }
+      }));
+
       const agentPerformance = agentIds.map(aid => {
         const agent = aid === userId ? { first_name: 'You', last_name: '' } : (teamAgents.results || []).find(a => a.id === aid) || {};
+        const tgt = agentTargetMap[aid] || { target_visits: 0, target_stores: 0 };
         return { 
           agent_id: aid, 
           agent_name: (agent.first_name + ' ' + agent.last_name).trim(), 
@@ -8153,7 +8174,9 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
           individual_visits: indivMap[aid] || 0,
           store_visits: storeMap[aid] || 0,
           individuals: indivMap[aid] || 0, 
-          conversions: convMap[aid] || 0 
+          conversions: convMap[aid] || 0,
+          target_visits: tgt.target_visits,
+          target_stores: tgt.target_stores
         };
       });
       
@@ -8161,6 +8184,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
       const totalIV = agentPerformance.reduce((s, a) => s + a.individual_visits, 0);
       const totalSV = agentPerformance.reduce((s, a) => s + a.store_visits, 0);
       const totalC = agentPerformance.reduce((s, a) => s + a.conversions, 0);
+      const totalTV = agentPerformance.reduce((s, a) => s + a.target_visits, 0);
+      const totalTS = agentPerformance.reduce((s, a) => s + a.target_stores, 0);
       
       return c.json({ 
         role: 'team_lead', 
@@ -8172,6 +8197,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
         total_store_visits: totalSV,
         total_individuals: totalIV, 
         total_conversions: totalC, 
+        total_target_visits: totalTV,
+        total_target_stores: totalTS,
         conversion_rate: totalIV > 0 ? Math.round((totalC / totalIV) * 100) : 0, 
         agents: agentPerformance 
       });
@@ -8192,6 +8219,27 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
       const iMap = Object.fromEntries((allIndivVisits.results || []).map(r => [r.agent_id, r.count]));
       const sMap = Object.fromEntries((allStoreVisits.results || []).map(r => [r.agent_id, r.count]));
       
+      // Get monthly targets for all agents
+      const currentMonth = startD.substring(0, 7);
+      const monthStartDate = currentMonth + '-01';
+      const allAgentIds = (allAgents.results || []).map(a => a.id);
+      const allTlIds = (allTeamLeads.results || []).map(tl => tl.id);
+      const allUserIds = [...allTlIds, ...allAgentIds];
+      const agentTargetMap = {};
+      await Promise.all(allUserIds.map(async (aid) => {
+        try {
+          const mt = await db.prepare("SELECT COALESCE(SUM(target_visits), 0) as target_visits, COALESCE(SUM(target_registrations), 0) as target_registrations FROM monthly_targets WHERE tenant_id = ? AND agent_id = ? AND target_month = ?").bind(tenantId, aid, currentMonth).first();
+          if (mt && (mt.target_visits > 0 || mt.target_registrations > 0)) {
+            agentTargetMap[aid] = { target_visits: mt.target_visits || 0, target_stores: mt.target_registrations || 0 };
+          } else {
+            const targets = await generateTargetsFromRules(db, tenantId, aid, monthStartDate, 'agent');
+            const tv = targets.reduce((s, t) => s + (t.target_visits || 0), 0);
+            const ts = targets.reduce((s, t) => s + (t.target_registrations || 0), 0);
+            agentTargetMap[aid] = { target_visits: tv, target_stores: ts };
+          }
+        } catch { agentTargetMap[aid] = { target_visits: 0, target_stores: 0 }; }
+      }));
+
       const teams = (allTeamLeads.results || []).map(tl => {
         const teamAgts = (allAgents.results || []).filter(a => a.team_lead_id === tl.id);
         const allIds = [tl.id, ...teamAgts.map(a => a.id)];
@@ -8199,6 +8247,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
         const tIndiv = allIds.reduce((s, id) => s + (iMap[id] || 0), 0);
         const tStore = allIds.reduce((s, id) => s + (sMap[id] || 0), 0);
         const tConvs = allIds.reduce((s, id) => s + (cMap[id] || 0), 0);
+        const tTargetV = allIds.reduce((s, id) => s + ((agentTargetMap[id] || {}).target_visits || 0), 0);
+        const tTargetS = allIds.reduce((s, id) => s + ((agentTargetMap[id] || {}).target_stores || 0), 0);
         return { 
           team_lead_id: tl.id, 
           team_lead_name: tl.first_name + ' ' + tl.last_name, 
@@ -8208,6 +8258,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
           store_visits: tStore,
           individuals: tIndiv, 
           conversions: tConvs, 
+          target_visits: tTargetV,
+          target_stores: tTargetS,
           conversion_rate: tIndiv > 0 ? Math.round((tConvs / tIndiv) * 100) : 0 
         };
       });
@@ -8216,6 +8268,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
       const grandIndiv = Object.values(iMap).reduce((s, c) => s + c, 0);
       const grandStore = Object.values(sMap).reduce((s, c) => s + c, 0);
       const grandConvs = Object.values(cMap).reduce((s, c) => s + c, 0);
+      const grandTargetV = Object.values(agentTargetMap).reduce((s, t) => s + (t.target_visits || 0), 0);
+      const grandTargetS = Object.values(agentTargetMap).reduce((s, t) => s + (t.target_stores || 0), 0);
       
       return c.json({ 
         role: 'manager', 
@@ -8227,6 +8281,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
         total_store_visits: grandStore,
         total_individuals: grandIndiv, 
         total_conversions: grandConvs, 
+        total_target_visits: grandTargetV,
+        total_target_stores: grandTargetS,
         conversion_rate: grandIndiv > 0 ? Math.round((grandConvs / grandIndiv) * 100) : 0, 
         teams 
       });
@@ -8293,9 +8349,7 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
       data = [
         ['Visits', visitCount, targetVisits, targetVisits > 0 ? Math.round((visitCount / targetVisits) * 100) + '%' : 'N/A'],
         ['Individual Visits', indivCount, targetIndivs, targetIndivs > 0 ? Math.round((indivCount / targetIndivs) * 100) + '%' : 'N/A'],
-        ['Store Visits', storeCount, '-', '-'],
-        ['Conversions', convCount, targetConvs, targetConvs > 0 ? Math.round((convCount / targetConvs) * 100) + '%' : 'N/A'],
-        ['Conversion Rate', indivCount > 0 ? Math.round((convCount / indivCount) * 100) + '%' : '0%', '-', '-']
+        ['Store Visits', storeCount, '-', '-']
       ];
       
       // Add drilldown details for agent
@@ -8315,28 +8369,46 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
       }
       
     } else if (role === 'team_lead') {
-      headers = ['Agent', 'Visits', 'Individuals', 'Conversions', 'Conversion Rate'];
+      headers = ['Agent', 'Visits', 'Individual', 'Store', 'Target (Indiv)', 'Target (Store)'];
       const teamAgents = await db.prepare("SELECT id, first_name, last_name FROM users WHERE team_lead_id = ? AND tenant_id = ? AND is_active = 1").bind(userId, tenantId).all();
       const agentIds = [userId, ...(teamAgents.results || []).map(a => a.id)];
       const placeholders = agentIds.map(() => '?').join(',');
       
-      const [totalVisits, totalIndivVisits, totalConvs] = await Promise.all([
+      const [totalVisits, totalIndivVisits, totalStoreVisits] = await Promise.all([
         db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD, endD, ...agentIds).all(),
         db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'individual' AND visit_date >= ? AND visit_date <= ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD, endD, ...agentIds).all(),
-        db.prepare("SELECT v.agent_id, COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ? AND v.agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD, endD, ...agentIds).all()
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'store' AND visit_date >= ? AND visit_date <= ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD, endD, ...agentIds).all()
       ]);
       
       const visitMap = Object.fromEntries((totalVisits.results || []).map(r => [r.agent_id, r.count]));
       const indivMap = Object.fromEntries((totalIndivVisits.results || []).map(r => [r.agent_id, r.count]));
-      const convMap = Object.fromEntries((totalConvs.results || []).map(r => [r.agent_id, r.count]));
+      const storeMap = Object.fromEntries((totalStoreVisits.results || []).map(r => [r.agent_id, r.count]));
       
+      // Get monthly targets for each agent
+      const currentMonth = startD.substring(0, 7);
+      const monthStartDate = currentMonth + '-01';
+      const agentTargetMap = {};
+      await Promise.all(agentIds.map(async (aid) => {
+        try {
+          const mt = await db.prepare("SELECT COALESCE(SUM(target_visits), 0) as target_visits, COALESCE(SUM(target_registrations), 0) as target_registrations FROM monthly_targets WHERE tenant_id = ? AND agent_id = ? AND target_month = ?").bind(tenantId, aid, currentMonth).first();
+          if (mt && (mt.target_visits > 0 || mt.target_registrations > 0)) {
+            agentTargetMap[aid] = { target_visits: mt.target_visits || 0, target_stores: mt.target_registrations || 0 };
+          } else {
+            const targets = await generateTargetsFromRules(db, tenantId, aid, monthStartDate, 'agent');
+            const tv = targets.reduce((s, t) => s + (t.target_visits || 0), 0);
+            const ts = targets.reduce((s, t) => s + (t.target_registrations || 0), 0);
+            agentTargetMap[aid] = { target_visits: tv, target_stores: ts };
+          }
+        } catch { agentTargetMap[aid] = { target_visits: 0, target_stores: 0 }; }
+      }));
+
       data = agentIds.map(aid => {
         const agent = aid === userId ? { first_name: 'You', last_name: '' } : (teamAgents.results || []).find(a => a.id === aid) || {};
         const v = visitMap[aid] || 0;
         const i = indivMap[aid] || 0;
-        const c = convMap[aid] || 0;
-        const convRate = i > 0 ? Math.round((c / i) * 100) + '%' : '0%';
-        return [(agent.first_name + ' ' + agent.last_name).trim(), v, i, c, convRate];
+        const s = storeMap[aid] || 0;
+        const tgt = agentTargetMap[aid] || { target_visits: 0, target_stores: 0 };
+        return [(agent.first_name + ' ' + agent.last_name).trim(), v, i, s, tgt.target_visits, tgt.target_stores];
       });
       
       // Add drilldown: detailed individual list for all agents
@@ -8349,51 +8421,70 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
       }
       
     } else {
-      headers = ['Team Lead', 'Agents', 'Visits', 'Individuals', 'Store Visits', 'Conversions', 'Conversion Rate'];
+      headers = ['Team Lead', 'Agents', 'Visits', 'Individual', 'Store', 'Target (Indiv)', 'Target (Store)'];
       const allTeamLeads = await db.prepare("SELECT id, first_name, last_name FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1").bind(tenantId).all();
       const allAgents = await db.prepare("SELECT id, first_name, last_name, team_lead_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1").bind(tenantId).all();
       
-      const [allVisits, allIndivVisits, allStoreVisits, allConvs] = await Promise.all([
+      const [allVisits, allIndivVisits, allStoreVisits] = await Promise.all([
         db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
         db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'individual' AND visit_date >= ? AND visit_date <= ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
-        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'store' AND visit_date >= ? AND visit_date <= ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
-        db.prepare("SELECT v.agent_id, COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ? GROUP BY v.agent_id").bind(tenantId, startD, endD).all()
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'store' AND visit_date >= ? AND visit_date <= ? GROUP BY agent_id").bind(tenantId, startD, endD).all()
       ]);
       
       const vMap = Object.fromEntries((allVisits.results || []).map(r => [r.agent_id, r.count]));
       const iMap = Object.fromEntries((allIndivVisits.results || []).map(r => [r.agent_id, r.count]));
       const sMap = Object.fromEntries((allStoreVisits.results || []).map(r => [r.agent_id, r.count]));
-      const cMap = Object.fromEntries((allConvs.results || []).map(r => [r.agent_id, r.count]));
       
+      // Get monthly targets for all users
+      const currentMonth = startD.substring(0, 7);
+      const monthStartDate = currentMonth + '-01';
+      const allAgentIds = (allAgents.results || []).map(a => a.id);
+      const allTlIds = (allTeamLeads.results || []).map(tl => tl.id);
+      const allUserIds = [...allTlIds, ...allAgentIds];
+      const agentTargetMap = {};
+      await Promise.all(allUserIds.map(async (aid) => {
+        try {
+          const mt = await db.prepare("SELECT COALESCE(SUM(target_visits), 0) as target_visits, COALESCE(SUM(target_registrations), 0) as target_registrations FROM monthly_targets WHERE tenant_id = ? AND agent_id = ? AND target_month = ?").bind(tenantId, aid, currentMonth).first();
+          if (mt && (mt.target_visits > 0 || mt.target_registrations > 0)) {
+            agentTargetMap[aid] = { target_visits: mt.target_visits || 0, target_stores: mt.target_registrations || 0 };
+          } else {
+            const targets = await generateTargetsFromRules(db, tenantId, aid, monthStartDate, 'agent');
+            const tv = targets.reduce((s, t) => s + (t.target_visits || 0), 0);
+            const ts = targets.reduce((s, t) => s + (t.target_registrations || 0), 0);
+            agentTargetMap[aid] = { target_visits: tv, target_stores: ts };
+          }
+        } catch { agentTargetMap[aid] = { target_visits: 0, target_stores: 0 }; }
+      }));
+
       data = (allTeamLeads.results || []).map(tl => {
         const teamAgts = (allAgents.results || []).filter(a => a.team_lead_id === tl.id);
         const allIds = [tl.id, ...teamAgts.map(a => a.id)];
         const tVisits = allIds.reduce((s, id) => s + (vMap[id] || 0), 0);
         const tIndivs = allIds.reduce((s, id) => s + (iMap[id] || 0), 0);
         const tStores = allIds.reduce((s, id) => s + (sMap[id] || 0), 0);
-        const tConvs = allIds.reduce((s, id) => s + (cMap[id] || 0), 0);
-        const convRate = tIndivs > 0 ? Math.round((tConvs / tIndivs) * 100) + '%' : '0%';
-        return [tl.first_name + ' ' + tl.last_name, teamAgts.length, tVisits, tIndivs, tStores, tConvs, convRate, '', '', '', '', ''];
+        const tTargetV = allIds.reduce((s, id) => s + ((agentTargetMap[id] || {}).target_visits || 0), 0);
+        const tTargetS = allIds.reduce((s, id) => s + ((agentTargetMap[id] || {}).target_stores || 0), 0);
+        return [tl.first_name + ' ' + tl.last_name, teamAgts.length, tVisits, tIndivs, tStores, tTargetV, tTargetS, '', '', '', '', '', ''];
       });
       
       // Add drilldown: team breakdown with agent details
       data.push([]); // Empty row
       data.push(['--- Team Breakdown with Agent Details ---']);
-      headers = ['Team Lead', 'Agents', 'Visits', 'Individuals', 'Store Visits', 'Conversions', 'Conversion Rate', 'Agent Name', 'Agent Visits', 'Agent Individuals', 'Agent Store Visits', 'Agent Convs'];
+      headers = ['Team Lead', 'Agents', 'Visits', 'Individual', 'Store', 'Target (Indiv)', 'Target (Store)', 'Agent Name', 'Agent Visits', 'Agent Individual', 'Agent Store', 'Agent Target (Indiv)', 'Agent Target (Store)'];
       for (const tl of (allTeamLeads.results || [])) {
         const teamAgts = (allAgents.results || []).filter(a => a.team_lead_id === tl.id);
         const allIds = [tl.id, ...teamAgts.map(a => a.id)];
         const tVisits = allIds.reduce((s, id) => s + (vMap[id] || 0), 0);
         const tIndivs = allIds.reduce((s, id) => s + (iMap[id] || 0), 0);
         const tStores = allIds.reduce((s, id) => s + (sMap[id] || 0), 0);
-        const tConvs = allIds.reduce((s, id) => s + (cMap[id] || 0), 0);
+        const tTargetV = allIds.reduce((s, id) => s + ((agentTargetMap[id] || {}).target_visits || 0), 0);
+        const tTargetS = allIds.reduce((s, id) => s + ((agentTargetMap[id] || {}).target_stores || 0), 0);
         for (const agent of teamAgts) {
           const aVisits = vMap[agent.id] || 0;
           const aIndivs = iMap[agent.id] || 0;
           const aStores = sMap[agent.id] || 0;
-          const aConvs = cMap[agent.id] || 0;
-          const aConvRate = aIndivs > 0 ? Math.round((aConvs / aIndivs) * 100) + '%' : '0%';
-          data.push([tl.first_name + ' ' + tl.last_name, teamAgts.length, tVisits, tIndivs, tStores, tConvs, aConvRate, agent.first_name + ' ' + agent.last_name, aVisits, aIndivs, aStores, aConvs]);
+          const aTgt = agentTargetMap[agent.id] || { target_visits: 0, target_stores: 0 };
+          data.push([tl.first_name + ' ' + tl.last_name, teamAgts.length, tVisits, tIndivs, tStores, tTargetV, tTargetS, agent.first_name + ' ' + agent.last_name, aVisits, aIndivs, aStores, aTgt.target_visits, aTgt.target_stores]);
         }
       }
     }
@@ -8490,20 +8581,41 @@ api.get('/field-ops/performance/export-excel', authMiddleware, async (c) => {
     const allManagers = await db.prepare("SELECT id, first_name, last_name FROM users WHERE tenant_id = ? AND role = 'manager' AND is_active = 1").bind(tenantId).all();
     const allTeamLeads = await db.prepare("SELECT id, first_name, last_name, manager_id FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1").bind(tenantId).all();
     const allAgents = await db.prepare("SELECT id, first_name, last_name, team_lead_id, manager_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1").bind(tenantId).all();
-    const [allVisits, allIndivV, allStoreV, allConvs] = await Promise.all([
+    const [allVisits, allIndivV, allStoreV] = await Promise.all([
       db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
       db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'individual' AND visit_date BETWEEN ? AND ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
-      db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'store' AND visit_date BETWEEN ? AND ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
-      db.prepare("SELECT v.agent_id, COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date BETWEEN ? AND ? GROUP BY v.agent_id").bind(tenantId, startD, endD).all()
+      db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'store' AND visit_date BETWEEN ? AND ? GROUP BY agent_id").bind(tenantId, startD, endD).all()
     ]);
     const vMap = Object.fromEntries((allVisits.results || []).map(r => [r.agent_id, r.count]));
     const iMap = Object.fromEntries((allIndivV.results || []).map(r => [r.agent_id, r.count]));
     const sMap = Object.fromEntries((allStoreV.results || []).map(r => [r.agent_id, r.count]));
-    const cMap = Object.fromEntries((allConvs.results || []).map(r => [r.agent_id, r.count]));
     const sumIds = (ids) => {
-      let v=0, i=0, s=0, cv=0;
-      for (const id of ids) { v += vMap[id]||0; i += iMap[id]||0; s += sMap[id]||0; cv += cMap[id]||0; }
-      return { visits: v, individual: i, store: s, conversions: cv, convRate: i > 0 ? Math.round((cv/i)*100)+'%' : '0%' };
+      let v=0, i=0, s=0;
+      for (const id of ids) { v += vMap[id]||0; i += iMap[id]||0; s += sMap[id]||0; }
+      return { visits: v, individual: i, store: s };
+    };
+    // Get monthly targets for all users
+    const currentMonth = startD.substring(0, 7);
+    const monthStartDate = currentMonth + '-01';
+    const allUserIds = [...(allManagers.results||[]).map(m=>m.id), ...(allTeamLeads.results||[]).map(t=>t.id), ...(allAgents.results||[]).map(a=>a.id)];
+    const xlTargetMap = {};
+    await Promise.all(allUserIds.map(async (aid) => {
+      try {
+        const mt = await db.prepare("SELECT COALESCE(SUM(target_visits), 0) as target_visits, COALESCE(SUM(target_registrations), 0) as target_registrations FROM monthly_targets WHERE tenant_id = ? AND agent_id = ? AND target_month = ?").bind(tenantId, aid, currentMonth).first();
+        if (mt && (mt.target_visits > 0 || mt.target_registrations > 0)) {
+          xlTargetMap[aid] = { target_visits: mt.target_visits || 0, target_stores: mt.target_registrations || 0 };
+        } else {
+          const targets = await generateTargetsFromRules(db, tenantId, aid, monthStartDate, 'agent');
+          const tv = targets.reduce((s, t) => s + (t.target_visits || 0), 0);
+          const ts = targets.reduce((s, t) => s + (t.target_registrations || 0), 0);
+          xlTargetMap[aid] = { target_visits: tv, target_stores: ts };
+        }
+      } catch { xlTargetMap[aid] = { target_visits: 0, target_stores: 0 }; }
+    }));
+    const sumTargets = (ids) => {
+      let tv=0, ts=0;
+      for (const id of ids) { tv += (xlTargetMap[id]||{}).target_visits||0; ts += (xlTargetMap[id]||{}).target_stores||0; }
+      return { target_visits: tv, target_stores: ts };
     };
     // Build hierarchy
     const managers = (allManagers.results || []).map(m => {
@@ -8514,15 +8626,15 @@ api.get('/field-ops/performance/export-excel', authMiddleware, async (c) => {
         const agents = (allAgents.results || []).filter(a => a.team_lead_id === tl.id);
         const tlIds = [tl.id, ...agents.map(a => a.id)];
         allMgrIds.push(...tlIds);
-        return { ...tl, name: tl.first_name + ' ' + tl.last_name, agents: agents.map(a => ({ ...a, name: a.first_name + ' ' + a.last_name, ...sumIds([a.id]) })), ...sumIds(tlIds) };
+        return { ...tl, name: tl.first_name + ' ' + tl.last_name, agents: agents.map(a => ({ ...a, name: a.first_name + ' ' + a.last_name, ...sumIds([a.id]), ...sumTargets([a.id]) })), ...sumIds(tlIds), ...sumTargets(tlIds) };
       });
       allMgrIds.push(...directAgents.map(a => a.id));
-      const dAgents = directAgents.map(a => ({ ...a, name: a.first_name + ' ' + a.last_name, ...sumIds([a.id]) }));
-      return { ...m, name: m.first_name + ' ' + m.last_name, teamLeads, directAgents: dAgents, ...sumIds(allMgrIds), totalTLs: tls.length, totalAgents: (allAgents.results || []).filter(a => tls.some(t => t.id === a.team_lead_id) || (a.manager_id === m.id)).length };
+      const dAgents = directAgents.map(a => ({ ...a, name: a.first_name + ' ' + a.last_name, ...sumIds([a.id]), ...sumTargets([a.id]) }));
+      return { ...m, name: m.first_name + ' ' + m.last_name, teamLeads, directAgents: dAgents, ...sumIds(allMgrIds), ...sumTargets(allMgrIds), totalTLs: tls.length, totalAgents: (allAgents.results || []).filter(a => tls.some(t => t.id === a.team_lead_id) || (a.manager_id === m.id)).length };
     });
     // Grand totals
     const allIds = [...(allManagers.results||[]).map(m=>m.id), ...(allTeamLeads.results||[]).map(t=>t.id), ...(allAgents.results||[]).map(a=>a.id)];
-    const grand = sumIds(allIds);
+    const grand = { ...sumIds(allIds), ...sumTargets(allIds) };
     const periodLabel = period === 'day' ? 'Today' : period === 'week' ? 'Week to Date' : period === 'month' ? 'Month to Date' : `${startD} to ${endD}`;
 
     // ===== Build OOXML .xlsx (ZIP of XML parts) =====
@@ -8557,25 +8669,26 @@ api.get('/field-ops/performance/export-excel', authMiddleware, async (c) => {
     const s1Rows = [];
     s1Rows.push([str('Performance Report - ' + periodLabel, true)]);
     s1Rows.push([]);
-    s1Rows.push([str('Manager', true), str('Team Leads', true), str('Agents', true), str('Total Visits', true), str('Individual', true), str('Store', true), str('Conversions', true), str('Conv. Rate', true)]);
+    s1Rows.push([str('Manager', true), str('Team Leads', true), str('Agents', true), str('Total Visits', true), str('Individual', true), str('Store', true), str('Target (Indiv)', true), str('Target (Store)', true)]);
     for (const m of managers) {
-      s1Rows.push([str(m.name), num(m.totalTLs), num(m.totalAgents), num(m.visits), num(m.individual), num(m.store), num(m.conversions), str(m.convRate)]);
+      s1Rows.push([str(m.name), num(m.totalTLs), num(m.totalAgents), num(m.visits), num(m.individual), num(m.store), num(m.target_visits), num(m.target_stores)]);
     }
-    s1Rows.push([str('TOTAL', true), num((allTeamLeads.results||[]).length, true), num((allAgents.results||[]).length, true), num(grand.visits, true), num(grand.individual, true), num(grand.store, true), num(grand.conversions, true), str(grand.convRate, true)]);
+    s1Rows.push([str('TOTAL', true), num((allTeamLeads.results||[]).length, true), num((allAgents.results||[]).length, true), num(grand.visits, true), num(grand.individual, true), num(grand.store, true), num(grand.target_visits, true), num(grand.target_stores, true)]);
 
     // --- Sheet 2: Manager + Team Leader Breakdown ---
     const s2Rows = [];
     s2Rows.push([str('Manager / Team Leader Breakdown - ' + periodLabel, true)]);
     s2Rows.push([]);
-    s2Rows.push([str('Manager', true), str('Team Leader', true), str('Agents', true), str('Visits', true), str('Individual', true), str('Store', true), str('Conversions', true), str('Conv. Rate', true)]);
+    s2Rows.push([str('Manager', true), str('Team Leader', true), str('Agents', true), str('Visits', true), str('Individual', true), str('Store', true), str('Target (Indiv)', true), str('Target (Store)', true)]);
     for (const m of managers) {
-      s2Rows.push([str(m.name, true), str('(Total)', true), num(m.totalAgents, true), num(m.visits, true), num(m.individual, true), num(m.store, true), num(m.conversions, true), str(m.convRate, true)]);
+      s2Rows.push([str(m.name, true), str('(Total)', true), num(m.totalAgents, true), num(m.visits, true), num(m.individual, true), num(m.store, true), num(m.target_visits, true), num(m.target_stores, true)]);
       for (const tl of m.teamLeads) {
-        s2Rows.push([str(''), str(tl.name), num(tl.agents.length), num(tl.visits), num(tl.individual), num(tl.store), num(tl.conversions), str(tl.convRate)]);
+        s2Rows.push([str(''), str(tl.name), num(tl.agents.length), num(tl.visits), num(tl.individual), num(tl.store), num(tl.target_visits), num(tl.target_stores)]);
       }
       if (m.directAgents.length > 0) {
         const daTotal = sumIds(m.directAgents.map(a => a.id));
-        s2Rows.push([str(''), str('(Unassigned Agents)'), num(m.directAgents.length), num(daTotal.visits), num(daTotal.individual), num(daTotal.store), num(daTotal.conversions), str(daTotal.convRate)]);
+        const daTgts = sumTargets(m.directAgents.map(a => a.id));
+        s2Rows.push([str(''), str('(Unassigned Agents)'), num(m.directAgents.length), num(daTotal.visits), num(daTotal.individual), num(daTotal.store), num(daTgts.target_visits), num(daTgts.target_stores)]);
       }
     }
 
@@ -8583,19 +8696,20 @@ api.get('/field-ops/performance/export-excel', authMiddleware, async (c) => {
     const s3Rows = [];
     s3Rows.push([str('Team Leader / Agent Breakdown - ' + periodLabel, true)]);
     s3Rows.push([]);
-    s3Rows.push([str('Team Leader', true), str('Agent', true), str('Visits', true), str('Individual', true), str('Store', true), str('Conversions', true), str('Conv. Rate', true)]);
+    s3Rows.push([str('Team Leader', true), str('Agent', true), str('Visits', true), str('Individual', true), str('Store', true), str('Target (Indiv)', true), str('Target (Store)', true)]);
     for (const m of managers) {
       for (const tl of m.teamLeads) {
-        s3Rows.push([str(tl.name, true), str('(Total)', true), num(tl.visits, true), num(tl.individual, true), num(tl.store, true), num(tl.conversions, true), str(tl.convRate, true)]);
+        s3Rows.push([str(tl.name, true), str('(Total)', true), num(tl.visits, true), num(tl.individual, true), num(tl.store, true), num(tl.target_visits, true), num(tl.target_stores, true)]);
         for (const agent of tl.agents) {
-          s3Rows.push([str(''), str(agent.name), num(agent.visits), num(agent.individual), num(agent.store), num(agent.conversions), str(agent.convRate)]);
+          s3Rows.push([str(''), str(agent.name), num(agent.visits), num(agent.individual), num(agent.store), num(agent.target_visits), num(agent.target_stores)]);
         }
       }
       if (m.directAgents.length > 0) {
         const daTotal = sumIds(m.directAgents.map(a => a.id));
-        s3Rows.push([str('Unassigned (' + m.name + ')', true), str('(Total)', true), num(daTotal.visits, true), num(daTotal.individual, true), num(daTotal.store, true), num(daTotal.conversions, true), str(daTotal.convRate, true)]);
+        const daTgts3 = sumTargets(m.directAgents.map(a => a.id));
+        s3Rows.push([str('Unassigned (' + m.name + ')', true), str('(Total)', true), num(daTotal.visits, true), num(daTotal.individual, true), num(daTotal.store, true), num(daTgts3.target_visits, true), num(daTgts3.target_stores, true)]);
         for (const agent of m.directAgents) {
-          s3Rows.push([str(''), str(agent.name), num(agent.visits), num(agent.individual), num(agent.store), num(agent.conversions), str(agent.convRate)]);
+          s3Rows.push([str(''), str(agent.name), num(agent.visits), num(agent.individual), num(agent.store), num(agent.target_visits), num(agent.target_stores)]);
         }
       }
     }
