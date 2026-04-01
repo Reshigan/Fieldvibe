@@ -60,7 +60,7 @@ export default function FieldOpsPerformancePage() {
     refetchInterval: 1000 * 30,
   })
 
-  const handleExport = async () => {
+  const handleExport = async (format: 'csv' | 'excel' = 'excel') => {
     try {
       const params = new URLSearchParams()
       if (timePeriod !== 'custom') {
@@ -70,13 +70,16 @@ export default function FieldOpsPerformancePage() {
         params.append('end_date', dateRange.end_date)
       }
       
-      const response = await fieldOperationsService.get(`/field-ops/performance/export?${params.toString()}`)
-      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' })
+      const endpoint = format === 'excel' ? '/field-ops/performance/export-excel' : '/field-ops/performance/export'
+      const response = await fieldOperationsService.get(`${endpoint}?${params.toString()}`, { responseType: 'blob' })
+      const mimeType = format === 'excel' ? 'application/vnd.ms-excel' : 'text/csv;charset=utf-8'
+      const ext = format === 'excel' ? 'xls' : 'csv'
+      const blob = new Blob([response.data], { type: mimeType })
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       const periodLabel = timePeriod === 'day' ? 'Day' : timePeriod === 'week' ? 'Week' : timePeriod === 'month' ? 'Month' : 'Custom'
-      a.download = `field-ops-performance-${periodLabel}-${today}.csv`
+      a.download = `field-ops-performance-${periodLabel}-${today}.${ext}`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -180,14 +183,21 @@ export default function FieldOpsPerformancePage() {
             </>
           )}
 
-          {/* Export Button */}
+          {/* Export Buttons */}
           <button
-            onClick={handleExport}
+            onClick={() => handleExport('excel')}
             className="btn-primary flex items-center gap-2"
-            title="Export to Excel"
+            title="Export multi-sheet Excel"
           >
             <FileSpreadsheet className="w-4 h-4" />
-            Export
+            Excel
+          </button>
+          <button
+            onClick={() => handleExport('csv')}
+            className="btn-outline flex items-center gap-2 text-sm"
+            title="Export CSV"
+          >
+            CSV
           </button>
         </div>
       </div>

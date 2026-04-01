@@ -517,7 +517,14 @@ app.get('/api/agent/my-companies', authMiddleware, async (c) => {
     } else {
       companies = await db.prepare("SELECT fc.id, fc.name, fc.code, fc.revisit_radius_meters FROM agent_company_links acl JOIN field_companies fc ON acl.company_id = fc.id WHERE acl.agent_id = ? AND acl.tenant_id = ? AND acl.is_active = 1 AND fc.status = 'active'").bind(userId, tenantId).all();
     }
-    return c.json({ success: true, data: companies.results || [] });
+    // Enrich each company with its process flow assignments (visit_target_type)
+    const enriched = [];
+    for (const comp of (companies.results || [])) {
+      const cpfs = await db.prepare("SELECT visit_target_type FROM company_process_flows WHERE company_id = ? AND tenant_id = ?").bind(comp.id, tenantId).all();
+      const visitTypes = (cpfs.results || []).map(r => r.visit_target_type);
+      enriched.push({ ...comp, process_flow_types: visitTypes });
+    }
+    return c.json({ success: true, data: enriched });
   } catch (err) {
     return c.json({ success: false, data: [], error: err.message || 'Failed to fetch companies' }, 500);
   }
@@ -8268,11 +8275,11 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
     if (role === 'agent' || role === 'field_agent') {
       headers = ['Metric', 'Value', 'Target', 'Achievement %'];
       const [visits, conversions, targets, individualVisits, storeVisits] = await Promise.all([
-        db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed'").bind(userId, tenantId, startD, endD).first(),
+        db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ?").bind(userId, tenantId, startD, endD).first(),
         db.prepare("SELECT COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.agent_id = ? AND v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ?").bind(userId, tenantId, startD, endD).first(),
         db.prepare("SELECT * FROM daily_targets WHERE agent_id = ? AND tenant_id = ? AND target_date = ?").bind(userId, tenantId, today.toISOString().split('T')[0]).first(),
-        db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND LOWER(visit_type) = 'individual'").bind(userId, tenantId, startD, endD).first(),
-        db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND LOWER(visit_type) = 'store'").bind(userId, tenantId, startD, endD).first()
+        db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'individual'").bind(userId, tenantId, startD, endD).first(),
+        db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'store'").bind(userId, tenantId, startD, endD).first()
       ]);
       
       const visitCount = visits?.count || 0;
@@ -8314,7 +8321,7 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
       const placeholders = agentIds.map(() => '?').join(',');
       
       const [totalVisits, totalIndivVisits, totalConvs] = await Promise.all([
-        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD, endD, ...agentIds).all(),
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD, endD, ...agentIds).all(),
         db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'individual' AND visit_date >= ? AND visit_date <= ? AND agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD, endD, ...agentIds).all(),
         db.prepare("SELECT v.agent_id, COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ? AND v.agent_id IN (" + placeholders + ") GROUP BY agent_id").bind(tenantId, startD, endD, ...agentIds).all()
       ]);
@@ -8346,9 +8353,10 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
       const allTeamLeads = await db.prepare("SELECT id, first_name, last_name FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1").bind(tenantId).all();
       const allAgents = await db.prepare("SELECT id, first_name, last_name, team_lead_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1").bind(tenantId).all();
       
-      const [allVisits, allIndivVisits, allConvs] = await Promise.all([
-        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' GROUP BY agent_id").bind(tenantId, startD, endD).all(),
+      const [allVisits, allIndivVisits, allStoreVisits, allConvs] = await Promise.all([
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
         db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'individual' AND visit_date >= ? AND visit_date <= ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
+        db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'store' AND visit_date >= ? AND visit_date <= ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
         db.prepare("SELECT v.agent_id, COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ? GROUP BY v.agent_id").bind(tenantId, startD, endD).all()
       ]);
       
@@ -8407,6 +8415,120 @@ api.get('/field-ops/performance/export', authMiddleware, async (c) => {
   }
 });
 
+// ==================== FIELD OPERATIONS: MULTI-SHEET EXCEL EXPORT ====================
+api.get('/field-ops/performance/export-excel', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { period, start_date, end_date } = c.req.query();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  let startD, endD;
+  if (period === 'day') { startD = today.toISOString().split('T')[0]; endD = startD; }
+  else if (period === 'week') { const dow = today.getDay(); const diff = dow === 0 ? -6 : (dow === 1 ? 0 : 1 - dow); const mon = new Date(today); mon.setDate(today.getDate() + diff); startD = mon.toISOString().split('T')[0]; endD = today.toISOString().split('T')[0]; }
+  else if (period === 'month') { startD = today.toISOString().slice(0, 7) + '-01'; endD = today.toISOString().split('T')[0]; }
+  else { startD = start_date || today.toISOString().split('T')[0]; endD = end_date || startD; }
+  try {
+    const escXml = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const numCell = (v) => `<Cell><Data ss:Type="Number">${v}</Data></Cell>`;
+    const strCell = (v) => `<Cell><Data ss:Type="String">${escXml(v)}</Data></Cell>`;
+    // Fetch all managers
+    const allManagers = await db.prepare("SELECT id, first_name, last_name FROM users WHERE tenant_id = ? AND role = 'manager' AND is_active = 1").bind(tenantId).all();
+    const allTeamLeads = await db.prepare("SELECT id, first_name, last_name, manager_id FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1").bind(tenantId).all();
+    const allAgents = await db.prepare("SELECT id, first_name, last_name, team_lead_id, manager_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1").bind(tenantId).all();
+    const [allVisits, allIndivV, allStoreV, allConvs] = await Promise.all([
+      db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
+      db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'individual' AND visit_date BETWEEN ? AND ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
+      db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'store' AND visit_date BETWEEN ? AND ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
+      db.prepare("SELECT v.agent_id, COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date BETWEEN ? AND ? GROUP BY v.agent_id").bind(tenantId, startD, endD).all()
+    ]);
+    const vMap = Object.fromEntries((allVisits.results || []).map(r => [r.agent_id, r.count]));
+    const iMap = Object.fromEntries((allIndivV.results || []).map(r => [r.agent_id, r.count]));
+    const sMap = Object.fromEntries((allStoreV.results || []).map(r => [r.agent_id, r.count]));
+    const cMap = Object.fromEntries((allConvs.results || []).map(r => [r.agent_id, r.count]));
+    const sumIds = (ids) => {
+      let v=0, i=0, s=0, cv=0;
+      for (const id of ids) { v += vMap[id]||0; i += iMap[id]||0; s += sMap[id]||0; cv += cMap[id]||0; }
+      return { visits: v, individual: i, store: s, conversions: cv, convRate: i > 0 ? Math.round((cv/i)*100)+'%' : '0%' };
+    };
+    // Build hierarchy
+    const managers = (allManagers.results || []).map(m => {
+      const tls = (allTeamLeads.results || []).filter(t => t.manager_id === m.id);
+      const directAgents = (allAgents.results || []).filter(a => a.manager_id === m.id && (!a.team_lead_id || a.team_lead_id === ''));
+      const allMgrIds = [m.id];
+      const teamLeads = tls.map(tl => {
+        const agents = (allAgents.results || []).filter(a => a.team_lead_id === tl.id);
+        const tlIds = [tl.id, ...agents.map(a => a.id)];
+        allMgrIds.push(...tlIds);
+        return { ...tl, name: tl.first_name + ' ' + tl.last_name, agents: agents.map(a => ({ ...a, name: a.first_name + ' ' + a.last_name, ...sumIds([a.id]) })), ...sumIds(tlIds) };
+      });
+      allMgrIds.push(...directAgents.map(a => a.id));
+      const dAgents = directAgents.map(a => ({ ...a, name: a.first_name + ' ' + a.last_name, ...sumIds([a.id]) }));
+      return { ...m, name: m.first_name + ' ' + m.last_name, teamLeads, directAgents: dAgents, ...sumIds(allMgrIds), totalTLs: tls.length, totalAgents: (allAgents.results || []).filter(a => tls.some(t => t.id === a.team_lead_id) || (a.manager_id === m.id)).length };
+    });
+    // Grand totals
+    const allIds = [...(allManagers.results||[]).map(m=>m.id), ...(allTeamLeads.results||[]).map(t=>t.id), ...(allAgents.results||[]).map(a=>a.id)];
+    const grand = sumIds(allIds);
+    const periodLabel = period === 'day' ? 'Today' : period === 'week' ? 'Week to Date' : period === 'month' ? 'Month to Date' : `${startD} to ${endD}`;
+    // ===== Build SpreadsheetML XML =====
+    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<?mso-application progid="Excel.Sheet"?>\n';
+    xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n';
+    xml += '<Styles><Style ss:ID="header"><Font ss:Bold="1"/><Interior ss:Color="#4472C4" ss:Pattern="Solid"/><Font ss:Color="#FFFFFF" ss:Bold="1"/></Style>';
+    xml += '<Style ss:ID="total"><Font ss:Bold="1"/><Interior ss:Color="#D9E2F3" ss:Pattern="Solid"/></Style>';
+    xml += '<Style ss:ID="default"/></Styles>\n';
+    // --- Sheet 1: Manager Summary ---
+    xml += '<Worksheet ss:Name="Manager Summary"><Table>\n';
+    xml += `<Row>${strCell('Performance Report - ' + periodLabel)}</Row><Row></Row>\n`;
+    xml += `<Row ss:StyleID="header">${strCell('Manager')}${strCell('Team Leads')}${strCell('Agents')}${strCell('Total Visits')}${strCell('Individual')}${strCell('Store')}${strCell('Conversions')}${strCell('Conv. Rate')}</Row>\n`;
+    for (const m of managers) {
+      xml += `<Row>${strCell(m.name)}${numCell(m.totalTLs)}${numCell(m.totalAgents)}${numCell(m.visits)}${numCell(m.individual)}${numCell(m.store)}${numCell(m.conversions)}${strCell(m.convRate)}</Row>\n`;
+    }
+    xml += `<Row ss:StyleID="total">${strCell('TOTAL')}${numCell((allTeamLeads.results||[]).length)}${numCell((allAgents.results||[]).length)}${numCell(grand.visits)}${numCell(grand.individual)}${numCell(grand.store)}${numCell(grand.conversions)}${strCell(grand.convRate)}</Row>\n`;
+    xml += '</Table></Worksheet>\n';
+    // --- Sheet 2: Manager + Team Leader Breakdown ---
+    xml += '<Worksheet ss:Name="Manager - Team Leaders"><Table>\n';
+    xml += `<Row>${strCell('Manager / Team Leader Breakdown - ' + periodLabel)}</Row><Row></Row>\n`;
+    xml += `<Row ss:StyleID="header">${strCell('Manager')}${strCell('Team Leader')}${strCell('Agents')}${strCell('Visits')}${strCell('Individual')}${strCell('Store')}${strCell('Conversions')}${strCell('Conv. Rate')}</Row>\n`;
+    for (const m of managers) {
+      xml += `<Row ss:StyleID="total">${strCell(m.name)}${strCell('(Total)')}${numCell(m.totalAgents)}${numCell(m.visits)}${numCell(m.individual)}${numCell(m.store)}${numCell(m.conversions)}${strCell(m.convRate)}</Row>\n`;
+      for (const tl of m.teamLeads) {
+        xml += `<Row>${strCell('')}${strCell(tl.name)}${numCell(tl.agents.length)}${numCell(tl.visits)}${numCell(tl.individual)}${numCell(tl.store)}${numCell(tl.conversions)}${strCell(tl.convRate)}</Row>\n`;
+      }
+      if (m.directAgents.length > 0) {
+        const daTotal = sumIds(m.directAgents.map(a => a.id));
+        xml += `<Row>${strCell('')}${strCell('(Unassigned Agents)')}${numCell(m.directAgents.length)}${numCell(daTotal.visits)}${numCell(daTotal.individual)}${numCell(daTotal.store)}${numCell(daTotal.conversions)}${strCell(daTotal.convRate)}</Row>\n`;
+      }
+    }
+    xml += '</Table></Worksheet>\n';
+    // --- Sheet 3: Team Leader + Agent Breakdown ---
+    xml += '<Worksheet ss:Name="Team Leader - Agents"><Table>\n';
+    xml += `<Row>${strCell('Team Leader / Agent Breakdown - ' + periodLabel)}</Row><Row></Row>\n`;
+    xml += `<Row ss:StyleID="header">${strCell('Team Leader')}${strCell('Agent')}${strCell('Visits')}${strCell('Individual')}${strCell('Store')}${strCell('Conversions')}${strCell('Conv. Rate')}</Row>\n`;
+    for (const m of managers) {
+      for (const tl of m.teamLeads) {
+        xml += `<Row ss:StyleID="total">${strCell(tl.name)}${strCell('(Total)')}${numCell(tl.visits)}${numCell(tl.individual)}${numCell(tl.store)}${numCell(tl.conversions)}${strCell(tl.convRate)}</Row>\n`;
+        for (const agent of tl.agents) {
+          xml += `<Row>${strCell('')}${strCell(agent.name)}${numCell(agent.visits)}${numCell(agent.individual)}${numCell(agent.store)}${numCell(agent.conversions)}${strCell(agent.convRate)}</Row>\n`;
+        }
+      }
+      if (m.directAgents.length > 0) {
+        const daTotal = sumIds(m.directAgents.map(a => a.id));
+        xml += `<Row ss:StyleID="total">${strCell('Unassigned (' + m.name + ')')}${strCell('(Total)')}${numCell(daTotal.visits)}${numCell(daTotal.individual)}${numCell(daTotal.store)}${numCell(daTotal.conversions)}${strCell(daTotal.convRate)}</Row>\n`;
+        for (const agent of m.directAgents) {
+          xml += `<Row>${strCell('')}${strCell(agent.name)}${numCell(agent.visits)}${numCell(agent.individual)}${numCell(agent.store)}${numCell(agent.conversions)}${strCell(agent.convRate)}</Row>\n`;
+        }
+      }
+    }
+    xml += '</Table></Worksheet>\n';
+    xml += '</Workbook>';
+    const filename = `performance-report-${periodLabel.replace(/\s/g, '-')}-${startD}-to-${endD}.xls`;
+    return new Response(xml, {
+      headers: { 'Content-Type': 'application/vnd.ms-excel', 'Content-Disposition': `attachment; filename="${filename}"` }
+    });
+  } catch (e) {
+    console.error('Multi-sheet export error:', e);
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 // ==================== FIELD OPERATIONS: DRILL-DOWN ====================
 api.get('/field-ops/drill-down/:userId', authMiddleware, async (c) => {
   const db = c.env.DB;
@@ -8440,25 +8562,52 @@ api.get('/field-ops/drill-down/:userId', authMiddleware, async (c) => {
   try {
     const user = await db.prepare("SELECT id, first_name, last_name, role, manager_id, team_lead_id FROM users WHERE id = ? AND tenant_id = ?").bind(targetUserId, tenantId).first();
     if (!user) return c.json({ success: false, message: 'User not found' }, 404);
-    if (user.role === 'team_lead') {
+    if (user.role === 'manager') {
+      // Manager drill-down: show team leads with their stats
+      const teamLeads = await db.prepare("SELECT id, first_name, last_name, email, role FROM users WHERE manager_id = ? AND tenant_id = ? AND role = 'team_lead' AND is_active = 1").bind(targetUserId, tenantId).all();
+      const directAgents = await db.prepare("SELECT id, first_name, last_name, email, role FROM users WHERE manager_id = ? AND tenant_id = ? AND role = 'agent' AND (team_lead_id IS NULL OR team_lead_id = '') AND is_active = 1").bind(targetUserId, tenantId).all();
+      const subordinates = [];
+      for (const tl of (teamLeads.results || [])) {
+        const teamAgentIds = await db.prepare("SELECT id FROM users WHERE team_lead_id = ? AND tenant_id = ? AND is_active = 1").bind(tl.id, tenantId).all();
+        const allIds = [tl.id, ...(teamAgentIds.results || []).map(a => a.id)];
+        const placeholders = allIds.map(() => '?').join(',');
+        const [v, iv, sv, cv] = await Promise.all([
+          db.prepare(`SELECT COUNT(*) as count FROM visits WHERE agent_id IN (${placeholders}) AND tenant_id = ? AND visit_date BETWEEN ? AND ?`).bind(...allIds, tenantId, startD, endD).first(),
+          db.prepare(`SELECT COUNT(*) as count FROM visits WHERE agent_id IN (${placeholders}) AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'individual'`).bind(...allIds, tenantId, startD, endD).first(),
+          db.prepare(`SELECT COUNT(*) as count FROM visits WHERE agent_id IN (${placeholders}) AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'store'`).bind(...allIds, tenantId, startD, endD).first(),
+          db.prepare(`SELECT COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.agent_id IN (${placeholders}) AND v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ?`).bind(...allIds, tenantId, startD, endD).first()
+        ]);
+        subordinates.push({ id: tl.id, agent_id: tl.id, agent_name: tl.first_name + ' ' + tl.last_name, email: tl.email, role: 'team_lead', agents_count: (teamAgentIds.results || []).length, visits: v?.count || 0, individual_visits: iv?.count || 0, individuals: iv?.count || 0, store_visits: sv?.count || 0, conversions: cv?.count || 0 });
+      }
+      for (const agent of (directAgents.results || [])) {
+        const [v, iv, sv, cv] = await Promise.all([
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ?").bind(agent.id, tenantId, startD, endD).first(),
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'individual'").bind(agent.id, tenantId, startD, endD).first(),
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'store'").bind(agent.id, tenantId, startD, endD).first(),
+          db.prepare("SELECT COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.agent_id = ? AND v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ?").bind(agent.id, tenantId, startD, endD).first()
+        ]);
+        subordinates.push({ id: agent.id, agent_id: agent.id, agent_name: agent.first_name + ' ' + agent.last_name, email: agent.email, role: 'agent', visits: v?.count || 0, individual_visits: iv?.count || 0, individuals: iv?.count || 0, store_visits: sv?.count || 0, conversions: cv?.count || 0 });
+      }
+      return c.json({ user, agents: subordinates, period: { start: startD, end: endD, type: period || 'custom' } });
+    } else if (user.role === 'team_lead') {
       const teamAgents = await db.prepare("SELECT id, first_name, last_name, email, role FROM users WHERE team_lead_id = ? AND tenant_id = ? AND is_active = 1").bind(targetUserId, tenantId).all();
       const agentPerf = [];
       for (const agent of (teamAgents.results || [])) {
         const [v, iv, sv, cv] = await Promise.all([
-          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed'").bind(agent.id, tenantId, startD, endD).first(),
-          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND LOWER(visit_type) = 'individual'").bind(agent.id, tenantId, startD, endD).first(),
-          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND LOWER(visit_type) = 'store'").bind(agent.id, tenantId, startD, endD).first(),
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ?").bind(agent.id, tenantId, startD, endD).first(),
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'individual'").bind(agent.id, tenantId, startD, endD).first(),
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'store'").bind(agent.id, tenantId, startD, endD).first(),
           db.prepare("SELECT COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.agent_id = ? AND v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ?").bind(agent.id, tenantId, startD, endD).first()
         ]);
-        agentPerf.push({ agent_id: agent.id, agent_name: agent.first_name + ' ' + agent.last_name, email: agent.email, visits: v?.count || 0, individual_visits: iv?.count || 0, individuals: iv?.count || 0, store_visits: sv?.count || 0, conversions: cv?.count || 0 });
+        agentPerf.push({ id: agent.id, agent_id: agent.id, agent_name: agent.first_name + ' ' + agent.last_name, email: agent.email, visits: v?.count || 0, individual_visits: iv?.count || 0, individuals: iv?.count || 0, store_visits: sv?.count || 0, conversions: cv?.count || 0 });
       }
       return c.json({ user, agents: agentPerf, period: { start: startD, end: endD, type: period || 'custom' } });
     } else {
       // Drill down into individual agent
       const [visits, individualVisits, dailyVisits] = await Promise.all([
-        db.prepare("SELECT v.*, c.name as customer_name FROM visits v LEFT JOIN customers c ON v.customer_id = c.id WHERE v.agent_id = ? AND v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? AND v.status = 'completed' ORDER BY v.visit_date DESC LIMIT 50").bind(targetUserId, tenantId, startD, endD).all(),
+        db.prepare("SELECT v.*, c.name as customer_name FROM visits v LEFT JOIN customers c ON v.customer_id = c.id WHERE v.agent_id = ? AND v.tenant_id = ? AND v.visit_date BETWEEN ? AND ? ORDER BY v.visit_date DESC LIMIT 50").bind(targetUserId, tenantId, startD, endD).all(),
         db.prepare("SELECT * FROM visits WHERE agent_id = ? AND tenant_id = ? AND LOWER(visit_type) = 'individual' AND visit_date >= ? AND visit_date <= ? ORDER BY created_at DESC LIMIT 50").bind(targetUserId, tenantId, startD, endD).all(),
-        db.prepare("SELECT visit_date, COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' GROUP BY visit_date ORDER BY visit_date").bind(targetUserId, tenantId, startD, endD).all()
+        db.prepare("SELECT visit_date, COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? GROUP BY visit_date ORDER BY visit_date").bind(targetUserId, tenantId, startD, endD).all()
       ]);
       return c.json({ user, visits: visits.results || [], individuals: individualVisits.results || [], daily_visits: dailyVisits.results || [], period: { start: startD, end: endD, type: period || 'custom' } });
     }
@@ -8504,30 +8653,61 @@ api.get('/field-ops/drill-down/:userId/export', authMiddleware, async (c) => {
     let headers = [];
     let data = [];
     
-    if (user.role === 'team_lead') {
-      headers = ['Agent', 'Visits', 'Individuals', 'Conversions', 'Conversion Rate'];
+    if (user.role === 'manager') {
+      headers = ['Name', 'Role', 'Visits', 'Individual', 'Store', 'Conversions', 'Conversion Rate'];
+      const teamLeads = await db.prepare("SELECT id, first_name, last_name FROM users WHERE manager_id = ? AND tenant_id = ? AND role = 'team_lead' AND is_active = 1").bind(targetUserId, tenantId).all();
+      const directAgents = await db.prepare("SELECT id, first_name, last_name FROM users WHERE manager_id = ? AND tenant_id = ? AND role = 'agent' AND (team_lead_id IS NULL OR team_lead_id = '') AND is_active = 1").bind(targetUserId, tenantId).all();
+      for (const tl of (teamLeads.results || [])) {
+        const teamAgentIds = await db.prepare("SELECT id FROM users WHERE team_lead_id = ? AND tenant_id = ? AND is_active = 1").bind(tl.id, tenantId).all();
+        const allIds = [tl.id, ...(teamAgentIds.results || []).map(a => a.id)];
+        const ph = allIds.map(() => '?').join(',');
+        const [v, iv, sv, cv] = await Promise.all([
+          db.prepare(`SELECT COUNT(*) as count FROM visits WHERE agent_id IN (${ph}) AND tenant_id = ? AND visit_date BETWEEN ? AND ?`).bind(...allIds, tenantId, startD, endD).first(),
+          db.prepare(`SELECT COUNT(*) as count FROM visits WHERE agent_id IN (${ph}) AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'individual'`).bind(...allIds, tenantId, startD, endD).first(),
+          db.prepare(`SELECT COUNT(*) as count FROM visits WHERE agent_id IN (${ph}) AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'store'`).bind(...allIds, tenantId, startD, endD).first(),
+          db.prepare(`SELECT COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.agent_id IN (${ph}) AND v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ?`).bind(...allIds, tenantId, startD, endD).first()
+        ]);
+        const ivCount = iv?.count || 0; const cvCount = cv?.count || 0;
+        data.push([tl.first_name + ' ' + tl.last_name, 'Team Lead', v?.count || 0, ivCount, sv?.count || 0, cvCount, ivCount > 0 ? Math.round((cvCount / ivCount) * 100) + '%' : '0%']);
+      }
+      for (const agent of (directAgents.results || [])) {
+        const [v, iv, sv, cv] = await Promise.all([
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ?").bind(agent.id, tenantId, startD, endD).first(),
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'individual'").bind(agent.id, tenantId, startD, endD).first(),
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'store'").bind(agent.id, tenantId, startD, endD).first(),
+          db.prepare("SELECT COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.agent_id = ? AND v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ?").bind(agent.id, tenantId, startD, endD).first()
+        ]);
+        const ivCount = iv?.count || 0; const cvCount = cv?.count || 0;
+        data.push([agent.first_name + ' ' + agent.last_name, 'Agent', v?.count || 0, ivCount, sv?.count || 0, cvCount, ivCount > 0 ? Math.round((cvCount / ivCount) * 100) + '%' : '0%']);
+      }
+    } else if (user.role === 'team_lead') {
+      headers = ['Agent', 'Visits', 'Individual', 'Store', 'Conversions', 'Conversion Rate'];
       const teamAgents = await db.prepare("SELECT id, first_name, last_name FROM users WHERE team_lead_id = ? AND tenant_id = ? AND is_active = 1").bind(targetUserId, tenantId).all();
       
       for (const agent of (teamAgents.results || [])) {
-        const [v, iv, cv] = await Promise.all([
-          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed'").bind(agent.id, tenantId, startD, endD).first(),
-          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' AND LOWER(visit_type) = 'individual'").bind(agent.id, tenantId, startD, endD).first(),
+        const [v, iv, sv, cv] = await Promise.all([
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ?").bind(agent.id, tenantId, startD, endD).first(),
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'individual'").bind(agent.id, tenantId, startD, endD).first(),
+          db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND LOWER(visit_type) = 'store'").bind(agent.id, tenantId, startD, endD).first(),
           db.prepare("SELECT COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.agent_id = ? AND v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ?").bind(agent.id, tenantId, startD, endD).first()
         ]);
         const vCount = v?.count || 0;
         const ivCount = iv?.count || 0;
+        const svCount = sv?.count || 0;
         const cvCount = cv?.count || 0;
         const convRate = ivCount > 0 ? Math.round((cvCount / ivCount) * 100) + '%' : '0%';
-        data.push([agent.first_name + ' ' + agent.last_name, vCount, ivCount, cvCount, convRate]);
+        data.push([agent.first_name + ' ' + agent.last_name, vCount, ivCount, svCount, cvCount, convRate]);
       }
     } else {
-      headers = ['Date', 'Visits', 'Individuals', 'Conversions'];
-      const dailyVisits = await db.prepare("SELECT visit_date, COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' GROUP BY visit_date ORDER BY visit_date").bind(targetUserId, tenantId, startD, endD).all();
+      headers = ['Date', 'Visits', 'Individual', 'Store', 'Conversions'];
+      const dailyVisits = await db.prepare("SELECT visit_date, COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date BETWEEN ? AND ? GROUP BY visit_date ORDER BY visit_date").bind(targetUserId, tenantId, startD, endD).all();
       const dailyIndivs = await db.prepare("SELECT visit_date as day, COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND LOWER(visit_type) = 'individual' AND visit_date >= ? AND visit_date <= ? GROUP BY visit_date ORDER BY visit_date").bind(targetUserId, tenantId, startD, endD).all();
+      const dailyStores = await db.prepare("SELECT visit_date as day, COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND LOWER(visit_type) = 'store' AND visit_date >= ? AND visit_date <= ? GROUP BY visit_date ORDER BY visit_date").bind(targetUserId, tenantId, startD, endD).all();
       const dailyConvs = await db.prepare("SELECT DATE(created_at) as day, COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.agent_id = ? AND v.tenant_id = ? AND JSON_EXTRACT(vi.custom_field_values, '$.converted') = 1 AND v.visit_date >= ? AND v.visit_date <= ? GROUP BY day ORDER BY day").bind(targetUserId, tenantId, startD, endD).all();
       
       const visitMap = Object.fromEntries((dailyVisits.results || []).map(r => [r.visit_date, r.count]));
       const indivMap = Object.fromEntries((dailyIndivs.results || []).map(r => [r.day, r.count]));
+      const storeMap = Object.fromEntries((dailyStores.results || []).map(r => [r.day, r.count]));
       const convMap = Object.fromEntries((dailyConvs.results || []).map(r => [r.day, r.count]));
       
       // Generate all dates in range
@@ -8542,6 +8722,7 @@ api.get('/field-ops/drill-down/:userId/export', authMiddleware, async (c) => {
         date,
         visitMap[date] || 0,
         indivMap[date] || 0,
+        storeMap[date] || 0,
         convMap[date] || 0
       ]);
     }

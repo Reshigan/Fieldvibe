@@ -282,6 +282,21 @@ export default function VisitCreate() {
     loadFormData()
   }, [])
 
+  // Auto-select company when visit type changes based on process flow assignments
+  useEffect(() => {
+    if (isMobileContext && visitTargetType && companies.length > 0 && !selectedCompany) {
+      const matchingCompany = companies.find((c: any) =>
+        c.process_flow_types && Array.isArray(c.process_flow_types) &&
+        (c.process_flow_types.includes(visitTargetType) || c.process_flow_types.includes('both'))
+      )
+      if (matchingCompany) {
+        setSelectedCompany(matchingCompany.id)
+      } else if (companies.length === 1) {
+        setSelectedCompany(companies[0].id)
+      }
+    }
+  }, [visitTargetType, companies, isMobileContext])
+
   const loadFormData = async () => {
     try {
       let companiesData: Company[] = []
@@ -319,8 +334,18 @@ export default function VisitCreate() {
         companiesData = Array.isArray(allCompanies) ? allCompanies : []
       }
       setCompanies(companiesData)
-      // Auto-select company if agent has exactly one
-      if (companiesData.length === 1) {
+      // Auto-select company based on process flow assignment for the current visit type
+      if (isMobileContext && companiesData.length > 0 && visitTargetType) {
+        const matchingCompany = companiesData.find((c: any) =>
+          c.process_flow_types && Array.isArray(c.process_flow_types) &&
+          (c.process_flow_types.includes(visitTargetType) || c.process_flow_types.includes('both'))
+        )
+        if (matchingCompany) {
+          setSelectedCompany(matchingCompany.id)
+        } else if (companiesData.length === 1) {
+          setSelectedCompany(companiesData[0].id)
+        }
+      } else if (companiesData.length === 1) {
         setSelectedCompany(companiesData[0].id)
       }
       // Load customers/stores: use store-search endpoint on mobile for better results (includes visit history)
