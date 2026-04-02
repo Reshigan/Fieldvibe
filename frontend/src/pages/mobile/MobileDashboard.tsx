@@ -164,6 +164,9 @@ export default function MobileDashboard() {
     if (isTeamLead || isManager) {
       fetchPerformance(period)
     }
+    // Clear cached team agents when period changes so stale data isn't shown
+    setTeamAgents({})
+    setExpandedTeam(null)
   }, [period, isTeamLead, isManager, fetchPerformance])
 
   const getPeriodStats = () => {

@@ -14889,6 +14889,10 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
       let likes_goldrush = '';
       let platform_suggestions = '';
       let gave_brand_info = '';
+      let id_passport_photo = '';
+      let shop_exterior_photo = '';
+      let ad_board_photo = '';
+      let competitor_photo = '';
       try {
         // Parse custom field values (from visit_individuals - where custom questions like goldrush_id are stored)
         let customFields = {};
@@ -14916,10 +14920,10 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
         platform_suggestions = responses.platform_suggestions || '';
         gave_brand_info = responses.gave_brand_info || '';
         // Extract questionnaire image URLs from Goldrush Individual Visit process steps
-        const id_passport_photo = responses.id_passport_photo || '';
-        const shop_exterior_photo = responses.shop_exterior_photo || '';
-        const ad_board_photo = responses.ad_board_photo || '';
-        const competitor_photo = responses.competitor_photo || '';
+        id_passport_photo = responses.id_passport_photo || '';
+        shop_exterior_photo = responses.shop_exterior_photo || '';
+        ad_board_photo = responses.ad_board_photo || '';
+        competitor_photo = responses.competitor_photo || '';
       } catch (e) { /* ignore parse errors */ }
 
       // Use visit_photos thumbnail first, then fall back to questionnaire image responses
