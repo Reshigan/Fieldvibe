@@ -4,7 +4,7 @@ import { apiClient } from '../../../services/api.service'
 import { fieldOperationsService } from '../../../services/field-operations.service'
 import SearchableSelect from '../../../components/ui/SearchableSelect'
 import LoadingSpinner from '../../../components/ui/LoadingSpinner'
-import { Download, Users, Search, CheckCircle, XCircle, AlertTriangle, Edit2, Save, X } from 'lucide-react'
+import { Download, Users, Search, CheckCircle, XCircle, AlertTriangle, Edit2, Save, X, Camera } from 'lucide-react'
 import toast from 'react-hot-toast'
 import DateRangePresets from '../../../components/ui/DateRangePresets'
 
@@ -18,6 +18,7 @@ interface GoldrushIndividual {
   email: string
   product_app_player_id: string
   goldrush_id: string
+  thumbnail_url: string
   converted: number
   conversion_date: string
   agent_name: string
@@ -45,6 +46,7 @@ const GoldrushIndividualReport: React.FC = () => {
   const [editValue, setEditValue] = useState('')
   const [saving, setSaving] = useState(false)
   const [selectedCompany, setSelectedCompany] = useState<string>('')
+  const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null)
 
   const { data: companiesResp } = useQuery({
     queryKey: ['field-companies'],
@@ -280,6 +282,7 @@ const GoldrushIndividualReport: React.FC = () => {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+                <th className="text-left py-3 px-4 text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap">Photo</th>
                 <th className="text-left py-3 px-4 text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap">Name</th>
                 <th className="text-left py-3 px-4 text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap">ID Number</th>
                 <th className="text-left py-3 px-4 text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap">Phone</th>
@@ -295,12 +298,21 @@ const GoldrushIndividualReport: React.FC = () => {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-gray-400">
+                  <td colSpan={11} className="py-12 text-center text-gray-400">
                     {individuals.length === 0 ? 'No Goldrush individual records found' : 'No records match your search'}
                   </td>
                 </tr>
               ) : filtered.map((ind) => (
                 <tr key={ind.id} className="group border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                  <td className="py-3 px-4">
+                    {ind.thumbnail_url ? (
+                      <button onClick={() => setExpandedPhoto(ind.thumbnail_url)} className="block">
+                        <img src={ind.thumbnail_url} alt="Visit photo" className="w-10 h-10 rounded object-cover border border-gray-200 dark:border-gray-700 hover:opacity-80 transition-opacity" />
+                      </button>
+                    ) : (
+                      <span className="text-gray-400 text-xs">No photo</span>
+                    )}
+                  </td>
                   <td className="py-3 px-4 text-gray-900 dark:text-white font-medium whitespace-nowrap">
                     {ind.first_name} {ind.last_name}
                   </td>
@@ -361,6 +373,25 @@ const GoldrushIndividualReport: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Photo Expand Modal */}
+      {expandedPhoto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setExpandedPhoto(null)}>
+          <div className="relative max-w-3xl max-h-[90vh] p-2" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setExpandedPhoto(null)}
+              className="absolute top-0 right-0 m-2 p-1 bg-white dark:bg-gray-800 rounded-full shadow-lg text-gray-600 hover:text-gray-900 dark:text-gray-300 z-10"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img
+              src={expandedPhoto}
+              alt="Visit photo expanded"
+              className="max-w-full max-h-[85vh] rounded-lg object-contain"
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

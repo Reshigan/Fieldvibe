@@ -14858,6 +14858,7 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
     // Use correlated subqueries to avoid duplicate rows (same pattern as line 2762)
     const result = await db.prepare(`
       SELECT v.id, i.first_name, i.last_name, i.id_number, i.phone, i.email,
+        (SELECT vp.r2_url FROM visit_photos vp WHERE vp.visit_id = v.id AND vp.tenant_id = v.tenant_id AND vp.r2_url IS NOT NULL LIMIT 1) as thumbnail_url,
         JSON_EXTRACT(vi.custom_field_values, '$.product_app_player_id') as product_app_player_id,
         COALESCE(JSON_EXTRACT(vi.custom_field_values, '$.converted'), 0) as converted,
         JSON_EXTRACT(vi.custom_field_values, '$.conversion_date') as conversion_date,
@@ -14914,7 +14915,15 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
         likes_goldrush = responses.likes_goldrush || '';
         platform_suggestions = responses.platform_suggestions || '';
         gave_brand_info = responses.gave_brand_info || '';
+        // Extract questionnaire image URLs from Goldrush Individual Visit process steps
+        const id_passport_photo = responses.id_passport_photo || '';
+        const shop_exterior_photo = responses.shop_exterior_photo || '';
+        const ad_board_photo = responses.ad_board_photo || '';
+        const competitor_photo = responses.competitor_photo || '';
       } catch (e) { /* ignore parse errors */ }
+
+      // Use visit_photos thumbnail first, then fall back to questionnaire image responses
+      const photo_url = row.thumbnail_url || id_passport_photo || shop_exterior_photo || ad_board_photo || competitor_photo || null;
 
       return {
         id: row.id,
@@ -14934,6 +14943,7 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
         created_at: row.created_at,
         notes: row.notes,
         gave_brand_info,
+        thumbnail_url: photo_url,
         consumer_converted,
         betting_elsewhere,
         competitor_company,
@@ -14990,13 +15000,40 @@ api.get('/field-ops/reports/shops/:shopId', authMiddleware, async (c) => {
     const shop = await db.prepare('SELECT * FROM customers WHERE id = ? AND tenant_id = ?').bind(shopId, tenantId).first();
     const checkins = await db.prepare(`
       SELECT v.id, v.visit_date as timestamp, v.status, v.agent_id,
+        u.first_name || ' ' || u.last_name as agent_name,
+        (SELECT vp.r2_url FROM visit_photos vp WHERE vp.visit_id = v.id AND vp.tenant_id = v.tenant_id AND vp.r2_url IS NOT NULL LIMIT 1) as thumbnail_url,
+        (SELECT vi2.custom_field_values FROM visit_individuals vi2 WHERE vi2.visit_id = v.id LIMIT 1) as custom_field_values,
+        (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id LIMIT 1) as questionnaire_responses,
         (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM visit_individuals vi WHERE vi.visit_id = v.id AND vi.tenant_id = v.tenant_id AND COALESCE(JSON_EXTRACT(vi.custom_field_values, '$.converted'), 0) = 1) as converted,
         v.notes as responses
       FROM visits v
+      LEFT JOIN users u ON v.agent_id = u.id
       WHERE v.customer_id = ? AND v.tenant_id = ?
       ORDER BY v.visit_date DESC
       LIMIT 50
     `).bind(shopId, tenantId).all();
+
+    // Process checkins to extract Goldrush store visit process step photos
+    const processedCheckins = (checkins.results || []).map(c => {
+      let photo = c.thumbnail_url || null;
+      let shop_exterior_photo = null;
+      let ad_board_photo = null;
+      let competitor_photo = null;
+      try {
+        const cfv = c.custom_field_values ? (typeof c.custom_field_values === 'string' ? JSON.parse(c.custom_field_values) : c.custom_field_values) : {};
+        const qr = c.questionnaire_responses ? (typeof c.questionnaire_responses === 'string' ? JSON.parse(c.questionnaire_responses) : c.questionnaire_responses) : {};
+        const merged = { ...qr, ...cfv };
+        shop_exterior_photo = merged.shop_exterior_photo || null;
+        ad_board_photo = merged.ad_board_photo || null;
+        competitor_photo = merged.competitor_photo || null;
+        if (!photo) photo = shop_exterior_photo || ad_board_photo || competitor_photo;
+      } catch (e) { /* ignore */ }
+      return {
+        id: c.id, timestamp: c.timestamp, status: c.status, agent_name: c.agent_name || null,
+        thumbnail_url: photo, shop_exterior_photo, ad_board_photo, competitor_photo,
+        converted: c.converted, responses: c.responses
+      };
+    });
     const stats = await db.prepare(`
       SELECT COUNT(*) as total_checkins,
         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as approved,
@@ -15004,7 +15041,7 @@ api.get('/field-ops/reports/shops/:shopId', authMiddleware, async (c) => {
       FROM visits WHERE customer_id = ? AND tenant_id = ?
     `).bind(shopId, tenantId, shopId, tenantId, shopId, tenantId).first();
 
-    return c.json({ success: true, shop, checkins: checkins.results || [], stats });
+    return c.json({ success: true, shop, checkins: processedCheckins, stats });
   } catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 
