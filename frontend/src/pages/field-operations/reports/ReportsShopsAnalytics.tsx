@@ -4,7 +4,7 @@ import { apiClient } from '../../../services/api.service'
 import { fieldOperationsService } from '../../../services/field-operations.service'
 import SearchableSelect from '../../../components/ui/SearchableSelect'
 import LoadingSpinner from '../../../components/ui/LoadingSpinner'
-import { Store, MapPin, Eye, ChevronLeft , AlertTriangle } from 'lucide-react'
+import { Store, MapPin, Eye, ChevronLeft, AlertTriangle, X } from 'lucide-react'
 import DateRangePresets from '../../../components/ui/DateRangePresets'
 
 interface Shop {
@@ -19,7 +19,7 @@ interface Shop {
 
 interface ShopDetail {
   shop: Record<string, unknown>
-  checkins: Array<{ id: string; timestamp: string; status: string; converted: number; responses: string }>
+  checkins: Array<{ id: string; timestamp: string; status: string; converted: number; responses: string; thumbnail_url?: string; agent_name?: string; shop_exterior_photo?: string; ad_board_photo?: string; competitor_photo?: string }>
   stats: { total_checkins: number; approved: number; conversions: number }
 }
 
@@ -29,6 +29,7 @@ const ReportsShopsAnalytics: React.FC = () => {
   const [endDate, setEndDate] = useState('')
   const [selectedShop, setSelectedShop] = useState<string | null>(null)
   const [selectedCompany, setSelectedCompany] = useState<string>('')
+  const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null)
 
   const { data: companiesResp } = useQuery({
     queryKey: ['field-companies'],
@@ -101,7 +102,9 @@ const ReportsShopsAnalytics: React.FC = () => {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Photo</th>
                   <th className="text-left py-2 px-3 text-gray-500 font-medium">Date</th>
+                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Agent</th>
                   <th className="text-left py-2 px-3 text-gray-500 font-medium">Status</th>
                   <th className="text-left py-2 px-3 text-gray-500 font-medium">Converted</th>
                   <th className="text-left py-2 px-3 text-gray-500 font-medium">Notes</th>
@@ -110,7 +113,17 @@ const ReportsShopsAnalytics: React.FC = () => {
               <tbody>
                 {(shopDetail.checkins || []).map(c => (
                   <tr key={c.id} className="border-b border-gray-100 dark:border-gray-700/50">
+                    <td className="py-2 px-3">
+                      {c.thumbnail_url ? (
+                        <button onClick={() => setExpandedPhoto(c.thumbnail_url!)} className="block">
+                          <img src={c.thumbnail_url} alt="Visit photo" className="w-10 h-10 rounded object-cover border border-gray-200 dark:border-gray-700 hover:opacity-80 transition-opacity" />
+                        </button>
+                      ) : (
+                        <span className="text-gray-400 text-xs">No photo</span>
+                      )}
+                    </td>
                     <td className="py-2 px-3 text-gray-900 dark:text-white">{c.timestamp ? new Date(c.timestamp).toLocaleDateString() : '-'}</td>
+                    <td className="py-2 px-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{c.agent_name || '-'}</td>
                     <td className="py-2 px-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${c.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                         {c.status}
@@ -124,6 +137,25 @@ const ReportsShopsAnalytics: React.FC = () => {
             </table>
           </div>
         </div>
+
+        {/* Photo Expand Modal */}
+        {expandedPhoto && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setExpandedPhoto(null)}>
+            <div className="relative max-w-3xl max-h-[90vh] p-2" onClick={e => e.stopPropagation()}>
+              <button
+                onClick={() => setExpandedPhoto(null)}
+                className="absolute top-0 right-0 m-2 p-1 bg-white dark:bg-gray-800 rounded-full shadow-lg text-gray-600 hover:text-gray-900 dark:text-gray-300 z-10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <img
+                src={expandedPhoto}
+                alt="Visit photo expanded"
+                className="max-w-full max-h-[85vh] rounded-lg object-contain"
+              />
+            </div>
+          </div>
+        )}
       </div>
     )
   }
