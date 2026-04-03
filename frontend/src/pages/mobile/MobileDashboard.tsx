@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { 
-  MapPin, Clock, CheckCircle, AlertTriangle, TrendingUp, 
+import {
+  MapPin, Clock, CheckCircle, AlertTriangle, TrendingUp,
   Users, Package, Calendar, ChevronRight, ChevronDown, ChevronUp,
-  Wifi, WifiOff, RefreshCw, Target, Store, User
+  Wifi, WifiOff, RefreshCw, Target, Store, User, Shield, UserCheck
 } from 'lucide-react'
 import { useAuthStore } from '../../store/auth.store'
 import { isOnline, getSyncQueueCount } from '../../utils/offline-storage'
 import { apiClient } from '../../services/api.service'
 
-// MOB-03: Mobile Dashboard with role-aware widgets, period toggle, team lead/manager drill-down
+// MOB-03: Mobile Dashboard with role-aware widgets, period toggle, team lead/manager drill-down, hierarchy scores
 
 interface QuickAction {
   label: string
@@ -82,29 +82,86 @@ interface PerformanceData {
   grand_total_target_stores?: number
 }
 
+interface CompanyTarget {
+  company_id: string
+  company_name: string
+  working_days_in_month: number
+  daily_target_visits: number
+  daily_target_registrations: number
+  daily_actual_visits: number
+  daily_actual_registrations: number
+  store_target_per_month: number
+  store_actual_month: number
+  store_actual_today: number
+  store_actual_week: number
+  individual_target_per_week: number
+  individual_target_per_month: number
+  individual_actual_month: number
+  individual_actual_today: number
+  individual_actual_week: number
+  week_target_visits: number
+  week_actual_visits: number
+  week_target_registrations: number
+  month_target_visits: number
+  month_actual_visits: number
+  month_target_registrations: number
+  month_actual_registrations: number
+}
+
+interface AgentHierarchyData {
+  team_performance: {
+    team_lead_name: string
+    member_count: number
+    total_visits: number
+    total_individuals: number
+    target_visits: number
+    actual_visits: number
+    target_registrations: number
+    actual_registrations: number
+    achievement: number
+  } | null
+  manager_performance: {
+    manager_name: string
+    achievement: number
+  } | null
+}
+
+interface DashboardResponse {
+  today_visits: number
+  month_visits: number
+  week_visits: number
+  today_stores: number
+  month_stores: number
+  week_stores: number
+  today_individual_visits: number
+  today_store_visits: number
+  month_individual_visits: number
+  month_store_visits: number
+  week_individual_visits: number
+  week_store_visits: number
+  recent_visits: Array<Record<string, unknown>>
+  companies: Array<{ id: string; name: string }>
+  daily_targets: Array<Record<string, unknown>>
+  company_target_rules: Array<Record<string, unknown>>
+  company_targets: CompanyTarget[]
+  weekly_targets: { target_visits: number; actual_visits: number; target_registrations: number; actual_registrations: number }
+  monthly_targets: { target_visits: number; actual_visits: number; target_registrations: number; actual_registrations: number }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))
+  ])
+}
+
 export default function MobileDashboard() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
   const [online, setOnline] = useState(isOnline())
   const [syncCount, setSyncCount] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
-  const [statsData, setStatsData] = useState<Record<string, unknown>>({
-    today_visits: 0,
-    month_visits: 0,
-    today_stores: 0,
-    month_stores: 0,
-    today_individual_visits: 0,
-    today_store_visits: 0,
-    month_individual_visits: 0,
-    month_store_visits: 0,
-    week_individual_visits: 0,
-    week_store_visits: 0,
-    week_visits: 0,
-    week_stores: 0,
-    daily_targets: [],
-    monthly_targets: [],
-    recent_visits: []
-  })
+  const [dashData, setDashData] = useState<DashboardResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<PeriodType>('day')
   const [perfData, setPerfData] = useState<PerformanceData | null>(null)
@@ -112,16 +169,18 @@ export default function MobileDashboard() {
   const [expandedTeam, setExpandedTeam] = useState<string | null>(null)
   const [teamAgents, setTeamAgents] = useState<Record<string, AgentPerf[]>>({})
   const [teamAgentsLoading, setTeamAgentsLoading] = useState<string | null>(null)
+  const [hierarchyData, setHierarchyData] = useState<AgentHierarchyData | null>(null)
 
   const role = user?.role || 'agent'
   const isTeamLead = role === 'team_lead'
   const isManager = role === 'manager' || role === 'admin' || role === 'super_admin'
+  const isAgent = !isTeamLead && !isManager
 
   const fetchStats = useCallback(async () => {
     try {
-      const dashRes = await apiClient.get('/agent/dashboard').catch(() => null)
+      const dashRes = await withTimeout(apiClient.get('/agent/dashboard'), 15000)
       if (dashRes?.data?.success && dashRes?.data?.data) {
-        setStatsData(dashRes.data.data)
+        setDashData(dashRes.data.data as DashboardResponse)
       }
     } catch (err) {
       console.error('Dashboard fetch error:', err)
@@ -130,11 +189,11 @@ export default function MobileDashboard() {
     }
   }, [])
 
+  // Fetch performance data for ALL roles (agents, team leads, managers)
   const fetchPerformance = useCallback(async (p: PeriodType) => {
-    if (!isTeamLead && !isManager) return
     setPerfLoading(true)
     try {
-      const res = await apiClient.get(`/field-ops/performance?period=${p}`).catch(() => null)
+      const res = await withTimeout(apiClient.get('/field-ops/performance?period=' + p), 15000)
       if (res?.data) {
         setPerfData(res.data)
       }
@@ -143,7 +202,23 @@ export default function MobileDashboard() {
     } finally {
       setPerfLoading(false)
     }
-  }, [isTeamLead, isManager])
+  }, [])
+
+  // Fetch hierarchy data for agents (team lead + manager scores)
+  const fetchHierarchy = useCallback(async () => {
+    if (!isAgent) return
+    try {
+      const res = await withTimeout(apiClient.get('/agent/performance'), 15000)
+      if (res?.data?.success && res?.data?.data) {
+        setHierarchyData({
+          team_performance: res.data.data.team_performance || null,
+          manager_performance: res.data.data.manager_performance || null,
+        })
+      }
+    } catch (err) {
+      console.error('Hierarchy fetch error:', err)
+    }
+  }, [isAgent])
 
   useEffect(() => {
     const handleOnline = () => setOnline(true)
@@ -151,55 +226,72 @@ export default function MobileDashboard() {
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
     getSyncQueueCount().then(setSyncCount)
-    
     fetchStats()
-    
+    fetchHierarchy()
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
-  }, [fetchStats])
+  }, [fetchStats, fetchHierarchy])
 
+  // Fetch performance data when period changes - for ALL roles
   useEffect(() => {
-    if (isTeamLead || isManager) {
-      fetchPerformance(period)
-    }
+    fetchPerformance(period)
     // Clear cached team agents when period changes so stale data isn't shown
     setTeamAgents({})
     setExpandedTeam(null)
-  }, [period, isTeamLead, isManager, fetchPerformance])
+  }, [period, fetchPerformance])
 
+  // Get period-specific stats from dashboard data
   const getPeriodStats = () => {
-    const s = statsData as Record<string, number>
+    if (!dashData) return { visits: 0, stores: 0, label: "Today's" }
     if (period === 'day') {
       return {
-        visits: s.today_individual_visits || s.today_visits || 0,
-        stores: s.today_store_visits || s.today_stores || 0,
+        visits: dashData.today_individual_visits || dashData.today_visits || 0,
+        stores: dashData.today_store_visits || dashData.today_stores || 0,
         label: "Today's"
       }
     } else if (period === 'week') {
       return {
-        visits: s.week_individual_visits || s.week_visits || 0,
-        stores: s.week_store_visits || s.week_stores || 0,
+        visits: dashData.week_individual_visits || dashData.week_visits || 0,
+        stores: dashData.week_store_visits || dashData.week_stores || 0,
         label: "This Week's"
       }
     } else {
       return {
-        visits: s.month_individual_visits || s.month_visits || 0,
-        stores: s.month_store_visits || s.month_stores || 0,
+        visits: dashData.month_individual_visits || dashData.month_visits || 0,
+        stores: dashData.month_store_visits || dashData.month_stores || 0,
         label: "This Month's"
       }
     }
   }
 
+  // Get agent performance stats from /field-ops/performance (period-filtered)
+  const getAgentPerfStats = () => {
+    if (!perfData || perfData.role !== 'agent') return null
+    return {
+      visits: perfData.visits || 0,
+      individual_visits: perfData.individual_visits || 0,
+      store_visits: perfData.store_visits || 0,
+      conversions: perfData.conversions || 0,
+      targets: perfData.targets || { visits: 0, conversions: 0, individuals: 0, stores: 0 },
+      visit_progress: perfData.visit_progress || 0,
+      conversion_rate: perfData.conversion_rate || 0,
+    }
+  }
+
   const periodStats = getPeriodStats()
-  const sd = statsData as Record<string, number>
+  const agentPerfStats = getAgentPerfStats()
+
+  // Compute target count from company_targets
+  const companyTargets = dashData?.company_targets || []
+  const hasTargets = companyTargets.length > 0
 
   const stats: StatCard[] = [
-    { label: `${periodStats.label} Visits`, value: periodStats.visits, icon: <MapPin className="w-5 h-5" />, color: 'bg-blue-500' },
-    { label: `${periodStats.label} Stores`, value: periodStats.stores, icon: <Store className="w-5 h-5" />, color: 'bg-green-500' },
-    { label: 'Month Visits', value: sd.month_individual_visits || sd.month_visits || 0, icon: <TrendingUp className="w-5 h-5" />, color: 'bg-purple-500' },
-    { label: 'Targets', value: (statsData.daily_targets as unknown[])?.length || (statsData.monthly_targets as unknown[])?.length || 0, icon: <Target className="w-5 h-5" />, color: 'bg-orange-500' },
+    { label: periodStats.label + ' Individual', value: agentPerfStats ? agentPerfStats.individual_visits : periodStats.visits, icon: <MapPin className="w-5 h-5" />, color: 'bg-blue-500' },
+    { label: periodStats.label + ' Store', value: agentPerfStats ? agentPerfStats.store_visits : periodStats.stores, icon: <Store className="w-5 h-5" />, color: 'bg-purple-500' },
+    { label: periodStats.label + ' Total', value: agentPerfStats ? agentPerfStats.visits : (periodStats.visits + periodStats.stores), icon: <TrendingUp className="w-5 h-5" />, color: 'bg-green-500' },
+    { label: 'Targets', value: hasTargets ? companyTargets.length : 0, icon: <Target className="w-5 h-5" />, color: 'bg-orange-500' },
   ]
 
   const quickActions: QuickAction[] = [
@@ -216,7 +308,8 @@ export default function MobileDashboard() {
     try {
       await Promise.all([
         fetchStats(),
-        (isTeamLead || isManager) ? fetchPerformance(period) : Promise.resolve()
+        fetchPerformance(period),
+        fetchHierarchy(),
       ])
     } finally {
       setRefreshing(false)
@@ -232,7 +325,7 @@ export default function MobileDashboard() {
     if (teamAgents[teamLeadId]) return
     setTeamAgentsLoading(teamLeadId)
     try {
-      const res = await apiClient.get(`/field-ops/performance?period=${period}&team_lead_id=${teamLeadId}`).catch(() => null)
+      const res = await withTimeout(apiClient.get('/field-ops/performance?period=' + period + '&team_lead_id=' + teamLeadId), 15000)
       if (res?.data?.agents) {
         setTeamAgents(prev => ({ ...prev, [teamLeadId]: res.data.agents }))
       }
@@ -244,9 +337,42 @@ export default function MobileDashboard() {
   }
 
   const periodLabels: Record<PeriodType, string> = { day: 'Day', week: 'Week', month: 'Month' }
-  const dailyTargets = statsData.daily_targets as Array<Record<string, unknown>> | undefined
-  const monthlyTargets = statsData.monthly_targets as Array<Record<string, unknown>> | undefined
-  const recentVisits = statsData.recent_visits as Array<Record<string, unknown>> | undefined
+  const recentVisits = dashData?.recent_visits
+
+  // Helper: get target values for a company based on current period
+  const getCompanyTargetForPeriod = (ct: CompanyTarget) => {
+    if (period === 'day') {
+      return {
+        targetIndiv: ct.daily_target_visits,
+        actualIndiv: ct.daily_actual_visits,
+        targetStore: ct.daily_target_registrations,
+        actualStore: ct.daily_actual_registrations,
+        periodLabel: 'Today',
+      }
+    } else if (period === 'week') {
+      return {
+        targetIndiv: ct.week_target_visits || (ct.individual_target_per_week > 0 ? ct.individual_target_per_week : ct.daily_target_visits * 5),
+        actualIndiv: ct.individual_actual_week,
+        targetStore: ct.week_target_registrations || (ct.daily_target_registrations * 5),
+        actualStore: ct.store_actual_week,
+        periodLabel: 'Week',
+      }
+    } else {
+      return {
+        targetIndiv: ct.month_target_visits || ct.individual_target_per_month || (ct.daily_target_visits * ct.working_days_in_month),
+        actualIndiv: ct.individual_actual_month,
+        targetStore: ct.month_target_registrations || ct.store_target_per_month || (ct.daily_target_registrations * ct.working_days_in_month),
+        actualStore: ct.store_actual_month,
+        periodLabel: 'Month',
+      }
+    }
+  }
+
+  // Helper: percentage with color
+  const pctColor = (pct: number) => pct >= 100 ? 'text-green-600' : pct >= 75 ? 'text-amber-500' : 'text-red-500'
+  const pctBadge = (pct: number) => pct >= 100 ? 'bg-green-100 text-green-700' : pct >= 75 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+  const pctBar = (pct: number) => pct >= 100 ? 'bg-green-500' : pct >= 75 ? 'bg-amber-500' : 'bg-red-500'
+  const pctDot = (pct: number) => pct >= 100 ? 'bg-green-500' : pct >= 75 ? 'bg-amber-400' : 'bg-red-400'
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-night-300 pb-20">
@@ -264,7 +390,7 @@ export default function MobileDashboard() {
           )}
         </div>
         <button onClick={handleRefresh} disabled={refreshing} className="p-1">
-          <RefreshCw className={`w-4 h-4 text-gray-500 ${refreshing ? 'animate-spin' : ''}`} />
+          <RefreshCw className={'w-4 h-4 text-gray-500 ' + (refreshing ? 'animate-spin' : '')} />
         </button>
       </div>
 
@@ -286,11 +412,11 @@ export default function MobileDashboard() {
             <button
               key={p}
               onClick={() => setPeriod(p)}
-              className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              className={'flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ' + (
                 period === p
                   ? 'bg-white dark:bg-night-50 text-blue-600 dark:text-blue-400 shadow-sm'
                   : 'text-gray-500 dark:text-gray-400'
-              }`}
+              )}
             >
               {periodLabels[p]}
             </button>
@@ -309,9 +435,9 @@ export default function MobileDashboard() {
           {stats.map((stat, i) => (
             <div key={i} className="bg-white dark:bg-night-50 rounded-xl p-3 shadow-sm">
               <div className="flex items-center justify-between mb-2">
-                <div className={`p-2 rounded-lg ${stat.color} text-white`}>{stat.icon}</div>
+                <div className={'p-2 rounded-lg ' + stat.color + ' text-white'}>{stat.icon}</div>
                 {stat.trend && (
-                  <span className={`text-xs font-medium ${stat.trend.direction === 'up' ? 'text-green-600' : 'text-red-600'}`}>
+                  <span className={'text-xs font-medium ' + (stat.trend.direction === 'up' ? 'text-green-600' : 'text-red-600')}>
                     {stat.trend.direction === 'up' ? '+' : '-'}{stat.trend.value}%
                   </span>
                 )}
@@ -323,6 +449,104 @@ export default function MobileDashboard() {
         </div>
         )}
       </div>
+
+      {/* Agent Performance (period-aware) */}
+      {isAgent && agentPerfStats && (
+        <div className="px-4 py-3">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+            <UserCheck className="w-4 h-4 text-blue-500" /> My Performance ({periodLabels[period]})
+          </h2>
+          <div className="bg-white dark:bg-night-50 rounded-xl p-3 shadow-sm border border-gray-200 dark:border-night-100">
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div>
+                <p className="text-lg font-bold text-blue-600">{agentPerfStats.individual_visits}</p>
+                <p className="text-[10px] text-gray-500">Individuals</p>
+                {agentPerfStats.targets.individuals > 0 && (
+                  <p className="text-[9px] text-gray-400">/ {agentPerfStats.targets.individuals} target</p>
+                )}
+              </div>
+              <div>
+                <p className="text-lg font-bold text-purple-600">{agentPerfStats.store_visits}</p>
+                <p className="text-[10px] text-gray-500">Stores</p>
+                {agentPerfStats.targets.stores > 0 && (
+                  <p className="text-[9px] text-gray-400">/ {agentPerfStats.targets.stores} target</p>
+                )}
+              </div>
+              <div>
+                <p className="text-lg font-bold text-green-600">{agentPerfStats.conversions}</p>
+                <p className="text-[10px] text-gray-500">Conversions</p>
+                {agentPerfStats.targets.conversions > 0 && (
+                  <p className="text-[9px] text-gray-400">/ {agentPerfStats.targets.conversions} target</p>
+                )}
+              </div>
+            </div>
+            {agentPerfStats.targets.visits > 0 && (
+              <div className="mt-3">
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-gray-500">Visit Progress</span>
+                  <span className={pctColor(agentPerfStats.visit_progress)}>{agentPerfStats.visit_progress}%</span>
+                </div>
+                <div className="w-full h-2 bg-gray-200 dark:bg-night-200 rounded-full overflow-hidden">
+                  <div className={'h-full rounded-full transition-all ' + pctBar(agentPerfStats.visit_progress)} style={{ width: Math.min(100, agentPerfStats.visit_progress) + '%' }} />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Hierarchy Scores: Agent vs Team Lead vs Manager */}
+      {isAgent && hierarchyData && (hierarchyData.team_performance || hierarchyData.manager_performance) && (
+        <div className="px-4 py-3">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+            <Shield className="w-4 h-4 text-indigo-500" /> Score Comparison
+          </h2>
+          <div className="space-y-2">
+            {/* My Score */}
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4 text-blue-600" />
+                  <span className="text-sm font-medium text-blue-800 dark:text-blue-300">My Total</span>
+                </div>
+                <span className="text-lg font-bold text-blue-600">{agentPerfStats ? agentPerfStats.visits : (periodStats.visits + periodStats.stores)}</span>
+              </div>
+            </div>
+            {/* Team Lead Score */}
+            {hierarchyData.team_performance && (
+              <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-green-600" />
+                    <div>
+                      <span className="text-sm font-medium text-green-800 dark:text-green-300">Team Lead Total</span>
+                      <p className="text-[10px] text-green-600 dark:text-green-400">{hierarchyData.team_performance.team_lead_name} ({hierarchyData.team_performance.member_count} members)</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-lg font-bold text-green-600">{hierarchyData.team_performance.total_visits}</span>
+                    <p className={'text-[10px] font-medium ' + pctColor(hierarchyData.team_performance.achievement)}>{hierarchyData.team_performance.achievement}%</p>
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* Manager Score */}
+            {hierarchyData.manager_performance && (
+              <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-purple-600" />
+                    <span className="text-sm font-medium text-purple-800 dark:text-purple-300">{hierarchyData.manager_performance.manager_name}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className={'text-[10px] font-medium ' + pctColor(hierarchyData.manager_performance.achievement)}>{hierarchyData.manager_performance.achievement}%</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Team Lead: Team Performance */}
       {isTeamLead && (
@@ -363,7 +587,7 @@ export default function MobileDashboard() {
                         </div>
                         <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{agent.agent_name}</p>
                       </div>
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded ${vPct >= 100 ? 'bg-green-100 text-green-700' : vPct >= 75 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                      <span className={'text-xs font-medium px-2 py-0.5 rounded ' + pctBadge(vPct)}>
                         {vPct}%
                       </span>
                     </div>
@@ -384,7 +608,7 @@ export default function MobileDashboard() {
                     {agent.target_visits > 0 && (
                       <div className="mt-2">
                         <div className="w-full h-1.5 bg-gray-200 dark:bg-night-200 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full transition-all ${vPct >= 100 ? 'bg-green-500' : vPct >= 75 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: vPct + '%' }} />
+                          <div className={'h-full rounded-full transition-all ' + pctBar(vPct)} style={{ width: vPct + '%' }} />
                         </div>
                         <p className="text-[10px] text-gray-500 mt-0.5">{agent.visits}/{agent.target_visits} target visits</p>
                       </div>
@@ -454,7 +678,7 @@ export default function MobileDashboard() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded ${vPct >= 100 ? 'bg-green-100 text-green-700' : vPct >= 75 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                          <span className={'text-xs font-medium px-2 py-0.5 rounded ' + pctBadge(vPct)}>
                             {vPct}%
                           </span>
                           {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
@@ -521,133 +745,49 @@ export default function MobileDashboard() {
         </div>
       )}
 
-      {/* Company Targets Section */}
-      {!loading && ((dailyTargets && dailyTargets.length > 0) || (monthlyTargets && monthlyTargets.length > 0)) && (
+      {/* Company Targets (period-aware from company_targets) */}
+      {!loading && hasTargets && (
         <div className="px-4 py-3">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-            <Target className="w-4 h-4 text-orange-500" /> Company Targets
+            <Target className="w-4 h-4 text-orange-500" /> Company Targets ({periodLabels[period]})
           </h2>
-          <div className="space-y-3">
-            {/* Daily Targets */}
-            {dailyTargets && dailyTargets.length > 0 && (
-              <div>
-                <h3 className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wider">Today's Targets</h3>
-                <div className="space-y-2">
-                  {dailyTargets.map((target: Record<string, unknown>, i: number) => {
-                    const actualVisits = (target.actual_visits ?? target.actual_individual_visits ?? 0) as number
-                    const targetVisits = ((target.individual_target_per_week as number) > 0 ? target.individual_target_per_week : (target.target_visits ?? target.individual_target_per_day ?? 0)) as number
-                    const targetVisitsDaily = (target.target_visits ?? target.individual_target_per_day ?? 0) as number
-                    const actualRegs = (target.actual_stores ?? target.actual_store_visits ?? 0) as number
-                    const targetRegs = (target.target_stores ?? target.store_target_per_day ?? 0) as number
-                    const vPct = targetVisits > 0 ? Math.min(100, Math.round((actualVisits / targetVisits) * 100)) : 0
-                    const rPct = targetRegs > 0 ? Math.min(100, Math.round((actualRegs / targetRegs) * 100)) : 0
-                    const hasWeeklyTarget = (target.individual_target_per_week as number) > 0
-                    return (
-                      <div key={`daily-${i}`} className="bg-white dark:bg-night-50 rounded-xl p-3 shadow-sm border border-gray-200 dark:border-night-100">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{target.company_name as string}</p>
-                          <div className="flex items-center gap-1">
-                            {hasWeeklyTarget && (
-                              <span className="text-[9px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 rounded">Weekly</span>
-                            )}
-                            <span className="text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-2 py-0.5 rounded">Today</span>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <div>
-                            <div className="flex justify-between text-xs mb-1">
-                              <span className="text-gray-500 dark:text-gray-400">Individual Visits</span>
-                              <span className="text-gray-700 dark:text-gray-300 font-medium">{actualVisits}/{targetVisits} <span className={vPct >= 100 ? 'text-green-600' : vPct >= 75 ? 'text-amber-500' : 'text-red-500'}>({vPct}%)</span></span>
-                            </div>
-                            <div className="w-full h-2 bg-gray-200 dark:bg-night-200 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all bg-blue-500" style={{ width: vPct + '%' }} />
-                            </div>
-                            {hasWeeklyTarget && targetVisitsDaily > 0 && (
-                              <p className="text-[9px] text-gray-500 mt-1">Daily target: {targetVisitsDaily} visits/day</p>
-                            )}
-                          </div>
-                          <div>
-                            <div className="flex justify-between text-xs mb-1">
-                              <span className="text-gray-500 dark:text-gray-400">Store Visits</span>
-                              <span className="text-gray-700 dark:text-gray-300 font-medium">{actualRegs}/{targetRegs} <span className={rPct >= 100 ? 'text-green-600' : rPct >= 75 ? 'text-amber-500' : 'text-red-500'}>({rPct}%)</span></span>
-                            </div>
-                            <div className="w-full h-2 bg-gray-200 dark:bg-night-200 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all bg-purple-500" style={{ width: rPct + '%' }} />
-                            </div>
-                          </div>
-                        </div>
+          <div className="space-y-2">
+            {companyTargets.map((ct, i) => {
+              const t = getCompanyTargetForPeriod(ct)
+              const vPct = t.targetIndiv > 0 ? Math.min(100, Math.round((t.actualIndiv / t.targetIndiv) * 100)) : 0
+              const sPct = t.targetStore > 0 ? Math.min(100, Math.round((t.actualStore / t.targetStore) * 100)) : 0
+              return (
+                <div key={ct.company_id || i} className="bg-white dark:bg-night-50 rounded-xl p-3 shadow-sm border border-gray-200 dark:border-night-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{ct.company_name}</p>
+                    <div className="flex items-center gap-1">
+                      <div className={'w-2 h-2 rounded-full ' + pctDot(Math.max(vPct, sPct))} />
+                      <span className="text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-2 py-0.5 rounded">{t.periodLabel}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-gray-500 dark:text-gray-400">Individual Visits</span>
+                        <span className="text-gray-700 dark:text-gray-300 font-medium">{t.actualIndiv}/{t.targetIndiv} <span className={pctColor(vPct)}>({vPct}%)</span></span>
                       </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-            {/* Monthly Targets */}
-            {monthlyTargets && monthlyTargets.length > 0 && (
-              <div>
-                <h3 className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wider">Monthly Targets</h3>
-                <div className="space-y-2">
-                  {monthlyTargets.map((target: Record<string, unknown>, i: number) => {
-                    const actualVisits = (target.actual_visits ?? target.individual_visits ?? 0) as number
-                    const targetVisits = (target.target_visits ?? 0) as number
-                    const actualRegs = (target.actual_stores ?? target.store_visits ?? 0) as number
-                    const targetRegs = (target.target_stores ?? 0) as number
-                    const vPct = targetVisits > 0 ? Math.min(100, Math.round((actualVisits / targetVisits) * 100)) : 0
-                    const rPct = targetRegs > 0 ? Math.min(100, Math.round((actualRegs / targetRegs) * 100)) : 0
-                    return (
-                      <div key={`monthly-${i}`} className="bg-white dark:bg-night-50 rounded-xl p-3 shadow-sm border border-gray-200 dark:border-night-100">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{target.company_name as string}</p>
-                          <span className="text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-2 py-0.5 rounded">Month</span>
-                        </div>
-                        <div className="space-y-2">
-                          <div>
-                            <div className="flex justify-between text-xs mb-1">
-                              <span className="text-gray-500 dark:text-gray-400">Individual Visits</span>
-                              <span className="text-gray-700 dark:text-gray-300 font-medium">{actualVisits}/{targetVisits} <span className={vPct >= 100 ? 'text-green-600' : vPct >= 75 ? 'text-amber-500' : 'text-red-500'}>({vPct}%)</span></span>
-                            </div>
-                            <div className="w-full h-2 bg-gray-200 dark:bg-night-200 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all bg-blue-500" style={{ width: vPct + '%' }} />
-                            </div>
-                          </div>
-                          <div>
-                            <div className="flex justify-between text-xs mb-1">
-                              <span className="text-gray-500 dark:text-gray-400">Store Visits</span>
-                              <span className="text-gray-700 dark:text-gray-300 font-medium">{actualRegs}/{targetRegs} <span className={rPct >= 100 ? 'text-green-600' : rPct >= 75 ? 'text-amber-500' : 'text-red-500'}>({rPct}%)</span></span>
-                            </div>
-                            <div className="w-full h-2 bg-gray-200 dark:bg-night-200 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all bg-purple-500" style={{ width: rPct + '%' }} />
-                            </div>
-                          </div>
-                        </div>
-                        {(((target.store_visits as number) || 0) > 0 || ((target.individual_visits as number) || 0) > 0) && (
-                          <div className="grid grid-cols-2 gap-2 mt-3">
-                            {((target.store_visits as number) || 0) > 0 && (
-                              <div className="bg-purple-50 dark:bg-purple-500/10 rounded-lg p-2">
-                                <div className="flex items-center gap-1 mb-0.5">
-                                  <Store className="w-3 h-3 text-purple-500" />
-                                  <span className="text-[10px] text-purple-600 dark:text-purple-400 font-medium">Store</span>
-                                </div>
-                                <p className="text-xs text-gray-900 dark:text-gray-100 font-semibold">{target.store_visits as number} visits</p>
-                              </div>
-                            )}
-                            {((target.individual_visits as number) || 0) > 0 && (
-                              <div className="bg-cyan-50 dark:bg-cyan-500/10 rounded-lg p-2">
-                                <div className="flex items-center gap-1 mb-0.5">
-                                  <User className="w-3 h-3 text-cyan-500" />
-                                  <span className="text-[10px] text-cyan-600 dark:text-cyan-400 font-medium">Individual</span>
-                                </div>
-                                <p className="text-xs text-gray-900 dark:text-gray-100 font-semibold">{target.individual_visits as number} visits</p>
-                              </div>
-                            )}
-                          </div>
-                        )}
+                      <div className="w-full h-2 bg-gray-200 dark:bg-night-200 rounded-full overflow-hidden">
+                        <div className={'h-full rounded-full transition-all ' + pctBar(vPct)} style={{ width: vPct + '%' }} />
                       </div>
-                    )
-                  })}
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-gray-500 dark:text-gray-400">Store Visits</span>
+                        <span className="text-gray-700 dark:text-gray-300 font-medium">{t.actualStore}/{t.targetStore} <span className={pctColor(sPct)}>({sPct}%)</span></span>
+                      </div>
+                      <div className="w-full h-2 bg-gray-200 dark:bg-night-200 rounded-full overflow-hidden">
+                        <div className={'h-full rounded-full transition-all ' + pctBar(sPct)} style={{ width: sPct + '%' }} />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            })}
           </div>
         </div>
       )}
@@ -662,7 +802,7 @@ export default function MobileDashboard() {
               onClick={() => navigate(action.path)}
               className="flex flex-col items-center gap-1 p-3 rounded-xl bg-white dark:bg-night-50 shadow-sm active:scale-95 transition-transform"
             >
-              <div className={`p-2 rounded-lg ${action.color}`}>{action.icon}</div>
+              <div className={'p-2 rounded-lg ' + action.color}>{action.icon}</div>
               <span className="text-xs text-gray-700 dark:text-gray-300 text-center">{action.label}</span>
             </button>
           ))}
