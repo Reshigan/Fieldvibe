@@ -15737,6 +15737,13 @@ api.get('/field-operations/visits/:visitId', authMiddleware, async (c) => {
         customFieldValues = typeof individuals[0].custom_field_values === 'string' ? JSON.parse(individuals[0].custom_field_values) : individuals[0].custom_field_values;
       }
     } catch { /* ok */ }
+    // Fallback: for store visits, read custom_field_values from visit_responses (store_custom_questions)
+    if (!customFieldValues) {
+      try {
+        const scq = await db.prepare("SELECT responses FROM visit_responses WHERE visit_id = ? AND tenant_id = ? AND visit_type = 'store_custom_questions'").bind(visitId, tenantId).first();
+        if (scq?.responses) customFieldValues = typeof scq.responses === 'string' ? JSON.parse(scq.responses) : scq.responses;
+      } catch { /* ok */ }
+    }
     // Extract images from custom question responses (company questions with field_type='image')
     if (visit.company_id && customFieldValues) {
       try {

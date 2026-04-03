@@ -726,6 +726,9 @@ export default function VisitCreate() {
         if (visitTargetType === 'store') {
           if (!selectedCustomer && !newStoreName) return false
           if (selectedCustomer && storeRevisitCheck && !storeRevisitCheck.can_visit) return false
+          for (const field of customFields) {
+            if (field.is_required && !customFieldValues[field.field_name]) return false
+          }
           for (const q of customQuestions) {
             if (q.is_required && !customQuestionValues[q.question_key]) return false
           }
