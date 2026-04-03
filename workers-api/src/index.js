@@ -8006,12 +8006,15 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
       // individual_registrations INSERT removed - visits table is the single source of truth
     }
 
-    // 2b. For store visits, save custom_question_values as a visit_response so they are persisted
-    if (body.visit_target_type === 'store' && body.custom_question_values && Object.keys(body.custom_question_values).length > 0) {
-      const cqrId = crypto.randomUUID();
-      await db.prepare('INSERT INTO visit_responses (id, tenant_id, visit_id, visit_type, responses) VALUES (?, ?, ?, ?, ?)').bind(
-        cqrId, tenantId, visitId, 'store_custom_questions', JSON.stringify(body.custom_question_values)
-      ).run();
+    // 2b. For store visits, save custom_field_values + custom_question_values as a visit_response
+    if (body.visit_target_type === 'store') {
+      const mergedStoreCustom = { ...(body.custom_field_values || {}), ...(body.custom_question_values || {}) };
+      if (Object.keys(mergedStoreCustom).length > 0) {
+        const cqrId = crypto.randomUUID();
+        await db.prepare('INSERT INTO visit_responses (id, tenant_id, visit_id, visit_type, responses) VALUES (?, ?, ?, ?, ?)').bind(
+          cqrId, tenantId, visitId, 'store_custom_questions', JSON.stringify(mergedStoreCustom)
+        ).run();
+      }
     }
 
     // 3. Save survey responses if provided

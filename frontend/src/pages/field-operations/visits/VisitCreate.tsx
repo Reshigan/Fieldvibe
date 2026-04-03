@@ -821,14 +821,11 @@ export default function VisitCreate() {
       if (!submitIdRef.current) {
         submitIdRef.current = crypto.randomUUID()
       }
-      // Find brand_id from the selected company (if available)
-      const selectedComp = companies.find(c => c.id === selectedCompany)
       const payload: Record<string, unknown> = {
         visit_target_type: visitTargetType,
         checkin_latitude: gpsLocation?.latitude,
         checkin_longitude: gpsLocation?.longitude,
         company_id: selectedCompany || undefined,
-        brand_id: (selectedComp as Record<string, unknown>)?.brand_id || undefined,
         client_visit_id: submitIdRef.current,
         notes
       }
