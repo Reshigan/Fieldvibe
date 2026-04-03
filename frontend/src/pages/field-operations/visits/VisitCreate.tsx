@@ -420,6 +420,14 @@ export default function VisitCreate() {
       promises.push(withTimeout(() => loadCustomersData(), 'loadCustomersData'))
     }
     await Promise.all(promises)
+
+    // Force-clear loading gate after all withTimeout wrappers resolve.
+    // If any call timed out, stepDataLoadingRef may still be elevated because
+    // the background fn() hasn't finished its finally block yet. Reset here so
+    // handleNext is never permanently blocked. The background fn() will
+    // harmlessly call setStepDataLoading(false) again when it eventually completes.
+    stepDataLoadingRef.current = 0
+    setStepDataLoading(false)
   }
 
   // Load customers/stores — called lazily when approaching details step
