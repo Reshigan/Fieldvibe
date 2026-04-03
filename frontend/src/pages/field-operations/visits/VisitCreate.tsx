@@ -396,18 +396,15 @@ export default function VisitCreate() {
     if (loadedCustomDataKeyRef.current === dataKey && customersLoaded) return
     loadedCustomDataKeyRef.current = dataKey
 
-    // Wrap each call with a 15s timeout + 1 auto-retry to prevent infinite loading
+    // Wrap each call with a 15s timeout to prevent infinite loading.
+    // On timeout, resolve (not reject) so Promise.all completes. The original fn()
+    // continues in the background and will update state when it finishes.
+    // No retry — retrying would spawn duplicate concurrent calls that inflate stepDataLoadingRef.
     const withTimeout = (fn: () => Promise<void>, label: string): Promise<void> => {
-      const attempt = () => Promise.race([
+      return Promise.race([
         fn(),
-        new Promise<void>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), 15000))
+        new Promise<void>((resolve) => setTimeout(() => { console.warn(`${label} timed out after 15s`); resolve(); }, 15000))
       ])
-      return attempt().catch((err) => {
-        console.warn(`${label} failed, retrying:`, err.message)
-        return attempt().catch((retryErr) => {
-          console.error(`${label} retry also failed:`, retryErr.message)
-        })
-      })
     }
 
     // Fire all custom data + customer loading in parallel
