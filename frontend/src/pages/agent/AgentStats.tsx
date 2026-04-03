@@ -33,6 +33,43 @@ interface DashboardData {
     actual_visits: number
     target_stores: number
     actual_stores: number
+    daily_actual_visits?: number
+    daily_actual_stores?: number
+    daily_target_stores?: number
+  }>
+  company_targets?: Array<{
+    company_id: string
+    company_name: string
+    working_days_in_month: number
+    daily_target_visits: number
+    daily_target_registrations: number
+    daily_actual_visits: number
+    daily_actual_registrations: number
+    store_target_per_month: number
+    store_actual_month: number
+    store_actual_today: number
+    store_actual_week: number
+    individual_target_per_week: number
+    individual_target_per_month: number
+    individual_actual_month: number
+    individual_actual_today: number
+    individual_actual_week: number
+    week_target_visits: number
+    week_actual_visits: number
+    week_target_registrations: number
+    month_target_visits: number
+    month_actual_visits: number
+    month_target_registrations: number
+    month_actual_registrations: number
+    commission_rate: number
+    commission_amount: number
+    target_visits: number
+    actual_visits: number
+    target_stores: number
+    actual_stores: number
+    store_visits: number
+    individual_visits: number
+    working_days: number
   }>
   visit_breakdown?: VisitBreakdownItem[]
   companies?: Array<{ id: string; name: string }>
