@@ -527,13 +527,16 @@ app.get('/api/agent/my-companies', authMiddleware, async (c) => {
     } else {
       companies = await db.prepare("SELECT fc.id, fc.name, fc.code, fc.revisit_radius_meters FROM agent_company_links acl JOIN field_companies fc ON acl.company_id = fc.id WHERE acl.agent_id = ? AND acl.tenant_id = ? AND acl.is_active = 1 AND fc.status = 'active'").bind(userId, tenantId).all();
     }
-    // Enrich each company with its process flow assignments (visit_target_type)
-    const enriched = [];
-    for (const comp of (companies.results || [])) {
-      const cpfs = await db.prepare("SELECT visit_target_type FROM company_process_flows WHERE company_id = ? AND tenant_id = ?").bind(comp.id, tenantId).all();
-      const visitTypes = (cpfs.results || []).map(r => r.visit_target_type);
-      enriched.push({ ...comp, process_flow_types: visitTypes });
+    // Enrich companies with process flow types in a single batch query (avoids N+1)
+    const companyIds = (companies.results || []).map(c => c.id);
+    let cpfMap = {};
+    if (companyIds.length > 0) {
+      const allCpfs = await db.prepare(
+        "SELECT company_id, GROUP_CONCAT(visit_target_type) as types FROM company_process_flows WHERE tenant_id = ? GROUP BY company_id"
+      ).bind(tenantId).all();
+      cpfMap = Object.fromEntries((allCpfs.results || []).map(r => [r.company_id, r.types ? r.types.split(',') : []]));
     }
+    const enriched = (companies.results || []).map(comp => ({ ...comp, process_flow_types: cpfMap[comp.id] || [] }));
     return c.json({ success: true, data: enriched });
   } catch (err) {
     return c.json({ success: false, data: [], error: err.message || 'Failed to fetch companies' }, 500);
@@ -566,8 +569,11 @@ app.get('/api/agent/store-search', authMiddleware, async (c) => {
 
     const customers = await db.prepare(
       `SELECT c.id, c.name, c.code, c.contact_person, c.contact_phone, c.address, c.latitude, c.longitude, c.customer_type,
-        (SELECT MAX(v.visit_date) FROM visits v WHERE v.customer_id = c.id AND v.tenant_id = c.tenant_id AND v.agent_id = ?) as last_visit_date
-      FROM customers c ${where} ORDER BY last_visit_date DESC NULLS LAST, c.name LIMIT ?`
+        MAX(v.visit_date) as last_visit_date
+      FROM customers c
+      LEFT JOIN visits v ON v.customer_id = c.id AND v.tenant_id = c.tenant_id AND v.agent_id = ?
+      ${where} GROUP BY c.id, c.name, c.code, c.contact_person, c.contact_phone, c.address, c.latitude, c.longitude, c.customer_type
+      ORDER BY last_visit_date DESC NULLS LAST, c.name LIMIT ?`
     ).bind(userId, ...params, limitNum).all();
 
     return c.json({ success: true, data: customers.results || [] });
@@ -2829,7 +2835,7 @@ api.get('/visits', async (c) => {
   const offset = (pageNum - 1) * limitNum;
   const countR = await db.prepare('SELECT COUNT(*) as total FROM visits v LEFT JOIN customers c ON v.customer_id = c.id ' + where).bind(...params).first();
   const total = countR ? countR.total : 0;
-  const visits = await db.prepare("SELECT v.*, c.name as customer_name, c.address as customer_address, u.first_name || ' ' || u.last_name as agent_name, (SELECT vp.r2_url FROM visit_photos vp WHERE vp.visit_id = v.id AND vp.tenant_id = v.tenant_id AND vp.r2_url IS NOT NULL LIMIT 1) as thumbnail_url, (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id LIMIT 1) as _raw_responses, (SELECT vi.custom_field_values FROM visit_individuals vi WHERE vi.visit_id = v.id LIMIT 1) as _raw_custom_fields FROM visits v LEFT JOIN customers c ON v.customer_id = c.id LEFT JOIN users u ON v.agent_id = u.id " + where + ' ORDER BY v.created_at DESC LIMIT ? OFFSET ?').bind(...params, limitNum, offset).all();
+  const visits = await db.prepare("SELECT v.*, c.name as customer_name, c.address as customer_address, u.first_name || ' ' || u.last_name as agent_name, (SELECT vp.r2_url FROM visit_photos vp WHERE vp.visit_id = v.id AND vp.tenant_id = v.tenant_id AND vp.r2_url IS NOT NULL LIMIT 1) as thumbnail_url, (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id AND (vr.visit_type IS NULL OR vr.visit_type != 'store_custom_questions') LIMIT 1) as _raw_responses, (SELECT vi.custom_field_values FROM visit_individuals vi WHERE vi.visit_id = v.id LIMIT 1) as _raw_custom_fields FROM visits v LEFT JOIN customers c ON v.customer_id = c.id LEFT JOIN users u ON v.agent_id = u.id " + where + ' ORDER BY v.created_at DESC LIMIT ? OFFSET ?').bind(...params, limitNum, offset).all();
   // Extract image thumbnails from custom question responses where show_in_reports is enabled
   const visitRows = visits.results || [];
   const companyIds = [...new Set(visitRows.map(v => v.company_id).filter(Boolean))];
@@ -2985,9 +2991,9 @@ api.put('/visits/:id', async (c) => {
   const body = await c.req.json();
   await db.prepare('UPDATE visits SET check_out_time = COALESCE(?, check_out_time), outcome = COALESCE(?, outcome), notes = COALESCE(?, notes), status = COALESCE(?, status), updated_at = datetime("now") WHERE id = ? AND tenant_id = ?').bind(body.check_out_time || null, body.outcome || null, body.notes || null, body.status || null, id, tenantId).run();
   if (body.responses) {
-    const existing = await db.prepare('SELECT vr.id FROM visit_responses vr JOIN visits v ON vr.visit_id = v.id WHERE vr.visit_id = ? AND v.tenant_id = ?').bind(id, tenantId).first();
+    const existing = await db.prepare('SELECT vr.id FROM visit_responses vr JOIN visits v ON vr.visit_id = v.id WHERE vr.visit_id = ? AND v.tenant_id = ? AND (vr.visit_type IS NULL OR vr.visit_type != \'store_custom_questions\')').bind(id, tenantId).first();
     if (existing) {
-      await db.prepare('UPDATE visit_responses SET responses = ? WHERE visit_id = ?').bind(JSON.stringify(body.responses), id).run();
+      await db.prepare('UPDATE visit_responses SET responses = ? WHERE visit_id = ? AND (visit_type IS NULL OR visit_type != \'store_custom_questions\')').bind(JSON.stringify(body.responses), id).run();
     } else {
       const respId = uuidv4();
       await db.prepare('INSERT INTO visit_responses (id, tenant_id, visit_id, responses) VALUES (?, ?, ?, ?)').bind(respId, tenantId, id, JSON.stringify(body.responses)).run();
@@ -4960,9 +4966,9 @@ api.put('/field-operations/visits/:id', authMiddleware, async (c) => {
   const body = await c.req.json();
   await db.prepare('UPDATE visits SET check_out_time = COALESCE(?, check_out_time), outcome = COALESCE(?, outcome), notes = COALESCE(?, notes), status = COALESCE(?, status), updated_at = datetime("now") WHERE id = ? AND tenant_id = ?').bind(body.check_out_time || null, body.outcome || null, body.notes || null, body.status || null, id, tenantId).run();
   if (body.responses) {
-    const existing = await db.prepare('SELECT vr.id FROM visit_responses vr JOIN visits v ON vr.visit_id = v.id WHERE vr.visit_id = ? AND v.tenant_id = ?').bind(id, tenantId).first();
+    const existing = await db.prepare('SELECT vr.id FROM visit_responses vr JOIN visits v ON vr.visit_id = v.id WHERE vr.visit_id = ? AND v.tenant_id = ? AND (vr.visit_type IS NULL OR vr.visit_type != \'store_custom_questions\')').bind(id, tenantId).first();
     if (existing) {
-      await db.prepare('UPDATE visit_responses SET responses = ? WHERE visit_id = ?').bind(JSON.stringify(body.responses), id).run();
+      await db.prepare('UPDATE visit_responses SET responses = ? WHERE visit_id = ? AND (visit_type IS NULL OR visit_type != \'store_custom_questions\')').bind(JSON.stringify(body.responses), id).run();
     } else {
       const respId = uuidv4();
       await db.prepare('INSERT INTO visit_responses (id, tenant_id, visit_id, responses) VALUES (?, ?, ?, ?)').bind(respId, tenantId, id, JSON.stringify(body.responses)).run();
@@ -7137,6 +7143,7 @@ api.get('/brand-custom-fields', authMiddleware, async (c) => {
   if (company_id) { where += ' AND company_id = ?'; params.push(company_id); }
   if (applies_to) { where += ' AND applies_to = ?'; params.push(applies_to); }
   const rows = await db.prepare(`SELECT * FROM brand_custom_fields ${where} ORDER BY display_order ASC`).bind(...params).all();
+  c.header('Cache-Control', 'public, max-age=300');
   return c.json({ data: rows?.results || [] });
 });
 
@@ -7184,6 +7191,7 @@ api.get('/visit-survey-config', authMiddleware, async (c) => {
   const params = [tenantId];
   if (company_id) { where += ' AND company_id = ?'; params.push(company_id); }
   const rows = await db.prepare(`SELECT * FROM visit_survey_config ${where}`).bind(...params).all();
+  c.header('Cache-Control', 'public, max-age=300');
   return c.json({ data: rows?.results || [] });
 });
 
@@ -7413,6 +7421,7 @@ api.get('/company-custom-questions', authMiddleware, async (c) => {
     if (visit_target_type) { query += " AND (visit_target_type = ? OR visit_target_type = 'both')"; params.push(visit_target_type); }
     query += ' ORDER BY display_order, created_at';
     const rows = await db.prepare(query).bind(...params).all();
+    c.header('Cache-Control', 'public, max-age=300');
     return c.json({ data: rows?.results || [] });
   } catch { return c.json({ data: [] }); }
 });
@@ -7664,6 +7673,37 @@ api.post('/migrations/add-performance-indexes', authMiddleware, async (c) => {
     // Index for visit_photos (thumbnail lookup)
     await db.prepare("CREATE INDEX IF NOT EXISTS idx_photos_visit_r2 ON visit_photos (visit_id, r2_url)").run();
     results.push('idx_photos_visit_r2 created');
+
+    // Indexes for Details step lookup tables (brand_custom_fields, company_custom_questions, etc.)
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_bcf_tenant_company ON brand_custom_fields (tenant_id, company_id, is_active)").run();
+    results.push('idx_bcf_tenant_company created');
+
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_ccq_tenant_company ON company_custom_questions (tenant_id, company_id, is_active)").run();
+    results.push('idx_ccq_tenant_company created');
+
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_vsc_tenant_company ON visit_survey_config (tenant_id, company_id)").run();
+    results.push('idx_vsc_tenant_company created');
+
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_cpf_tenant_company ON company_process_flows (tenant_id, company_id)").run();
+    results.push('idx_cpf_tenant_company created');
+
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_customers_tenant ON customers (tenant_id)").run();
+    results.push('idx_customers_tenant created');
+
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_mcl_manager_tenant ON manager_company_links (manager_id, tenant_id, is_active)").run();
+    results.push('idx_mcl_manager_tenant created');
+
+    // Index for store-search LEFT JOIN on visits
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_visits_customer_agent ON visits (customer_id, tenant_id, agent_id, visit_date)").run();
+    results.push('idx_visits_customer_agent created');
+
+    // Index for visit_responses queries (visit_type filter from PR #153)
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_vr_visit_type ON visit_responses (visit_id, visit_type)").run();
+    results.push('idx_vr_visit_type created');
+
+    // Index for questionnaires lookup
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_questionnaires_tenant ON questionnaires (tenant_id, is_active)").run();
+    results.push('idx_questionnaires_tenant created');
     
     return c.json({ success: true, results });
   } catch (err) {
@@ -8006,6 +8046,17 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
       // individual_registrations INSERT removed - visits table is the single source of truth
     }
 
+    // 2b. For store visits, save custom_field_values + custom_question_values as a visit_response
+    if (body.visit_target_type === 'store') {
+      const mergedStoreCustom = { ...(body.custom_field_values || {}), ...(body.custom_question_values || {}) };
+      if (Object.keys(mergedStoreCustom).length > 0) {
+        const cqrId = crypto.randomUUID();
+        await db.prepare('INSERT INTO visit_responses (id, tenant_id, visit_id, visit_type, responses) VALUES (?, ?, ?, ?, ?)').bind(
+          cqrId, tenantId, visitId, 'store_custom_questions', JSON.stringify(mergedStoreCustom)
+        ).run();
+      }
+    }
+
     // 3. Save survey responses if provided
     if (body.survey_responses && Object.keys(body.survey_responses).length > 0) {
       const vrId = crypto.randomUUID();
@@ -8037,6 +8088,18 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
           ).run();
         }
       }
+    }
+
+    // 5. Trigger AI analysis for uploaded photos (runs async in background)
+    if (Array.isArray(body.photos) && body.photos.length > 0) {
+      try {
+        const savedPhotos = await db.prepare('SELECT id, r2_key, photo_type FROM visit_photos WHERE visit_id = ? AND tenant_id = ?').bind(visitId, tenantId).all();
+        for (const sp of (savedPhotos?.results || [])) {
+          if (sp.r2_key && !sp.r2_key.startsWith('data:')) {
+            try { c.executionCtx.waitUntil(analyzePhotoWithAI(c.env, sp.id, sp.r2_key, tenantId, visitId, sp.photo_type)); } catch { /* AI analysis optional */ }
+          }
+        }
+      } catch { /* AI analysis is optional - don't fail the visit */ }
     }
 
     return c.json({
@@ -14925,7 +14988,7 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
         v.created_at, v.id as visit_id,
         u.first_name || ' ' || u.last_name as agent_name,
         vi.custom_field_values,
-        (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id LIMIT 1) as questionnaire_responses
+        (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id AND (vr.visit_type IS NULL OR vr.visit_type != 'store_custom_questions') LIMIT 1) as questionnaire_responses
       FROM visits v
       LEFT JOIN visit_individuals vi ON v.id = vi.visit_id
       LEFT JOIN individuals i ON vi.individual_id = i.id
@@ -15082,7 +15145,7 @@ api.get('/field-ops/reports/shops/:shopId', authMiddleware, async (c) => {
         u.first_name || ' ' || u.last_name as agent_name,
         (SELECT vp.r2_url FROM visit_photos vp WHERE vp.visit_id = v.id AND vp.tenant_id = v.tenant_id AND vp.r2_url IS NOT NULL LIMIT 1) as thumbnail_url,
         (SELECT vi2.custom_field_values FROM visit_individuals vi2 WHERE vi2.visit_id = v.id LIMIT 1) as custom_field_values,
-        (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id LIMIT 1) as questionnaire_responses,
+        (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id AND (vr.visit_type IS NULL OR vr.visit_type != 'store_custom_questions') LIMIT 1) as questionnaire_responses,
         (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM visit_individuals vi WHERE vi.visit_id = v.id AND vi.tenant_id = v.tenant_id AND COALESCE(JSON_EXTRACT(vi.custom_field_values, '$.converted'), 0) = 1) as converted,
         v.notes as responses
       FROM visits v
@@ -15703,7 +15766,7 @@ api.get('/field-operations/visits/:visitId', authMiddleware, async (c) => {
     try { const photosRes = await db.prepare("SELECT id, photo_type, r2_key, r2_url, gps_latitude, gps_longitude, captured_at, photo_hash, ai_analysis_status, ai_compliance_score, ai_share_of_voice, board_placement_location, board_placement_position, board_condition, sample_board_match_score FROM visit_photos WHERE visit_id = ? AND tenant_id = ?").bind(visitId, tenantId).all(); photos = photosRes?.results || []; } catch { /* visit_photos may not exist */ }
     // Fetch survey responses
     let surveyResponses = null;
-    try { const sr = await db.prepare("SELECT responses FROM visit_responses WHERE visit_id = ? AND tenant_id = ?").bind(visitId, tenantId).first(); if (sr?.responses) surveyResponses = typeof sr.responses === 'string' ? JSON.parse(sr.responses) : sr.responses; } catch { /* ok */ }
+    try { const sr = await db.prepare("SELECT responses FROM visit_responses WHERE visit_id = ? AND tenant_id = ? AND (visit_type IS NULL OR visit_type != 'store_custom_questions')").bind(visitId, tenantId).first(); if (sr?.responses) surveyResponses = typeof sr.responses === 'string' ? JSON.parse(sr.responses) : sr.responses; } catch { /* ok */ }
     // Fetch individual link + custom field values
     let customFieldValues = null;
     let individuals = [];
@@ -15714,6 +15777,13 @@ api.get('/field-operations/visits/:visitId', authMiddleware, async (c) => {
         customFieldValues = typeof individuals[0].custom_field_values === 'string' ? JSON.parse(individuals[0].custom_field_values) : individuals[0].custom_field_values;
       }
     } catch { /* ok */ }
+    // Fallback: for store visits, read custom_field_values from visit_responses (store_custom_questions)
+    if (!customFieldValues) {
+      try {
+        const scq = await db.prepare("SELECT responses FROM visit_responses WHERE visit_id = ? AND tenant_id = ? AND visit_type = 'store_custom_questions'").bind(visitId, tenantId).first();
+        if (scq?.responses) customFieldValues = typeof scq.responses === 'string' ? JSON.parse(scq.responses) : scq.responses;
+      } catch { /* ok */ }
+    }
     // Extract images from custom question responses (company questions with field_type='image')
     if (visit.company_id && customFieldValues) {
       try {
