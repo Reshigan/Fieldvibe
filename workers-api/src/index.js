@@ -527,13 +527,16 @@ app.get('/api/agent/my-companies', authMiddleware, async (c) => {
     } else {
       companies = await db.prepare("SELECT fc.id, fc.name, fc.code, fc.revisit_radius_meters FROM agent_company_links acl JOIN field_companies fc ON acl.company_id = fc.id WHERE acl.agent_id = ? AND acl.tenant_id = ? AND acl.is_active = 1 AND fc.status = 'active'").bind(userId, tenantId).all();
     }
-    // Enrich each company with its process flow assignments (visit_target_type)
-    const enriched = [];
-    for (const comp of (companies.results || [])) {
-      const cpfs = await db.prepare("SELECT visit_target_type FROM company_process_flows WHERE company_id = ? AND tenant_id = ?").bind(comp.id, tenantId).all();
-      const visitTypes = (cpfs.results || []).map(r => r.visit_target_type);
-      enriched.push({ ...comp, process_flow_types: visitTypes });
+    // Enrich companies with process flow types in a single batch query (avoids N+1)
+    const companyIds = (companies.results || []).map(c => c.id);
+    let cpfMap = {};
+    if (companyIds.length > 0) {
+      const allCpfs = await db.prepare(
+        "SELECT company_id, GROUP_CONCAT(visit_target_type) as types FROM company_process_flows WHERE tenant_id = ? GROUP BY company_id"
+      ).bind(tenantId).all();
+      cpfMap = Object.fromEntries((allCpfs.results || []).map(r => [r.company_id, r.types ? r.types.split(',') : []]));
     }
+    const enriched = (companies.results || []).map(comp => ({ ...comp, process_flow_types: cpfMap[comp.id] || [] }));
     return c.json({ success: true, data: enriched });
   } catch (err) {
     return c.json({ success: false, data: [], error: err.message || 'Failed to fetch companies' }, 500);
@@ -566,8 +569,11 @@ app.get('/api/agent/store-search', authMiddleware, async (c) => {
 
     const customers = await db.prepare(
       `SELECT c.id, c.name, c.code, c.contact_person, c.contact_phone, c.address, c.latitude, c.longitude, c.customer_type,
-        (SELECT MAX(v.visit_date) FROM visits v WHERE v.customer_id = c.id AND v.tenant_id = c.tenant_id AND v.agent_id = ?) as last_visit_date
-      FROM customers c ${where} ORDER BY last_visit_date DESC NULLS LAST, c.name LIMIT ?`
+        MAX(v.visit_date) as last_visit_date
+      FROM customers c
+      LEFT JOIN visits v ON v.customer_id = c.id AND v.tenant_id = c.tenant_id AND v.agent_id = ?
+      ${where} GROUP BY c.id, c.name, c.code, c.contact_person, c.contact_phone, c.address, c.latitude, c.longitude, c.customer_type
+      ORDER BY last_visit_date DESC NULLS LAST, c.name LIMIT ?`
     ).bind(userId, ...params, limitNum).all();
 
     return c.json({ success: true, data: customers.results || [] });
@@ -7137,6 +7143,7 @@ api.get('/brand-custom-fields', authMiddleware, async (c) => {
   if (company_id) { where += ' AND company_id = ?'; params.push(company_id); }
   if (applies_to) { where += ' AND applies_to = ?'; params.push(applies_to); }
   const rows = await db.prepare(`SELECT * FROM brand_custom_fields ${where} ORDER BY display_order ASC`).bind(...params).all();
+  c.header('Cache-Control', 'public, max-age=300');
   return c.json({ data: rows?.results || [] });
 });
 
@@ -7184,6 +7191,7 @@ api.get('/visit-survey-config', authMiddleware, async (c) => {
   const params = [tenantId];
   if (company_id) { where += ' AND company_id = ?'; params.push(company_id); }
   const rows = await db.prepare(`SELECT * FROM visit_survey_config ${where}`).bind(...params).all();
+  c.header('Cache-Control', 'public, max-age=300');
   return c.json({ data: rows?.results || [] });
 });
 
@@ -7413,6 +7421,7 @@ api.get('/company-custom-questions', authMiddleware, async (c) => {
     if (visit_target_type) { query += " AND (visit_target_type = ? OR visit_target_type = 'both')"; params.push(visit_target_type); }
     query += ' ORDER BY display_order, created_at';
     const rows = await db.prepare(query).bind(...params).all();
+    c.header('Cache-Control', 'public, max-age=300');
     return c.json({ data: rows?.results || [] });
   } catch { return c.json({ data: [] }); }
 });
@@ -7664,6 +7673,37 @@ api.post('/migrations/add-performance-indexes', authMiddleware, async (c) => {
     // Index for visit_photos (thumbnail lookup)
     await db.prepare("CREATE INDEX IF NOT EXISTS idx_photos_visit_r2 ON visit_photos (visit_id, r2_url)").run();
     results.push('idx_photos_visit_r2 created');
+
+    // Indexes for Details step lookup tables (brand_custom_fields, company_custom_questions, etc.)
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_bcf_tenant_company ON brand_custom_fields (tenant_id, company_id, is_active)").run();
+    results.push('idx_bcf_tenant_company created');
+
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_ccq_tenant_company ON company_custom_questions (tenant_id, company_id, is_active)").run();
+    results.push('idx_ccq_tenant_company created');
+
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_vsc_tenant_company ON visit_survey_config (tenant_id, company_id)").run();
+    results.push('idx_vsc_tenant_company created');
+
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_cpf_tenant_company ON company_process_flows (tenant_id, company_id)").run();
+    results.push('idx_cpf_tenant_company created');
+
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_customers_tenant ON customers (tenant_id)").run();
+    results.push('idx_customers_tenant created');
+
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_mcl_manager_tenant ON manager_company_links (manager_id, tenant_id, is_active)").run();
+    results.push('idx_mcl_manager_tenant created');
+
+    // Index for store-search LEFT JOIN on visits
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_visits_customer_agent ON visits (customer_id, tenant_id, agent_id, visit_date)").run();
+    results.push('idx_visits_customer_agent created');
+
+    // Index for visit_responses queries (visit_type filter from PR #153)
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_vr_visit_type ON visit_responses (visit_id, visit_type)").run();
+    results.push('idx_vr_visit_type created');
+
+    // Index for questionnaires lookup
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_questionnaires_tenant ON questionnaires (tenant_id, is_active)").run();
+    results.push('idx_questionnaires_tenant created');
     
     return c.json({ success: true, results });
   } catch (err) {

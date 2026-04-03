@@ -395,16 +395,31 @@ export default function VisitCreate() {
     // Skip if already loaded for this company+visitType combo
     if (loadedCustomDataKeyRef.current === dataKey && customersLoaded) return
     loadedCustomDataKeyRef.current = dataKey
+
+    // Wrap each call with a 15s timeout + 1 auto-retry to prevent infinite loading
+    const withTimeout = (fn: () => Promise<void>, label: string): Promise<void> => {
+      const attempt = () => Promise.race([
+        fn(),
+        new Promise<void>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), 15000))
+      ])
+      return attempt().catch((err) => {
+        console.warn(`${label} failed, retrying:`, err.message)
+        return attempt().catch((retryErr) => {
+          console.error(`${label} retry also failed:`, retryErr.message)
+        })
+      })
+    }
+
     // Fire all custom data + customer loading in parallel
     const promises: Promise<void>[] = []
     if (cid) {
-      promises.push(loadCustomFields(cid))
-      promises.push(loadCustomQuestions(cid, vType))
-      promises.push(loadSurveyConfig(cid))
-      promises.push(loadQuestionnaires(cid))
+      promises.push(withTimeout(() => loadCustomFields(cid), 'loadCustomFields'))
+      promises.push(withTimeout(() => loadCustomQuestions(cid, vType), 'loadCustomQuestions'))
+      promises.push(withTimeout(() => loadSurveyConfig(cid), 'loadSurveyConfig'))
+      promises.push(withTimeout(() => loadQuestionnaires(cid), 'loadQuestionnaires'))
     }
     if (!customersLoaded) {
-      promises.push(loadCustomersData())
+      promises.push(withTimeout(() => loadCustomersData(), 'loadCustomersData'))
     }
     await Promise.all(promises)
   }
