@@ -8006,6 +8006,14 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
       // individual_registrations INSERT removed - visits table is the single source of truth
     }
 
+    // 2b. For store visits, save custom_question_values as a visit_response so they are persisted
+    if (body.visit_target_type === 'store' && body.custom_question_values && Object.keys(body.custom_question_values).length > 0) {
+      const cqrId = crypto.randomUUID();
+      await db.prepare('INSERT INTO visit_responses (id, tenant_id, visit_id, visit_type, responses) VALUES (?, ?, ?, ?, ?)').bind(
+        cqrId, tenantId, visitId, 'store_custom_questions', JSON.stringify(body.custom_question_values)
+      ).run();
+    }
+
     // 3. Save survey responses if provided
     if (body.survey_responses && Object.keys(body.survey_responses).length > 0) {
       const vrId = crypto.randomUUID();
@@ -8037,6 +8045,18 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
           ).run();
         }
       }
+    }
+
+    // 5. Trigger AI analysis for uploaded photos (runs async in background)
+    if (Array.isArray(body.photos) && body.photos.length > 0) {
+      try {
+        const savedPhotos = await db.prepare('SELECT id, r2_key, photo_type FROM visit_photos WHERE visit_id = ? AND tenant_id = ?').bind(visitId, tenantId).all();
+        for (const sp of (savedPhotos?.results || [])) {
+          if (sp.r2_key && !sp.r2_key.startsWith('data:')) {
+            try { c.executionCtx.waitUntil(analyzePhotoWithAI(c.env, sp.id, sp.r2_key, tenantId, visitId, sp.photo_type)); } catch { /* AI analysis optional */ }
+          }
+        }
+      } catch { /* AI analysis is optional - don't fail the visit */ }
     }
 
     return c.json({

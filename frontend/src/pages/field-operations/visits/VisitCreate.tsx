@@ -821,11 +821,14 @@ export default function VisitCreate() {
       if (!submitIdRef.current) {
         submitIdRef.current = crypto.randomUUID()
       }
+      // Find brand_id from the selected company (if available)
+      const selectedComp = companies.find(c => c.id === selectedCompany)
       const payload: Record<string, unknown> = {
         visit_target_type: visitTargetType,
         checkin_latitude: gpsLocation?.latitude,
         checkin_longitude: gpsLocation?.longitude,
         company_id: selectedCompany || undefined,
+        brand_id: (selectedComp as Record<string, unknown>)?.brand_id || undefined,
         client_visit_id: submitIdRef.current,
         notes
       }
@@ -842,6 +845,10 @@ export default function VisitCreate() {
           payload.customer_id = selectedCustomer
         } else if (newStoreName) {
           payload.store_name = newStoreName
+        }
+        // Include custom field values for store visits too (not just individual)
+        if (Object.keys(customFieldValues).length > 0) {
+          payload.custom_field_values = customFieldValues
         }
       }
 
