@@ -158,7 +158,6 @@ export default function VisitCreate() {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [navigating, setNavigating] = useState(false)
-  const stepDataLoadingRef = useRef(0)
   const [stepDataLoading, setStepDataLoading] = useState(false)
   const submitIdRef = useRef<string | null>(null)
   // Track which company+visitType combo has had custom data loaded to avoid redundant fetches
@@ -398,10 +397,14 @@ export default function VisitCreate() {
     loadedCustomDataKeyRef.current = dataKey
     const invocationId = ++loadDetailsInvocationRef.current
 
+    // Loading state is managed here, not inside individual load functions.
+    // This avoids desynchronization when background functions' finally blocks
+    // decrement a shared counter after a newer invocation has started.
+    setStepDataLoading(true)
+
     // Wrap each call with a 15s timeout to prevent infinite loading.
     // On timeout, resolve (not reject) so Promise.all completes. The original fn()
     // continues in the background and will update state when it finishes.
-    // No retry — retrying would spawn duplicate concurrent calls that inflate stepDataLoadingRef.
     const withTimeout = (fn: () => Promise<void>, label: string): Promise<void> => {
       let timer: ReturnType<typeof setTimeout>
       return Promise.race([
@@ -423,11 +426,9 @@ export default function VisitCreate() {
     }
     await Promise.all(promises)
 
-    // Force-clear loading gate after all withTimeout wrappers resolve.
-    // Only clear if this is still the latest invocation — a newer concurrent call
-    // may have started (e.g. user switched company) and its loads are still in-flight.
+    // Clear loading gate only if this is still the latest invocation.
+    // A newer concurrent call (e.g. user switched company) takes ownership.
     if (invocationId === loadDetailsInvocationRef.current) {
-      stepDataLoadingRef.current = 0
       setStepDataLoading(false)
     }
   }
@@ -510,26 +511,16 @@ export default function VisitCreate() {
 
   const loadCustomFields = async (companyId: string) => {
     try {
-      stepDataLoadingRef.current++
-      setStepDataLoading(true)
       const res = await fieldOperationsService.getBrandCustomFields(companyId, visitTargetType || 'individual')
       const fields = res?.data || res || []
       setCustomFields(Array.isArray(fields) ? fields : [])
     } catch (err) {
       console.error('Failed to load custom fields:', err)
-    } finally {
-      stepDataLoadingRef.current--
-      if (stepDataLoadingRef.current <= 0) {
-        stepDataLoadingRef.current = 0
-        setStepDataLoading(false)
-      }
     }
   }
 
   const loadCustomQuestions = async (companyId: string, visitType?: string) => {
     try {
-      stepDataLoadingRef.current++
-      setStepDataLoading(true)
       const res = await fieldOperationsService.getCompanyCustomQuestions(companyId, visitType)
       const questions = res?.data || res || []
       const allQuestions = Array.isArray(questions) ? questions : []
@@ -545,12 +536,6 @@ export default function VisitCreate() {
       }
     } catch (err) {
       console.error('Failed to load custom questions:', err)
-    } finally {
-      stepDataLoadingRef.current--
-      if (stepDataLoadingRef.current <= 0) {
-        stepDataLoadingRef.current = 0
-        setStepDataLoading(false)
-      }
     }
   }
 
