@@ -401,9 +401,10 @@ export default function VisitCreate() {
     // continues in the background and will update state when it finishes.
     // No retry — retrying would spawn duplicate concurrent calls that inflate stepDataLoadingRef.
     const withTimeout = (fn: () => Promise<void>, label: string): Promise<void> => {
+      let timer: ReturnType<typeof setTimeout>
       return Promise.race([
-        fn(),
-        new Promise<void>((resolve) => setTimeout(() => { console.warn(`${label} timed out after 15s`); resolve(); }, 15000))
+        fn().finally(() => clearTimeout(timer)),
+        new Promise<void>((resolve) => { timer = setTimeout(() => { console.warn(`${label} timed out after 15s`); resolve(); }, 15000) })
       ])
     }
 
