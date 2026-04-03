@@ -163,6 +163,7 @@ export default function VisitCreate() {
   const submitIdRef = useRef<string | null>(null)
   // Track which company+visitType combo has had custom data loaded to avoid redundant fetches
   const loadedCustomDataKeyRef = useRef<string>('')
+  const loadDetailsInvocationRef = useRef(0)
   const [customersLoaded, setCustomersLoaded] = useState(false)
 
   // Dynamic process flow steps from backend
@@ -395,6 +396,7 @@ export default function VisitCreate() {
     // Skip if already loaded for this company+visitType combo
     if (loadedCustomDataKeyRef.current === dataKey && customersLoaded) return
     loadedCustomDataKeyRef.current = dataKey
+    const invocationId = ++loadDetailsInvocationRef.current
 
     // Wrap each call with a 15s timeout to prevent infinite loading.
     // On timeout, resolve (not reject) so Promise.all completes. The original fn()
@@ -422,12 +424,12 @@ export default function VisitCreate() {
     await Promise.all(promises)
 
     // Force-clear loading gate after all withTimeout wrappers resolve.
-    // If any call timed out, stepDataLoadingRef may still be elevated because
-    // the background fn() hasn't finished its finally block yet. Reset here so
-    // handleNext is never permanently blocked. The background fn() will
-    // harmlessly call setStepDataLoading(false) again when it eventually completes.
-    stepDataLoadingRef.current = 0
-    setStepDataLoading(false)
+    // Only clear if this is still the latest invocation — a newer concurrent call
+    // may have started (e.g. user switched company) and its loads are still in-flight.
+    if (invocationId === loadDetailsInvocationRef.current) {
+      stepDataLoadingRef.current = 0
+      setStepDataLoading(false)
+    }
   }
 
   // Load customers/stores — called lazily when approaching details step
