@@ -1633,7 +1633,7 @@ app.get('/api/manager/dashboard', authMiddleware, async (c) => {
         teamVisits = iRes?.count || 0;
         teamRegs = rRes?.count || 0;
         teamTargetVisits = tRes?.tv || 0;
-        teamActualVisits = teamVisits;
+        teamActualVisits = vRes?.count || 0;
         teamTargetRegs = tRes?.tr || 0;
         teamActualRegs = teamRegs;
         if (teamTargetVisits === 0 && teamTargetRegs === 0) {
