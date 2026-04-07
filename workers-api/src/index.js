@@ -15295,7 +15295,7 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
         u.first_name || ' ' || u.last_name as agent_name,
         (SELECT vp.r2_url FROM visit_photos vp WHERE vp.visit_id = v.id AND vp.tenant_id = v.tenant_id AND vp.r2_url IS NOT NULL LIMIT 1) as thumbnail_url,
         (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id AND vr.visit_type = 'store_custom_questions' LIMIT 1) as store_custom_responses,
-        (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id AND vr.visit_type != 'store_custom_questions' AND (vr.visit_type IS NULL OR vr.visit_type = 'customer' OR vr.visit_type = 'store') LIMIT 1) as questionnaire_responses
+        (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id AND (vr.visit_type IS NULL OR vr.visit_type = 'customer' OR vr.visit_type = 'store') LIMIT 1) as questionnaire_responses
       FROM visits v
       LEFT JOIN customers c ON v.customer_id = c.id
       LEFT JOIN users u ON v.agent_id = u.id
