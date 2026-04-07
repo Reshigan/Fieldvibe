@@ -256,6 +256,7 @@ async function buildFallbackMonthlyTargets(db, tenantId, agentId, currentMonth, 
       const storePerMonth = (ctr.store_target_per_month != null ? ctr.store_target_per_month : ((ctr.target_registrations_per_day || 0) * workingDays));
       const dailyConvs = ctr.target_conversions_per_day || 0;
       fallbackTargets.push({
+        agent_id: agentId,
         company_id: ctr.company_id,
         company_name: ctr.company_name,
         target_visits: indivPerMonth,
@@ -764,7 +765,7 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
           company_id: ctr.company_id,
           target_visits: indivPerDay,
           target_registrations: storePerDay,
-          target_conversions: ctr.target_conversions_per_day || 0,
+          target_conversions: (ctr.target_conversions_per_day || 0) * mult,
           actual_visits: ca.today_individual_visits || 0,
           actual_registrations: ca.today_store_visits || 0,
           actual_store_visits: ca.today_store_visits || 0,
