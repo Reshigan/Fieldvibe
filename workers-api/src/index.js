@@ -8241,7 +8241,11 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
             const bytes = new Uint8Array(binaryStr.length);
             for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
             const indPhotoHash = await computePhotoHash(bytes);
-            if (await isPhotoHashDuplicate(db, tenantId, indPhotoHash)) continue;
+            if (await isPhotoHashDuplicate(db, tenantId, indPhotoHash)) {
+              const existingPhoto = await db.prepare('SELECT r2_url FROM visit_photos WHERE tenant_id = ? AND photo_hash = ? LIMIT 1').bind(tenantId, indPhotoHash).first();
+              if (existingPhoto && existingPhoto.r2_url) mergedCustomFields[key] = existingPhoto.r2_url;
+              continue;
+            }
             const indPhotoId = crypto.randomUUID();
             const indPhotoKey = `photos/${tenantId}/${visitId}/${indPhotoId}.jpg`;
             const bucket = c.env.UPLOADS;
@@ -8288,6 +8292,8 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
             // Compute hash for deduplication
             const cqPhotoHash = await computePhotoHash(bytes);
             if (await isPhotoHashDuplicate(db, tenantId, cqPhotoHash)) {
+              const existingCqPhoto = await db.prepare('SELECT r2_url FROM visit_photos WHERE tenant_id = ? AND photo_hash = ? LIMIT 1').bind(tenantId, cqPhotoHash).first();
+              if (existingCqPhoto && existingCqPhoto.r2_url) mergedStoreCustom[key] = existingCqPhoto.r2_url;
               console.log(`Skipping duplicate photo (hash: ${cqPhotoHash}) for visit ${visitId}, key: ${key}`);
               continue;
             }
@@ -13184,10 +13190,16 @@ async function analyzePhotoWithAI(env, photoId, r2Key, tenantId, visitId, photoT
           // Only create store_custom_questions row for store visits (not individual/customer visits)
           const visitRow = await env.DB.prepare('SELECT visit_type FROM visits WHERE id = ?').bind(visitId).first();
           if (visitRow && visitRow.visit_type === 'store') {
-            const newId = crypto.randomUUID ? crypto.randomUUID() : uuidv4();
-            await env.DB.prepare("INSERT INTO visit_responses (id, tenant_id, visit_id, visit_type, responses) VALUES (?, ?, ?, 'store_custom_questions', ?)").bind(
-              newId, tenantId, visitId, JSON.stringify({ board_installed: 'Yes', ai_board_detected: true })
-            ).run();
+            // Re-check to avoid race condition with concurrent AI analysis
+            const recheck = await env.DB.prepare("SELECT id FROM visit_responses WHERE visit_id = ? AND visit_type = 'store_custom_questions' LIMIT 1").bind(visitId).first();
+            if (!recheck) {
+              try {
+                const newId = crypto.randomUUID ? crypto.randomUUID() : uuidv4();
+                await env.DB.prepare("INSERT INTO visit_responses (id, tenant_id, visit_id, visit_type, responses) VALUES (?, ?, ?, 'store_custom_questions', ?)").bind(
+                  newId, tenantId, visitId, JSON.stringify({ board_installed: 'Yes', ai_board_detected: true })
+                ).run();
+              } catch (dupErr) { console.log('Concurrent board insert (expected):', dupErr.message); }
+            }
           }
         }
       } catch (boardErr) { console.error('AI board update error:', boardErr); }
