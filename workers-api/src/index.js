@@ -3161,12 +3161,12 @@ api.put('/visits/:id', async (c) => {
       await db.prepare('UPDATE visit_individuals SET custom_field_values = ? WHERE id = ? AND tenant_id = ?').bind(JSON.stringify(merged), vi.id, tenantId).run();
     }
     // Also update store_custom_questions in visit_responses for store visits (e.g. Goldrush ID on store visits)
-    const storeResp = await db.prepare("SELECT id, responses FROM visit_responses WHERE visit_id = ? AND visit_type = 'store_custom_questions'").bind(id).first();
+    const storeResp = await db.prepare("SELECT id, responses FROM visit_responses WHERE visit_id = ? AND tenant_id = ? AND visit_type = 'store_custom_questions'").bind(id, tenantId).first();
     if (storeResp) {
       let existingStore = {};
       try { existingStore = JSON.parse(storeResp.responses || '{}'); } catch(e) {}
       const mergedStore = { ...existingStore, ...body.custom_field_values };
-      await db.prepare("UPDATE visit_responses SET responses = ? WHERE id = ?").bind(JSON.stringify(mergedStore), storeResp.id).run();
+      await db.prepare("UPDATE visit_responses SET responses = ? WHERE id = ? AND tenant_id = ?").bind(JSON.stringify(mergedStore), storeResp.id, tenantId).run();
     }
   }
   return c.json({ success: true, message: 'Visit updated' });
@@ -5144,12 +5144,12 @@ api.put('/field-operations/visits/:id', authMiddleware, async (c) => {
       await db.prepare('UPDATE visit_individuals SET custom_field_values = ? WHERE id = ? AND tenant_id = ?').bind(JSON.stringify(merged), vi.id, tenantId).run();
     }
     // Also update store_custom_questions in visit_responses for store visits (e.g. Goldrush ID on store visits)
-    const storeResp = await db.prepare("SELECT id, responses FROM visit_responses WHERE visit_id = ? AND visit_type = 'store_custom_questions'").bind(id).first();
+    const storeResp = await db.prepare("SELECT id, responses FROM visit_responses WHERE visit_id = ? AND tenant_id = ? AND visit_type = 'store_custom_questions'").bind(id, tenantId).first();
     if (storeResp) {
       let existingStore = {};
       try { existingStore = JSON.parse(storeResp.responses || '{}'); } catch(e) {}
       const mergedStore = { ...existingStore, ...body.custom_field_values };
-      await db.prepare("UPDATE visit_responses SET responses = ? WHERE id = ?").bind(JSON.stringify(mergedStore), storeResp.id).run();
+      await db.prepare("UPDATE visit_responses SET responses = ? WHERE id = ? AND tenant_id = ?").bind(JSON.stringify(mergedStore), storeResp.id, tenantId).run();
     }
   }
   return c.json({ success: true, message: 'Visit updated' });
