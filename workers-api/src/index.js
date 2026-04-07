@@ -642,8 +642,8 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
       if (dashAgentIds.length === 0) dashAgentIds = [userId];
     } else if (userRole === 'team_lead') {
       const dashTeamMembers = await db.prepare("SELECT id FROM users WHERE tenant_id = ? AND team_lead_id = ? AND is_active = 1").bind(tenantId, userId).all().catch(() => ({ results: [] }));
-      dashAgentIds = (dashTeamMembers.results || []).map(a => a.id);
-      if (dashAgentIds.length === 0) dashAgentIds = [userId];
+      // Include the team lead's own userId so their personal visits are counted in dashboard stats
+      dashAgentIds = [userId, ...(dashTeamMembers.results || []).map(a => a.id)];
     }
     const dashAgentPh = dashAgentIds.map(() => '?').join(',');
     const dashAgentFilter = dashAgentIds.length === 1 ? 'agent_id = ?' : `agent_id IN (${dashAgentPh})`;
@@ -1032,8 +1032,8 @@ app.get('/api/agent/performance', authMiddleware, async (c) => {
       if (perfAgentIdsForCounts.length === 0) perfAgentIdsForCounts = [userId];
     } else if (perfUserRole === 'team_lead') {
       const perfTeamMembers = await db.prepare("SELECT id FROM users WHERE tenant_id = ? AND team_lead_id = ? AND is_active = 1").bind(tenantId, userId).all().catch(() => ({ results: [] }));
-      perfAgentIdsForCounts = (perfTeamMembers.results || []).map(a => a.id);
-      if (perfAgentIdsForCounts.length === 0) perfAgentIdsForCounts = [userId];
+      // Include the team lead's own userId so their personal visits are counted in performance stats
+      perfAgentIdsForCounts = [userId, ...(perfTeamMembers.results || []).map(a => a.id)];
     }
     const perfAgentPh = perfAgentIdsForCounts.map(() => '?').join(',');
     const perfAgentFilter = perfAgentIdsForCounts.length === 1 ? 'agent_id = ?' : `agent_id IN (${perfAgentPh})`;
@@ -15208,7 +15208,7 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
         }
         // Merge both sources - custom fields take priority (they contain the question_key-based values)
         const responses = { ...surveyResponses, ...customFields };
-        goldrush_id = responses.goldrush_id || '';
+        goldrush_id = responses.goldrush_id || responses.goldrush_id_entry || '';
         consumer_converted = responses.consumer_converted || '';
         betting_elsewhere = responses.betting_elsewhere || '';
         competitor_company = responses.competitor_company || '';
@@ -15232,8 +15232,10 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
         }
       } catch (e) { /* ignore parse errors */ }
 
-      // Use visit_photos thumbnail first, then fall back to questionnaire image responses, then custom company question photos
-      const photo_url = row.thumbnail_url || id_passport_photo || shop_exterior_photo || ad_board_photo || competitor_photo || custom_question_photo || null;
+      // Use visit_photos (R2 URLs) first; for base64 photos from custom questions, only flag their existence
+      const isUrl = (v) => v && typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://'));
+      const photo_url = row.thumbnail_url || (isUrl(id_passport_photo) ? id_passport_photo : null) || (isUrl(shop_exterior_photo) ? shop_exterior_photo : null) || (isUrl(ad_board_photo) ? ad_board_photo : null) || (isUrl(competitor_photo) ? competitor_photo : null) || (isUrl(custom_question_photo) ? custom_question_photo : null) || null;
+      const has_photos = !!(id_passport_photo || shop_exterior_photo || ad_board_photo || competitor_photo || custom_question_photo);
 
       return {
         id: row.id,
@@ -15254,6 +15256,7 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
         notes: row.notes,
         gave_brand_info,
         thumbnail_url: photo_url,
+        has_photos,
         consumer_converted,
         betting_elsewhere,
         competitor_company,
@@ -15345,7 +15348,7 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
         }
         // Merge both sources - store custom questions take priority
         const responses = { ...surveyResponses, ...storeCustom };
-        goldrush_id = responses.goldrush_id || '';
+        goldrush_id = responses.goldrush_id || responses.goldrush_id_entry || '';
         stock_source = responses.stock_source || '';
         competitors_in_store = responses.competitors_in_store || '';
         competitor_stock_source = responses.competitor_stock_source || '';
@@ -15369,8 +15372,11 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
         }
       } catch (e) { /* ignore parse errors */ }
 
-      // Use visit_photos first, then questionnaire images, then custom question photos
-      const photo_url = row.thumbnail_url || shop_exterior_photo || ad_board_photo || competitor_photo || custom_question_photo || null;
+      // Use visit_photos (R2 URLs) first; for base64 photos from custom questions, only flag their existence
+      // Don't include full base64 data in listing response (can be 100KB+ per photo, making response huge)
+      const isUrl = (v) => v && typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://'));
+      const photo_url = row.thumbnail_url || (isUrl(shop_exterior_photo) ? shop_exterior_photo : null) || (isUrl(ad_board_photo) ? ad_board_photo : null) || (isUrl(competitor_photo) ? competitor_photo : null) || (isUrl(custom_question_photo) ? custom_question_photo : null) || null;
+      const has_photos = !!(shop_exterior_photo || ad_board_photo || competitor_photo || custom_question_photo);
 
       return {
         id: row.id,
@@ -15385,9 +15391,10 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
         notes: additional_notes,
         goldrush_id,
         thumbnail_url: photo_url,
-        shop_exterior_photo: shop_exterior_photo || null,
-        competitor_photo: competitor_photo || null,
-        ad_board_photo: ad_board_photo || null,
+        has_photos,
+        shop_exterior_photo: isUrl(shop_exterior_photo) ? shop_exterior_photo : (shop_exterior_photo ? 'has_photo' : null),
+        competitor_photo: isUrl(competitor_photo) ? competitor_photo : (competitor_photo ? 'has_photo' : null),
+        ad_board_photo: isUrl(ad_board_photo) ? ad_board_photo : (ad_board_photo ? 'has_photo' : null),
         stock_source,
         competitors_in_store,
         competitor_stock_source,
@@ -16956,7 +16963,66 @@ api.post('/visits/:visitId/no-show', authMiddleware, async (c) => {
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 api.get('/visits/:visitId/photos', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const visitId = c.req.param('visitId');
+    // Get visit info for company_id
+    const visit = await db.prepare('SELECT id, company_id, created_at FROM visits WHERE id = ? AND tenant_id = ?').bind(visitId, tenantId).first();
+    if (!visit) return c.json({ success: false, message: 'Visit not found' }, 404);
+    // Fetch R2 photos
+    let photos = [];
+    try {
+      const photosRes = await db.prepare('SELECT id, photo_type, r2_url, captured_at FROM visit_photos WHERE visit_id = ? AND tenant_id = ?').bind(visitId, tenantId).all();
+      photos = (photosRes?.results || []).filter(p => p.r2_url);
+    } catch { /* visit_photos may not exist */ }
+    // Fetch custom question photos (base64 or URL) from visit_responses
+    const customFieldValues = {};
+    try {
+      // Try store_custom_questions first, then regular responses
+      const scq = await db.prepare("SELECT responses FROM visit_responses WHERE visit_id = ? AND tenant_id = ? AND visit_type = 'store_custom_questions'").bind(visitId, tenantId).first();
+      if (scq?.responses) {
+        const parsed = typeof scq.responses === 'string' ? JSON.parse(scq.responses) : scq.responses;
+        Object.assign(customFieldValues, parsed);
+      }
+      // Also check regular visit_responses
+      const vr = await db.prepare("SELECT responses FROM visit_responses WHERE visit_id = ? AND tenant_id = ? AND (visit_type IS NULL OR visit_type != 'store_custom_questions')").bind(visitId, tenantId).first();
+      if (vr?.responses) {
+        const parsed = typeof vr.responses === 'string' ? JSON.parse(vr.responses) : vr.responses;
+        Object.assign(customFieldValues, parsed);
+      }
+      // Also check visit_individuals custom_field_values
+      const vi = await db.prepare('SELECT custom_field_values FROM visit_individuals WHERE visit_id = ? AND tenant_id = ?').bind(visitId, tenantId).first();
+      if (vi?.custom_field_values) {
+        const parsed = typeof vi.custom_field_values === 'string' ? JSON.parse(vi.custom_field_values) : vi.custom_field_values;
+        Object.assign(customFieldValues, parsed);
+      }
+    } catch { /* ok */ }
+    // Extract image fields from company custom questions
+    if (visit.company_id) {
+      try {
+        const imgQs = await db.prepare("SELECT question_key, question_label FROM company_custom_questions WHERE tenant_id = ? AND company_id = ? AND field_type = 'image' AND is_active = 1").bind(tenantId, visit.company_id).all();
+        for (const q of (imgQs.results || [])) {
+          const val = customFieldValues[q.question_key];
+          if (val && typeof val === 'string' && (val.startsWith('data:image') || val.startsWith('http'))) {
+            photos.push({ id: 'q_' + q.question_key, photo_type: 'custom_question', label: q.question_label || q.question_key, r2_url: val, captured_at: visit.created_at });
+          }
+        }
+      } catch { /* ok */ }
+    }
+    // Also check for known process step image fields
+    const knownImageKeys = ['shop_exterior_photo', 'ad_board_photo', 'competitor_photo', 'id_passport_photo'];
+    for (const key of knownImageKeys) {
+      const val = customFieldValues[key];
+      if (val && typeof val === 'string' && (val.startsWith('data:image') || val.startsWith('http'))) {
+        // Avoid duplicates if already added via company_custom_questions
+        if (!photos.find(p => p.id === 'q_' + key)) {
+          photos.push({ id: 'q_' + key, photo_type: 'process_step', label: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), r2_url: val, captured_at: visit.created_at });
+        }
+      }
+    }
+    return c.json({ success: true, data: photos, total: photos.length });
+  }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 api.get('/visits/:visitId/photos/:photoId', authMiddleware, async (c) => {
