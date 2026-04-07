@@ -13140,6 +13140,12 @@ async function analyzePhotoWithAI(env, photoId, r2Key, tenantId, visitId, photoT
             respData.ai_board_detected = true;
             await env.DB.prepare("UPDATE visit_responses SET responses = ? WHERE id = ?").bind(JSON.stringify(respData), existingResp.id).run();
           }
+        } else {
+          // No store_custom_questions row exists yet — create one with board_installed = 'Yes'
+          const newId = crypto.randomUUID ? crypto.randomUUID() : uuidv4();
+          await env.DB.prepare("INSERT INTO visit_responses (id, tenant_id, visit_id, visit_type, responses) VALUES (?, ?, ?, 'store_custom_questions', ?)").bind(
+            newId, tenantId, visitId, JSON.stringify({ board_installed: 'Yes', ai_board_detected: true })
+          ).run();
         }
       } catch (boardErr) { console.error('AI board update error:', boardErr); }
     }
@@ -15479,7 +15485,8 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
         (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id AND vr.visit_type = 'store_custom_questions' LIMIT 1) as store_custom_responses,
         (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id AND (vr.visit_type IS NULL OR vr.visit_type = 'customer' OR vr.visit_type = 'store') LIMIT 1) as questionnaire_responses,
         (SELECT vp2.ai_analysis_status FROM visit_photos vp2 WHERE vp2.visit_id = v.id AND vp2.tenant_id = v.tenant_id AND vp2.ai_analysis_status IS NOT NULL ORDER BY vp2.ai_analysis_status = 'completed' DESC LIMIT 1) as ai_status,
-        (SELECT vp3.ai_raw_response FROM visit_photos vp3 WHERE vp3.visit_id = v.id AND vp3.tenant_id = v.tenant_id AND vp3.ai_analysis_status = 'completed' LIMIT 1) as ai_raw_response
+        (SELECT vp3.ai_raw_response FROM visit_photos vp3 WHERE vp3.visit_id = v.id AND vp3.tenant_id = v.tenant_id AND vp3.ai_analysis_status = 'completed' AND (vp3.ai_raw_response LIKE '%board_detected%true%' OR vp3.ai_raw_response LIKE '%"board_detected": true%') LIMIT 1) as ai_board_response,
+        (SELECT COUNT(*) FROM visit_photos vp4 WHERE vp4.visit_id = v.id AND vp4.tenant_id = v.tenant_id AND vp4.ai_analysis_status = 'completed') as ai_photos_analyzed
       FROM visits v
       LEFT JOIN customers c ON v.customer_id = c.id
       LEFT JOIN users u ON v.agent_id = u.id
@@ -15585,7 +15592,16 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
         other_ad_brands,
         board_installed,
         ai_status: row.ai_status || null,
-        ai_board_detected: row.ai_raw_response ? (() => { try { const r = JSON.parse(row.ai_raw_response.match(/\{[\s\S]*\}/)?.[0] || '{}'); return r.board_detected === true; } catch { return false; } })() : false,
+        ai_photos_analyzed: row.ai_photos_analyzed || 0,
+        ai_board_detected: (() => {
+          // Check 1: AI raw response from photo analysis explicitly detected a board
+          if (row.ai_board_response) {
+            try { const r = JSON.parse(row.ai_board_response.match(/\{[\s\S]*\}/)?.[0] || '{}'); if (r.board_detected === true) return true; } catch {}
+          }
+          // Check 2: board_installed was set to 'Yes' (either manually or by AI updating visit_responses)
+          if (board_installed === 'Yes') return true;
+          return false;
+        })(),
       };
     });
 

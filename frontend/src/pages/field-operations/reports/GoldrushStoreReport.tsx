@@ -35,6 +35,7 @@ interface GoldrushStore {
   board_installed: string
   ai_status: string | null
   ai_board_detected: boolean
+  ai_photos_analyzed: number
 }
 
 const GoldrushStoreReport: React.FC = () => {
