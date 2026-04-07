@@ -633,10 +633,10 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
         const tlPh = dashTlIds.map(() => '?').join(',');
         const dashAgents = await db.prepare(`SELECT id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent', 'sales_rep') AND is_active = 1 AND team_lead_id IN (${tlPh})`).bind(tenantId, ...dashTlIds).all().catch(() => ({ results: [] }));
         dashAgentIds = (dashAgents.results || []).map(a => a.id);
-        if (isAdminDash) {
-          const unassigned = await db.prepare("SELECT id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent', 'sales_rep') AND is_active = 1 AND team_lead_id IS NULL").bind(tenantId).all().catch(() => ({ results: [] }));
-          dashAgentIds = [...dashAgentIds, ...(unassigned.results || []).map(a => a.id)];
-        }
+      }
+      if (isAdminDash) {
+        const unassigned = await db.prepare("SELECT id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent', 'sales_rep') AND is_active = 1 AND team_lead_id IS NULL").bind(tenantId).all().catch(() => ({ results: [] }));
+        dashAgentIds = [...dashAgentIds, ...(unassigned.results || []).map(a => a.id)];
       }
       if (dashAgentIds.length === 0) dashAgentIds = [userId];
     } else if (userRole === 'team_lead') {
@@ -1000,10 +1000,10 @@ app.get('/api/agent/performance', authMiddleware, async (c) => {
         const perfTlPh = perfTlIds.map(() => '?').join(',');
         const perfAgentsResult = await db.prepare(`SELECT id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent', 'sales_rep') AND is_active = 1 AND team_lead_id IN (${perfTlPh})`).bind(tenantId, ...perfTlIds).all().catch(() => ({ results: [] }));
         perfAgentIdsForCounts = (perfAgentsResult.results || []).map(a => a.id);
-        if (isPerfAdmin) {
-          const perfUnassigned = await db.prepare("SELECT id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent', 'sales_rep') AND is_active = 1 AND team_lead_id IS NULL").bind(tenantId).all().catch(() => ({ results: [] }));
-          perfAgentIdsForCounts = [...perfAgentIdsForCounts, ...(perfUnassigned.results || []).map(a => a.id)];
-        }
+      }
+      if (isPerfAdmin) {
+        const perfUnassigned = await db.prepare("SELECT id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent', 'sales_rep') AND is_active = 1 AND team_lead_id IS NULL").bind(tenantId).all().catch(() => ({ results: [] }));
+        perfAgentIdsForCounts = [...perfAgentIdsForCounts, ...(perfUnassigned.results || []).map(a => a.id)];
       }
       if (perfAgentIdsForCounts.length === 0) perfAgentIdsForCounts = [userId];
     } else if (perfUserRole === 'team_lead') {
@@ -1196,12 +1196,14 @@ app.get('/api/agent/performance', authMiddleware, async (c) => {
       await Promise.all(targets.map(async (t) => {
         const companyFilter = t.company_id ? ' AND company_id = ?' : '';
         const companyBinds = t.company_id ? [t.company_id] : [];
+        // Use the specific target's agent_id (not all agents) to avoid double-counting
+        const rowAgentId = t.agent_id || userId;
         try {
           const [liveVisits, liveRegs, liveConvs, typeBreakdown] = await Promise.all([
-            db.prepare(`SELECT COUNT(*) as count FROM visits WHERE ${perfAgentFilter} AND tenant_id = ? AND visit_date >= ? AND visit_date < ?` + companyFilter).bind(...perfAgentIdsForCounts, tenantId, monthStartDate, perfNextMonth, ...companyBinds).first().catch(() => ({ count: 0 })),
-            db.prepare(`SELECT COUNT(*) as count FROM visits WHERE ${perfAgentFilter} AND tenant_id = ? AND LOWER(visit_type) = 'store' AND visit_date >= ? AND visit_date < ?` + companyFilter).bind(...perfAgentIdsForCounts, tenantId, monthStartDate, perfNextMonth, ...companyBinds).first().catch(() => ({ count: 0 })),
-            db.prepare(`SELECT COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.${perfAgentFilter} AND v.tenant_id = ? AND COALESCE(JSON_EXTRACT(vi.custom_field_values, '$.converted'), 0) = 1 AND v.visit_date >= ? AND v.visit_date < ?` + (companyFilter ? " AND v.company_id = ?" : "")).bind(...perfAgentIdsForCounts, tenantId, monthStartDate, perfNextMonth, ...companyBinds).first().catch(() => ({ count: 0 })),
-            db.prepare(`SELECT visit_type, COUNT(*) as count FROM visits WHERE ${perfAgentFilter} AND tenant_id = ? AND visit_date >= ? AND visit_date < ?` + companyFilter + " GROUP BY visit_type").bind(...perfAgentIdsForCounts, tenantId, monthStartDate, perfNextMonth, ...companyBinds).all().catch(() => ({ results: [] })),
+            db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date >= ? AND visit_date < ?" + companyFilter).bind(rowAgentId, tenantId, monthStartDate, perfNextMonth, ...companyBinds).first().catch(() => ({ count: 0 })),
+            db.prepare("SELECT COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND LOWER(visit_type) = 'store' AND visit_date >= ? AND visit_date < ?" + companyFilter).bind(rowAgentId, tenantId, monthStartDate, perfNextMonth, ...companyBinds).first().catch(() => ({ count: 0 })),
+            db.prepare("SELECT COUNT(*) as count FROM visit_individuals vi JOIN visits v ON vi.visit_id = v.id WHERE v.agent_id = ? AND v.tenant_id = ? AND COALESCE(JSON_EXTRACT(vi.custom_field_values, '$.converted'), 0) = 1 AND v.visit_date >= ? AND v.visit_date < ?" + (companyFilter ? " AND v.company_id = ?" : "")).bind(rowAgentId, tenantId, monthStartDate, perfNextMonth, ...companyBinds).first().catch(() => ({ count: 0 })),
+            db.prepare("SELECT visit_type, COUNT(*) as count FROM visits WHERE agent_id = ? AND tenant_id = ? AND visit_date >= ? AND visit_date < ?" + companyFilter + " GROUP BY visit_type").bind(rowAgentId, tenantId, monthStartDate, perfNextMonth, ...companyBinds).all().catch(() => ({ results: [] })),
           ]);
           let storeVisits = 0, individualVisits = 0;
           for (const row of (typeBreakdown.results || [])) {
