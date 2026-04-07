@@ -628,7 +628,7 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
         (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date >= ?) as week_visits,
         (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND agent_id = ? AND LOWER(visit_type) = 'store' AND visit_date >= ?) as week_regs,
         (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND agent_id = ? AND visit_date >= ? AND visit_date < ?) as prior_month_visits,
-        (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND agent_id = ? AND LOWER(visit_type) != 'store' AND visit_date >= ? AND visit_date < ?) as prior_month_individual,
+        (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND agent_id = ? AND LOWER(visit_type) = 'individual' AND visit_date >= ? AND visit_date < ?) as prior_month_individual,
         (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND agent_id = ? AND LOWER(visit_type) = 'store' AND visit_date >= ? AND visit_date < ?) as prior_month_store
     `;
     const countsResult = await db.prepare(countsQuery).bind(
@@ -1571,7 +1571,7 @@ app.get('/api/team-lead/dashboard', authMiddleware, async (c) => {
     });
   } catch (error) {
     console.error('Team lead dashboard error:', error);
-    return c.json({ success: true, data: { team_size: 0, agents: [], team_totals: { today_visits: 0, month_visits: 0, today_stores: 0, month_stores: 0 }, team_targets: { target_visits: 0, actual_visits: 0, target_registrations: 0, actual_registrations: 0, achievement: 0 }, team_commission: { pending: 0, approved: 0, paid: 0 }, commission_rules: [], commission_tiers: [], current_team_tier: null, team_lead_own: null, manager_performance: null } });
+    return c.json({ success: true, data: { team_size: 0, agents: [], team_totals: { today_visits: 0, month_visits: 0, today_stores: 0, month_stores: 0 }, team_targets: { target_visits: 0, actual_visits: 0, target_stores: 0, actual_stores: 0, achievement: 0 }, team_commission: { pending: 0, approved: 0, paid: 0 }, commission_rules: [], commission_tiers: [], current_team_tier: null, team_lead_own: null, manager_performance: null } });
   }
 });
 
