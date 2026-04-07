@@ -135,7 +135,7 @@ const DEFAULT_STORE_STEPS: ProcessFlowStep[] = [
   { id: 's2', step_key: 'visit_type', step_label: 'Visit Type', step_order: 2, is_required: 1, config: '{}' },
   { id: 's3', step_key: 'details', step_label: 'Details', step_order: 3, is_required: 1, config: '{}' },
   { id: 's4', step_key: 'survey', step_label: 'Survey', step_order: 4, is_required: 0, config: '{}' },
-  { id: 's5', step_key: 'photo', step_label: 'Photo Capture', step_order: 5, is_required: 0, config: '{}' },
+  { id: 's5', step_key: 'photo', step_label: 'Photo Capture', step_order: 5, is_required: 1, config: '{}' },
   { id: 's6', step_key: 'review', step_label: 'Review & Submit', step_order: 6, is_required: 1, config: '{}' },
 ]
 
@@ -747,7 +747,36 @@ export default function VisitCreate() {
       case 'survey': {
         if (surveyRequired && !skipSurvey) {
           if (!selectedQuestionnaire) return false
-          return Object.keys(surveyResponses).length > 0
+          if (Object.keys(surveyResponses).length === 0) return false
+          // Validate all required fields in the selected questionnaire are filled
+          const selQ = questionnaires.find(qn => qn.id === selectedQuestionnaire)
+          if (selQ) {
+            try {
+              const qs = typeof selQ.questions === 'string' ? JSON.parse(selQ.questions) : selQ.questions
+              if (Array.isArray(qs)) {
+                for (const q of qs) {
+                  const qKey = q.key || q.id
+                  if (q.required && qKey && !surveyResponses[qKey]) return false
+                }
+              }
+            } catch {}
+          }
+          return true
+        }
+        // Even when survey is optional, if agent chose a questionnaire, validate required fields
+        if (selectedQuestionnaire && !skipSurvey && Object.keys(surveyResponses).length > 0) {
+          const selQ = questionnaires.find(qn => qn.id === selectedQuestionnaire)
+          if (selQ) {
+            try {
+              const qs = typeof selQ.questions === 'string' ? JSON.parse(selQ.questions) : selQ.questions
+              if (Array.isArray(qs)) {
+                for (const q of qs) {
+                  const qKey = q.key || q.id
+                  if (q.required && qKey && !surveyResponses[qKey]) return false
+                }
+              }
+            } catch {}
+          }
         }
         return true
       }
@@ -1426,7 +1455,7 @@ export default function VisitCreate() {
   )
 
   const renderSurveyStep = () => {
-    const parsedQuestions: Array<{ id: string; question: string; type: string; options?: string[] }> = selectedQuestionnaire
+    const parsedQuestions: Array<{ id?: string; key?: string; question?: string; label?: string; type: string; options?: string[]; required?: boolean }> = selectedQuestionnaire
       ? (() => {
           const q = questionnaires.find(qn => qn.id === selectedQuestionnaire)
           if (!q) return []
@@ -1472,16 +1501,26 @@ export default function VisitCreate() {
 
               {parsedQuestions.length > 0 && (
                 <Box>
-                  {parsedQuestions.map((q, idx) => (
-                    <Box key={q.id || idx} sx={{ mb: 3 }}>
+                  {parsedQuestions.map((q, idx) => {
+                    const qKey = q.key || q.id || String(idx)
+                    const qLabel = q.label || q.question || qKey
+                    const isRequired = !!q.required
+                    const hasValue = !!surveyResponses[qKey]
+                    return (
+                    <Box key={qKey} sx={{ mb: 3 }}>
                       <Typography variant="body1" fontWeight="bold" sx={{ mb: 1 }}>
-                        {idx + 1}. {q.question}
+                        {idx + 1}. {qLabel}{isRequired ? ' *' : ''}
                       </Typography>
+                      {showValidation && isRequired && !hasValue && (
+                        <Typography variant="caption" color="error" sx={{ mb: 0.5, display: 'block' }}>
+                          This field is required
+                        </Typography>
+                      )}
                       {q.type === 'select' && q.options ? (
-                        <FormControl fullWidth>
+                        <FormControl fullWidth error={showValidation && isRequired && !hasValue}>
                           <Select
-                            value={surveyResponses[q.id] || ''}
-                            onChange={(e) => setSurveyResponses(prev => ({ ...prev, [q.id]: e.target.value }))}
+                            value={surveyResponses[qKey] || ''}
+                            onChange={(e) => setSurveyResponses(prev => ({ ...prev, [qKey]: e.target.value }))}
                             displayEmpty
                           >
                             <MenuItem value="">Select an answer</MenuItem>
@@ -1490,18 +1529,54 @@ export default function VisitCreate() {
                             ))}
                           </Select>
                         </FormControl>
+                      ) : q.type === 'image' ? (
+                        <Box>
+                          {surveyResponses[qKey] ? (
+                            <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                              <img src={surveyResponses[qKey]} alt={qLabel} style={{ maxWidth: 200, maxHeight: 200, borderRadius: 8 }} />
+                              <Button size="small" color="error" onClick={() => setSurveyResponses(prev => { const n = { ...prev }; delete n[qKey]; return n })} sx={{ position: 'absolute', top: 0, right: 0 }}>Remove</Button>
+                            </Box>
+                          ) : (
+                            <Button variant="outlined" component="label" color={showValidation && isRequired && !hasValue ? 'error' : 'primary'}>
+                              Upload Photo{isRequired ? ' (Required)' : ''}
+                              <input type="file" hidden accept="image/*" capture="environment" onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (file) {
+                                  const reader = new FileReader()
+                                  reader.onload = () => setSurveyResponses(prev => ({ ...prev, [qKey]: reader.result as string }))
+                                  reader.readAsDataURL(file)
+                                }
+                              }} />
+                            </Button>
+                          )}
+                        </Box>
+                      ) : q.type === 'radio' && q.options ? (
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          {q.options.map(opt => (
+                            <Button
+                              key={opt}
+                              variant={surveyResponses[qKey] === opt ? 'contained' : 'outlined'}
+                              color={surveyResponses[qKey] === opt ? (opt === 'Yes' ? 'success' : 'error') : 'inherit'}
+                              onClick={() => setSurveyResponses(prev => ({ ...prev, [qKey]: opt }))}
+                              size="small"
+                            >
+                              {opt}
+                            </Button>
+                          ))}
+                        </Box>
                       ) : (
                         <TextField
                           fullWidth
                           multiline={q.type === 'textarea'}
                           rows={q.type === 'textarea' ? 3 : 1}
-                          value={surveyResponses[q.id] || ''}
-                          onChange={(e) => setSurveyResponses(prev => ({ ...prev, [q.id]: e.target.value }))}
+                          value={surveyResponses[qKey] || ''}
+                          onChange={(e) => setSurveyResponses(prev => ({ ...prev, [qKey]: e.target.value }))}
                           placeholder="Enter your answer"
+                          error={showValidation && isRequired && !hasValue}
                         />
                       )}
                     </Box>
-                  ))}
+                  )})}
                 </Box>
               )}
 

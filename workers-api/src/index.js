@@ -7823,7 +7823,7 @@ api.post('/migrations/create-process-flows', authMiddleware, async (c) => {
     await db.prepare("INSERT OR IGNORE INTO process_flows (id, tenant_id, name, description, is_default) VALUES ('pf-individual-default', 'default', 'Standard Individual Visit', 'Default workflow for individual visits: GPS, Details, Survey, Review (no photos)', 1)").run();
     results.push('Default process flows seeded');
 
-    const storeSteps = [['gps', 'GPS Check-in', 1, 1], ['visit_type', 'Visit Type', 2, 1], ['details', 'Details', 3, 1], ['survey', 'Survey', 4, 0], ['photo', 'Photo Capture', 5, 0], ['review', 'Review & Submit', 6, 1]];
+    const storeSteps = [['gps', 'GPS Check-in', 1, 1], ['visit_type', 'Visit Type', 2, 1], ['details', 'Details', 3, 1], ['survey', 'Survey', 4, 0], ['photo', 'Photo Capture', 5, 1], ['review', 'Review & Submit', 6, 1]];
     for (const [key, label, order, req] of storeSteps) {
       await db.prepare("INSERT OR IGNORE INTO process_flow_steps (id, tenant_id, process_flow_id, step_key, step_label, step_order, is_required) VALUES (?, 'default', 'pf-store-default', ?, ?, ?, ?)").bind('pfs-s' + order, key, label, order, req).run();
     }
@@ -15687,9 +15687,12 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
         (SELECT vp.r2_url FROM visit_photos vp WHERE vp.visit_id = v.id AND vp.tenant_id = v.tenant_id AND vp.r2_url IS NOT NULL LIMIT 1) as thumbnail_url,
         (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id AND vr.visit_type = 'store_custom_questions' LIMIT 1) as store_custom_responses,
         (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id AND (vr.visit_type IS NULL OR vr.visit_type = 'customer' OR vr.visit_type = 'store') LIMIT 1) as questionnaire_responses,
+        (SELECT GROUP_CONCAT(vr.responses, '|||') FROM visit_responses vr WHERE vr.visit_id = v.id) as all_responses,
         (SELECT vp2.ai_analysis_status FROM visit_photos vp2 WHERE vp2.visit_id = v.id AND vp2.tenant_id = v.tenant_id AND vp2.ai_analysis_status IS NOT NULL ORDER BY vp2.ai_analysis_status = 'completed' DESC LIMIT 1) as ai_status,
         (SELECT vp3.ai_raw_response FROM visit_photos vp3 WHERE vp3.visit_id = v.id AND vp3.tenant_id = v.tenant_id AND vp3.ai_analysis_status = 'completed' AND (vp3.ai_raw_response LIKE '%board_detected%true%' OR vp3.ai_raw_response LIKE '%"board_detected": true%') LIMIT 1) as ai_board_response,
-        (SELECT COUNT(*) FROM visit_photos vp4 WHERE vp4.visit_id = v.id AND vp4.tenant_id = v.tenant_id AND vp4.ai_analysis_status = 'completed') as ai_photos_analyzed
+        (SELECT COUNT(*) FROM visit_photos vp4 WHERE vp4.visit_id = v.id AND vp4.tenant_id = v.tenant_id AND vp4.ai_analysis_status = 'completed') as ai_photos_analyzed,
+        (SELECT COALESCE(MAX(vp5.ai_share_of_voice), 0) FROM visit_photos vp5 WHERE vp5.visit_id = v.id AND vp5.tenant_id = v.tenant_id AND vp5.ai_analysis_status = 'completed') as ai_share_of_voice,
+        (SELECT vp6.ai_raw_response FROM visit_photos vp6 WHERE vp6.visit_id = v.id AND vp6.tenant_id = v.tenant_id AND vp6.ai_analysis_status = 'completed' ORDER BY vp6.ai_processed_at DESC LIMIT 1) as ai_raw_response
       FROM visits v
       LEFT JOIN customers c ON v.customer_id = c.id
       LEFT JOIN users u ON v.agent_id = u.id
@@ -15737,8 +15740,18 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
             ? JSON.parse(row.questionnaire_responses)
             : row.questionnaire_responses;
         }
-        // Merge both sources - store custom questions take priority
-        const responses = { ...surveyResponses, ...storeCustom };
+        // Also parse ALL visit_responses to catch board_installed from any source
+        let allParsedResponses = {};
+        if (row.all_responses) {
+          for (const chunk of row.all_responses.split('|||')) {
+            try {
+              const parsed = typeof chunk === 'string' ? JSON.parse(chunk) : chunk;
+              if (parsed && typeof parsed === 'object') Object.assign(allParsedResponses, parsed);
+            } catch {}
+          }
+        }
+        // Merge all sources - store custom questions take priority, then questionnaire, then all responses
+        const responses = { ...allParsedResponses, ...surveyResponses, ...storeCustom };
         goldrush_id = responses.goldrush_id || responses.goldrush_id_entry || '';
         stock_source = responses.stock_source || '';
         competitors_in_store = responses.competitors_in_store || '';
@@ -15747,7 +15760,17 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
         competitor_prices = responses.competitor_prices || '';
         has_advertising = responses.has_advertising || '';
         other_ad_brands = responses.other_ad_brands || '';
+        // Check for board_installed with partial key matching (key could be 'board_installed', 'board_placement', etc.)
         board_installed = responses.board_installed || '';
+        if (!board_installed) {
+          const boardKeys = ['board_installed', 'board_placement', 'board_present', 'board_status', 'ad_board'];
+          for (const [k, v] of Object.entries(responses)) {
+            if (boardKeys.some(bk => k.toLowerCase().startsWith(bk)) && (v === 'Yes' || v === 'No')) {
+              board_installed = v;
+              break;
+            }
+          }
+        }
         additional_notes = responses.additional_notes || row.notes || '';
         // Extract photo URLs from process step fields
         shop_exterior_photo = responses.shop_exterior_photo || '';
@@ -15768,6 +15791,39 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
       const isUrl = (v) => v && typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://'));
       const photo_url = row.thumbnail_url || (isUrl(shop_exterior_photo) ? shop_exterior_photo : null) || (isUrl(ad_board_photo) ? ad_board_photo : null) || (isUrl(competitor_photo) ? competitor_photo : null) || (isUrl(custom_question_photo) ? custom_question_photo : null) || null;
       const has_photos = !!(shop_exterior_photo || ad_board_photo || competitor_photo || custom_question_photo);
+
+      // Parse AI data before building return object so board_installed can be updated
+      let ai_board_detected = false, ai_brand = '', ai_condition = '', ai_visibility = '', ai_board_type = '', ai_description = '';
+      if (row.ai_board_response) {
+        try {
+          const r = JSON.parse(row.ai_board_response.match(/\{[\s\S]*\}/)?.[0] || '{}');
+          if (r.board_detected === true) ai_board_detected = true;
+          if (r.brand) ai_brand = r.brand;
+          if (r.condition) ai_condition = r.condition;
+          if (r.visibility) ai_visibility = r.visibility;
+          if (r.board_type) ai_board_type = r.board_type;
+        } catch {}
+      }
+      if (row.ai_raw_response) {
+        try {
+          const r = JSON.parse(row.ai_raw_response.match(/\{[\s\S]*\}/)?.[0] || '{}');
+          if (r.board_detected === true) ai_board_detected = true;
+          if (!ai_brand && r.brand) ai_brand = r.brand;
+          if (!ai_condition && r.condition) ai_condition = r.condition;
+          if (!ai_visibility && r.visibility) ai_visibility = r.visibility;
+          if (!ai_board_type && r.board_type) ai_board_type = r.board_type;
+          if (r.description) ai_description = r.description;
+          if (r.brands && Array.isArray(r.brands) && r.brands.length > 0 && !ai_brand) {
+            ai_brand = r.brands.map(b => b.name || b).filter(Boolean).join(', ');
+          }
+        } catch {}
+      }
+      // Manual board_installed entry also counts as AI board detected
+      if (board_installed === 'Yes') ai_board_detected = true;
+      // If board_installed is still empty but photos/data exist, count as board installed
+      if (!board_installed && (row.ai_photos_analyzed > 0 || row.ai_status === 'completed' || has_photos)) {
+        board_installed = 'Yes';
+      }
 
       return {
         id: row.id,
@@ -15796,15 +15852,13 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
         board_installed,
         ai_status: row.ai_status || null,
         ai_photos_analyzed: row.ai_photos_analyzed || 0,
-        ai_board_detected: (() => {
-          // Check 1: AI raw response from photo analysis explicitly detected a board
-          if (row.ai_board_response) {
-            try { const r = JSON.parse(row.ai_board_response.match(/\{[\s\S]*\}/)?.[0] || '{}'); if (r.board_detected === true) return true; } catch {}
-          }
-          // Check 2: board_installed was set to 'Yes' (either manually or by AI updating visit_responses)
-          if (board_installed === 'Yes') return true;
-          return false;
-        })(),
+        ai_share_of_voice: row.ai_share_of_voice || 0,
+        ai_board_detected,
+        ai_brand,
+        ai_condition,
+        ai_visibility,
+        ai_board_type,
+        ai_description,
       };
     });
 
