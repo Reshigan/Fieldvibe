@@ -13185,6 +13185,14 @@ api.post('/visit-photos/upload', authMiddleware, async (c) => {
 
     if (!photo || !visitId) return c.json({ success: false, message: 'photo and visit_id required' }, 400);
 
+    // Check for duplicate photo by hash BEFORE uploading to R2 (avoids orphaned R2 objects)
+    if (photoHash) {
+      const isDup = await isPhotoHashDuplicate(db, tenantId, photoHash);
+      if (isDup) {
+        return c.json({ success: false, message: 'Duplicate photo detected. This photo has already been uploaded.', is_duplicate: true }, 409);
+      }
+    }
+
     const bucket = c.env.UPLOADS;
     const id = crypto.randomUUID();
     const photoKey = `photos/${tenantId}/${visitId}/${id}.jpg`;
@@ -13197,14 +13205,6 @@ api.post('/visit-photos/upload', authMiddleware, async (c) => {
         if (thumbnail) await bucket.put(thumbKey, thumbnail.stream(), { httpMetadata: { contentType: 'image/jpeg' } });
       } catch (uploadErr) {
         console.error('R2 upload error (continuing with DB record):', uploadErr);
-      }
-    }
-
-    // Check for duplicate photo by hash before inserting
-    if (photoHash) {
-      const isDup = await isPhotoHashDuplicate(db, tenantId, photoHash);
-      if (isDup) {
-        return c.json({ success: false, message: 'Duplicate photo detected. This photo has already been uploaded.', is_duplicate: true }, 409);
       }
     }
 
