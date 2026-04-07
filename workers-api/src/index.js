@@ -4051,7 +4051,7 @@ api.post('/performance-messages/generate', authMiddleware, async (c) => {
     return c.json({ error: 'Unauthorized' }, 403);
   }
   try {
-    await generatePerformanceSummaries(c.env.DB);
+    await generatePerformanceSummaries(c.env.DB, true);
     return c.json({ success: true, message: 'Performance summaries generated' });
   } catch (e) {
     return c.json({ error: 'Failed to generate summaries: ' + e.message }, 500);
@@ -17294,16 +17294,16 @@ app.all('*', (c) => c.json({ success: false, message: 'Not found' }, 404));
 // ==================== SECTION 9: SCHEDULED JOBS ====================
 
 // ==================== PERFORMANCE SUMMARY MESSAGES (Hourly 8am-5pm SAST) ====================
-async function generatePerformanceSummaries(db) {
+async function generatePerformanceSummaries(db, force = false) {
   try {
     // Get current SAST hour (UTC+2)
     const now = new Date();
     const sastHour = (now.getUTCHours() + 2) % 24;
     // Only generate during working hours: 8am-5pm SAST
-    if (sastHour < 8 || sastHour > 17) return;
+    if (!force && (sastHour < 8 || sastHour > 17)) return;
     // Skip weekends (SAST day)
     const sastDay = new Date(now.getTime() + 2 * 60 * 60 * 1000).getDay();
-    if (sastDay === 0 || sastDay === 6) return;
+    if (!force && (sastDay === 0 || sastDay === 6)) return;
 
     const today = now.toISOString().split('T')[0];
     const currentMonth = today.substring(0, 7);
@@ -17400,7 +17400,7 @@ async function generatePerformanceSummaries(db) {
           message += ` | Team: ${teamInfo}`;
 
           // Check if we already sent a message this hour (avoid duplicates on re-run)
-          const hourStart = now.toISOString().substring(0, 13) + ':00:00';
+          const hourStart = now.toISOString().substring(0, 10) + ' ' + String(now.getUTCHours()).padStart(2, '0') + ':00:00';
           const existing = await db.prepare("SELECT id FROM notifications WHERE tenant_id = ? AND user_id = ? AND type = 'performance_summary' AND created_at >= ?").bind(tenantId, leader.id, hourStart).first();
           if (existing) continue;
 
