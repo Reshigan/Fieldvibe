@@ -3160,6 +3160,14 @@ api.put('/visits/:id', async (c) => {
       const merged = { ...existing, ...body.custom_field_values };
       await db.prepare('UPDATE visit_individuals SET custom_field_values = ? WHERE id = ? AND tenant_id = ?').bind(JSON.stringify(merged), vi.id, tenantId).run();
     }
+    // Also update store_custom_questions in visit_responses for store visits (e.g. Goldrush ID on store visits)
+    const storeResp = await db.prepare("SELECT id, responses FROM visit_responses WHERE visit_id = ? AND tenant_id = ? AND visit_type = 'store_custom_questions'").bind(id, tenantId).first();
+    if (storeResp) {
+      let existingStore = {};
+      try { existingStore = JSON.parse(storeResp.responses || '{}'); } catch(e) {}
+      const mergedStore = { ...existingStore, ...body.custom_field_values };
+      await db.prepare("UPDATE visit_responses SET responses = ? WHERE id = ? AND tenant_id = ?").bind(JSON.stringify(mergedStore), storeResp.id, tenantId).run();
+    }
   }
   return c.json({ success: true, message: 'Visit updated' });
 });
@@ -5134,6 +5142,14 @@ api.put('/field-operations/visits/:id', authMiddleware, async (c) => {
       try { existing = JSON.parse(vi.custom_field_values || '{}'); } catch(e) {}
       const merged = { ...existing, ...body.custom_field_values };
       await db.prepare('UPDATE visit_individuals SET custom_field_values = ? WHERE id = ? AND tenant_id = ?').bind(JSON.stringify(merged), vi.id, tenantId).run();
+    }
+    // Also update store_custom_questions in visit_responses for store visits (e.g. Goldrush ID on store visits)
+    const storeResp = await db.prepare("SELECT id, responses FROM visit_responses WHERE visit_id = ? AND tenant_id = ? AND visit_type = 'store_custom_questions'").bind(id, tenantId).first();
+    if (storeResp) {
+      let existingStore = {};
+      try { existingStore = JSON.parse(storeResp.responses || '{}'); } catch(e) {}
+      const mergedStore = { ...existingStore, ...body.custom_field_values };
+      await db.prepare("UPDATE visit_responses SET responses = ? WHERE id = ? AND tenant_id = ?").bind(JSON.stringify(mergedStore), storeResp.id, tenantId).run();
     }
   }
   return c.json({ success: true, message: 'Visit updated' });
@@ -15245,6 +15261,141 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
         goldrush_comparison,
         likes_goldrush,
         platform_suggestions,
+      };
+    });
+
+    return c.json({ success: true, data, total: data.length });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// Goldrush Store Report - all store visits for Goldrush with questionnaire data
+api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const { startDate, endDate, company_id } = c.req.query();
+
+    // Find Goldrush company
+    const goldrushCompany = await db.prepare("SELECT id FROM field_companies WHERE LOWER(name) LIKE '%goldrush%' AND tenant_id = ?").bind(tenantId).first();
+    if (!goldrushCompany) {
+      return c.json({ success: true, data: [], total: 0, message: 'Goldrush company not found' });
+    }
+    const goldrushId = goldrushCompany.id;
+
+    let dateFilter = '';
+    const binds = [tenantId, goldrushId];
+    if (startDate) { dateFilter += " AND v.visit_date >= ?"; binds.push(startDate); }
+    if (endDate) { dateFilter += " AND v.visit_date <= ?"; binds.push(endDate); }
+
+    // Get all store visits for Goldrush with agent name, customer info, and photos
+    const result = await db.prepare(`
+      SELECT v.id, v.visit_date, v.status, v.notes, v.latitude as gps_latitude, v.longitude as gps_longitude,
+        v.created_at, v.customer_id,
+        c.name as store_name, c.address as store_address,
+        u.first_name || ' ' || u.last_name as agent_name,
+        (SELECT vp.r2_url FROM visit_photos vp WHERE vp.visit_id = v.id AND vp.tenant_id = v.tenant_id AND vp.r2_url IS NOT NULL LIMIT 1) as thumbnail_url,
+        (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id AND vr.visit_type = 'store_custom_questions' LIMIT 1) as store_custom_responses,
+        (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id AND (vr.visit_type IS NULL OR vr.visit_type = 'customer' OR vr.visit_type = 'store') LIMIT 1) as questionnaire_responses
+      FROM visits v
+      LEFT JOIN customers c ON v.customer_id = c.id
+      LEFT JOIN users u ON v.agent_id = u.id
+      WHERE v.tenant_id = ? AND v.company_id = ? AND LOWER(v.visit_type) = 'store'${dateFilter}
+      ORDER BY v.created_at DESC
+      LIMIT 5000
+    `).bind(...binds).all();
+
+    // Look up custom company questions with field_type='image' to extract photos
+    let customImageKeys = [];
+    try {
+      const imgQs = await db.prepare("SELECT question_key FROM company_custom_questions WHERE tenant_id = ? AND company_id = ? AND field_type = 'image' AND is_active = 1").bind(tenantId, goldrushId).all();
+      customImageKeys = (imgQs.results || []).map(q => q.question_key);
+    } catch (e) { /* ignore */ }
+
+    // Parse store custom questions and questionnaire responses
+    const data = (result.results || []).map(row => {
+      let goldrush_id = '';
+      let stock_source = '';
+      let competitors_in_store = '';
+      let competitor_stock_source = '';
+      let competitor_products = '';
+      let competitor_prices = '';
+      let has_advertising = '';
+      let other_ad_brands = '';
+      let board_installed = '';
+      let additional_notes = '';
+      let shop_exterior_photo = '';
+      let competitor_photo = '';
+      let ad_board_photo = '';
+      let custom_question_photo = '';
+
+      try {
+        // Parse store custom questions (from visit_responses with visit_type='store_custom_questions')
+        let storeCustom = {};
+        if (row.store_custom_responses) {
+          storeCustom = typeof row.store_custom_responses === 'string'
+            ? JSON.parse(row.store_custom_responses)
+            : row.store_custom_responses;
+        }
+        // Parse questionnaire responses
+        let surveyResponses = {};
+        if (row.questionnaire_responses) {
+          surveyResponses = typeof row.questionnaire_responses === 'string'
+            ? JSON.parse(row.questionnaire_responses)
+            : row.questionnaire_responses;
+        }
+        // Merge both sources - store custom questions take priority
+        const responses = { ...surveyResponses, ...storeCustom };
+        goldrush_id = responses.goldrush_id || '';
+        stock_source = responses.stock_source || '';
+        competitors_in_store = responses.competitors_in_store || '';
+        competitor_stock_source = responses.competitor_stock_source || '';
+        competitor_products = responses.competitor_products || '';
+        competitor_prices = responses.competitor_prices || '';
+        has_advertising = responses.has_advertising || '';
+        other_ad_brands = responses.other_ad_brands || '';
+        board_installed = responses.board_installed || '';
+        additional_notes = responses.additional_notes || row.notes || '';
+        // Extract photo URLs from process step fields
+        shop_exterior_photo = responses.shop_exterior_photo || '';
+        competitor_photo = responses.competitor_photo || '';
+        ad_board_photo = responses.ad_board_photo || '';
+        // Also check custom company question image fields
+        for (const key of customImageKeys) {
+          const val = responses[key];
+          if (val && typeof val === 'string' && (val.startsWith('data:image') || val.startsWith('http'))) {
+            custom_question_photo = val;
+            break;
+          }
+        }
+      } catch (e) { /* ignore parse errors */ }
+
+      // Use visit_photos first, then questionnaire images, then custom question photos
+      const photo_url = row.thumbnail_url || shop_exterior_photo || ad_board_photo || competitor_photo || custom_question_photo || null;
+
+      return {
+        id: row.id,
+        visit_date: row.visit_date,
+        status: row.status,
+        store_name: row.store_name || 'Unknown Store',
+        store_address: row.store_address || '',
+        agent_name: row.agent_name,
+        gps_latitude: row.gps_latitude,
+        gps_longitude: row.gps_longitude,
+        created_at: row.created_at,
+        notes: additional_notes,
+        goldrush_id,
+        thumbnail_url: photo_url,
+        shop_exterior_photo: shop_exterior_photo || null,
+        competitor_photo: competitor_photo || null,
+        ad_board_photo: ad_board_photo || null,
+        stock_source,
+        competitors_in_store,
+        competitor_stock_source,
+        competitor_products,
+        competitor_prices,
+        has_advertising,
+        other_ad_brands,
+        board_installed,
       };
     });
 

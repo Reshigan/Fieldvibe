@@ -113,6 +113,7 @@ export const navigation: NavigationItem[] = [
       { name: 'Check-ins List', href: '/field-operations/reports/checkins', permission: 'view_field_reports', description: 'Paginated check-in records', group: 'Reports' },
       { name: 'Export Reports', href: '/field-operations/reports/export', permission: 'export_data', description: 'Export data to CSV', group: 'Reports' },
       { name: 'Goldrush Individuals', href: '/field-operations/reports/goldrush-individuals', permission: 'view_field_reports', description: 'Goldrush individual report with questionnaire data', group: 'Reports' },
+      { name: 'Goldrush Stores', href: '/field-operations/reports/goldrush-stores', permission: 'view_field_reports', description: 'Goldrush store visit report with questionnaire data', group: 'Reports' },
     ],
   },
   {
