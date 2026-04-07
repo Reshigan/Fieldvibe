@@ -46,6 +46,24 @@ const GoldrushStoreReport: React.FC = () => {
   const [saving, setSaving] = useState(false)
   const [selectedCompany, setSelectedCompany] = useState<string>('')
   const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null)
+  const [photoModalVisitId, setPhotoModalVisitId] = useState<string | null>(null)
+  const [photoModalPhotos, setPhotoModalPhotos] = useState<Array<{ id: string; photo_type: string; label?: string; r2_url: string }>>([])
+  const [photoModalLoading, setPhotoModalLoading] = useState(false)
+
+  const handleViewPhotos = async (visitId: string) => {
+    setPhotoModalVisitId(visitId)
+    setPhotoModalLoading(true)
+    setPhotoModalPhotos([])
+    try {
+      const res = await apiClient.get("/visits/" + visitId + "/photos")
+      const photos = res.data?.data || []
+      setPhotoModalPhotos(photos)
+    } catch {
+      toast.error('Failed to load photos')
+    } finally {
+      setPhotoModalLoading(false)
+    }
+  }
 
   const { data: companiesResp } = useQuery({
     queryKey: ['field-companies'],
@@ -297,9 +315,9 @@ const GoldrushStoreReport: React.FC = () => {
                         <img src={s.thumbnail_url} alt="Visit photo" className="w-10 h-10 rounded object-cover border border-gray-200 dark:border-gray-700 hover:opacity-80 transition-opacity" />
                       </button>
                     ) : s.has_photos ? (
-                      <span className="inline-flex items-center justify-center w-10 h-10 rounded bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700" title="Photos captured (view in visit detail)">
+                      <button onClick={() => handleViewPhotos(s.id)} className="inline-flex items-center justify-center w-10 h-10 rounded bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800/40 transition-colors" title="Click to view photos">
                         <Camera className="w-4 h-4 text-blue-500" />
-                      </span>
+                      </button>
                     ) : (
                       <span className="text-gray-400 text-xs">No photo</span>
                     )}
@@ -385,6 +403,47 @@ const GoldrushStoreReport: React.FC = () => {
               alt="Visit photo expanded"
               className="max-w-full max-h-[85vh] rounded-lg object-contain"
             />
+          </div>
+        </div>
+      )}
+
+      {/* Visit Photos Gallery Modal */}
+      {photoModalVisitId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => { setPhotoModalVisitId(null); setPhotoModalPhotos([]); }}>
+          <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white dark:bg-gray-800 px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between z-10">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Visit Photos</h3>
+              <button onClick={() => { setPhotoModalVisitId(null); setPhotoModalPhotos([]); }} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6">
+              {photoModalLoading ? (
+                <div className="flex flex-col items-center py-12">
+                  <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
+                  <p className="text-sm text-gray-500">Loading photos...</p>
+                </div>
+              ) : photoModalPhotos.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">No photos found for this visit</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {photoModalPhotos.map((photo) => (
+                    <div key={photo.id} className="relative group">
+                      <button onClick={() => setExpandedPhoto(photo.r2_url)} className="block w-full">
+                        <img
+                          src={photo.r2_url}
+                          alt={photo.label || photo.photo_type || 'Visit photo'}
+                          className="w-full h-48 object-cover rounded-lg border border-gray-200 dark:border-gray-700 hover:opacity-90 transition-opacity"
+                        />
+                      </button>
+                      {photo.label && (
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 text-center truncate">{photo.label}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

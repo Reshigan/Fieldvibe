@@ -16963,7 +16963,66 @@ api.post('/visits/:visitId/no-show', authMiddleware, async (c) => {
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 api.get('/visits/:visitId/photos', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const visitId = c.req.param('visitId');
+    // Get visit info for company_id
+    const visit = await db.prepare('SELECT id, company_id, created_at FROM visits WHERE id = ? AND tenant_id = ?').bind(visitId, tenantId).first();
+    if (!visit) return c.json({ success: false, message: 'Visit not found' }, 404);
+    // Fetch R2 photos
+    let photos = [];
+    try {
+      const photosRes = await db.prepare('SELECT id, photo_type, r2_url, captured_at FROM visit_photos WHERE visit_id = ? AND tenant_id = ?').bind(visitId, tenantId).all();
+      photos = (photosRes?.results || []).filter(p => p.r2_url);
+    } catch { /* visit_photos may not exist */ }
+    // Fetch custom question photos (base64 or URL) from visit_responses
+    const customFieldValues = {};
+    try {
+      // Try store_custom_questions first, then regular responses
+      const scq = await db.prepare("SELECT responses FROM visit_responses WHERE visit_id = ? AND tenant_id = ? AND visit_type = 'store_custom_questions'").bind(visitId, tenantId).first();
+      if (scq?.responses) {
+        const parsed = typeof scq.responses === 'string' ? JSON.parse(scq.responses) : scq.responses;
+        Object.assign(customFieldValues, parsed);
+      }
+      // Also check regular visit_responses
+      const vr = await db.prepare("SELECT responses FROM visit_responses WHERE visit_id = ? AND tenant_id = ? AND (visit_type IS NULL OR visit_type != 'store_custom_questions')").bind(visitId, tenantId).first();
+      if (vr?.responses) {
+        const parsed = typeof vr.responses === 'string' ? JSON.parse(vr.responses) : vr.responses;
+        Object.assign(customFieldValues, parsed);
+      }
+      // Also check visit_individuals custom_field_values
+      const vi = await db.prepare('SELECT custom_field_values FROM visit_individuals WHERE visit_id = ? AND tenant_id = ?').bind(visitId, tenantId).first();
+      if (vi?.custom_field_values) {
+        const parsed = typeof vi.custom_field_values === 'string' ? JSON.parse(vi.custom_field_values) : vi.custom_field_values;
+        Object.assign(customFieldValues, parsed);
+      }
+    } catch { /* ok */ }
+    // Extract image fields from company custom questions
+    if (visit.company_id) {
+      try {
+        const imgQs = await db.prepare("SELECT question_key, question_label FROM company_custom_questions WHERE tenant_id = ? AND company_id = ? AND field_type = 'image' AND is_active = 1").bind(tenantId, visit.company_id).all();
+        for (const q of (imgQs.results || [])) {
+          const val = customFieldValues[q.question_key];
+          if (val && typeof val === 'string' && (val.startsWith('data:image') || val.startsWith('http'))) {
+            photos.push({ id: 'q_' + q.question_key, photo_type: 'custom_question', label: q.question_label || q.question_key, r2_url: val, captured_at: visit.created_at });
+          }
+        }
+      } catch { /* ok */ }
+    }
+    // Also check for known process step image fields
+    const knownImageKeys = ['shop_exterior_photo', 'ad_board_photo', 'competitor_photo', 'id_passport_photo'];
+    for (const key of knownImageKeys) {
+      const val = customFieldValues[key];
+      if (val && typeof val === 'string' && (val.startsWith('data:image') || val.startsWith('http'))) {
+        // Avoid duplicates if already added via company_custom_questions
+        if (!photos.find(p => p.id === 'q_' + key)) {
+          photos.push({ id: 'q_' + key, photo_type: 'process_step', label: key.replace(/_/g, ' ').replace(/\w/g, l => l.toUpperCase()), r2_url: val, captured_at: visit.created_at });
+        }
+      }
+    }
+    return c.json({ success: true, data: photos, total: photos.length });
+  }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 api.get('/visits/:visitId/photos/:photoId', authMiddleware, async (c) => {
