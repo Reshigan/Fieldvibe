@@ -8104,6 +8104,23 @@ api.post('/visits/check-photo-duplicate', authMiddleware, async (c) => {
   return c.json({ is_duplicate: false, message: 'Photo is unique' });
 });
 
+
+// Compute SHA-256 hash of photo bytes for deduplication
+async function computePhotoHash(bytes) {
+  const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Check if a photo with this hash already exists for the tenant
+async function isPhotoHashDuplicate(db, tenantId, photoHash) {
+  if (!photoHash) return false;
+  const existing = await db.prepare(
+    "SELECT id, visit_id FROM visit_photos WHERE tenant_id = ? AND photo_hash = ? LIMIT 1"
+  ).bind(tenantId, photoHash).first();
+  return !!existing;
+}
+
 // Create visit with full workflow data (individual or store)
 api.post('/visits/workflow', authMiddleware, async (c) => {
   const db = c.env.DB;
@@ -8234,15 +8251,21 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
             const binaryStr = atob(base64Data);
             const bytes = new Uint8Array(binaryStr.length);
             for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+            // Compute hash for deduplication
+            const cqPhotoHash = await computePhotoHash(bytes);
+            if (await isPhotoHashDuplicate(db, tenantId, cqPhotoHash)) {
+              console.log(`Skipping duplicate photo (hash: ${cqPhotoHash}) for visit ${visitId}, key: ${key}`);
+              continue;
+            }
             const cqPhotoId = crypto.randomUUID();
             const cqPhotoKey = `photos/${tenantId}/${visitId}/${cqPhotoId}.jpg`;
             const bucket = c.env.UPLOADS;
             if (bucket) {
               await bucket.put(cqPhotoKey, bytes, { httpMetadata: { contentType: 'image/jpeg' } });
               const r2Url = `https://fieldvibe-uploads.${tenantId}.r2.dev/${cqPhotoKey}`;
-              await db.prepare('INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, r2_url, captured_at, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), ?)').bind(
+              await db.prepare('INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, r2_url, captured_at, photo_hash, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), ?, ?)').bind(
                 cqPhotoId, tenantId, visitId, key.includes('board') || key.includes('ad_board') ? 'board' : key.includes('exterior') ? 'store_front' : 'general',
-                cqPhotoKey, r2Url, userId
+                cqPhotoKey, r2Url, cqPhotoHash, userId
               ).run();
               try { c.executionCtx.waitUntil(analyzePhotoWithAI(c.env, cqPhotoId, cqPhotoKey, tenantId, visitId, key.includes('board') || key.includes('ad_board') ? 'board' : 'store_front')); } catch { /* AI optional */ }
             }
@@ -8259,9 +8282,14 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
       ).run();
     }
 
-    // 4. Save photos with GPS, hash, and board placement data
+    // 4. Save photos with GPS, hash, and board placement data (with deduplication)
     if (Array.isArray(body.photos) && body.photos.length > 0) {
       for (const photo of body.photos) {
+        // Skip duplicate photos by hash
+        if (photo.photo_hash && await isPhotoHashDuplicate(db, tenantId, photo.photo_hash)) {
+          console.log(`Skipping duplicate photo (hash: ${photo.photo_hash}) for visit ${visitId}`);
+          continue;
+        }
         const photoId = crypto.randomUUID();
         try {
           await db.prepare(`INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, r2_url, gps_latitude, gps_longitude, captured_at, photo_hash, board_placement_location, board_placement_position, board_condition, sample_board_id, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
@@ -13166,6 +13194,14 @@ api.post('/visit-photos/upload', authMiddleware, async (c) => {
       }
     }
 
+    // Check for duplicate photo by hash before inserting
+    if (photoHash) {
+      const isDup = await isPhotoHashDuplicate(db, tenantId, photoHash);
+      if (isDup) {
+        return c.json({ success: false, message: 'Duplicate photo detected. This photo has already been uploaded.', is_duplicate: true }, 409);
+      }
+    }
+
     // Insert into visit_photos - try with all columns including board placement, fallback to minimal
     try {
       await db.prepare(`INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, thumbnail_r2_key,
@@ -13244,11 +13280,20 @@ api.post('/visit-photos/ai-backfill', authMiddleware, async (c) => {
     const { limit: batchLimit, photo_type: filterPhotoType, visit_id: filterVisitId } = c.req.query();
     const maxBatch = Math.min(parseInt(batchLimit) || 20, 50); // Max 50 per batch to avoid Worker timeout
 
-    let query = `SELECT vp.id, vp.r2_key, vp.tenant_id, vp.visit_id, vp.photo_type
+    let query = `SELECT vp.id, vp.r2_key, vp.tenant_id, vp.visit_id, vp.photo_type, vp.photo_hash
       FROM visit_photos vp
       WHERE vp.tenant_id = ?
         AND vp.r2_key IS NOT NULL
-        AND (vp.ai_analysis_status IS NULL OR vp.ai_analysis_status = '' OR vp.ai_analysis_status = 'pending')`;
+        AND (vp.ai_analysis_status IS NULL OR vp.ai_analysis_status = '' OR vp.ai_analysis_status = 'pending')
+        AND NOT EXISTS (
+          SELECT 1 FROM visit_photos vp2
+          WHERE vp2.tenant_id = vp.tenant_id
+            AND vp2.photo_hash = vp.photo_hash
+            AND vp2.photo_hash IS NOT NULL
+            AND vp2.photo_hash != ''
+            AND vp2.ai_analysis_status = 'completed'
+            AND vp2.id != vp.id
+        )`;
     const params = [tenantId];
 
     if (filterPhotoType) { query += ' AND vp.photo_type = ?'; params.push(filterPhotoType); }
