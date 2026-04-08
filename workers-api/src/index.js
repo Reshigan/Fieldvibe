@@ -12867,6 +12867,26 @@ api.post('/seed/goldrush', authMiddleware, async (c) => {
       } catch (e) { console.error(`Company custom question seed error for ${q.key}:`, e); }
     }
 
+    // Fix id_passport_photo to NOT be required for individual visits (correct any previous seed values)
+    try {
+      await db.prepare("UPDATE company_custom_questions SET is_required = 0, updated_at = datetime('now') WHERE tenant_id = ? AND company_id = ? AND question_key = 'id_passport_photo' AND visit_target_type = 'individual' AND is_required = 1").bind(tenantId, goldrushId).run();
+    } catch (e) { console.error('Fix id_passport_photo required error:', e); }
+
+    // Also fix the questionnaire definition if it exists
+    try {
+      const grIndivQ = await db.prepare("SELECT id, questions FROM questionnaires WHERE tenant_id = ? AND company_id = ? AND name LIKE '%Individual%' AND is_active = 1").bind(tenantId, goldrushId).first();
+      if (grIndivQ && grIndivQ.questions) {
+        const qs = typeof grIndivQ.questions === 'string' ? JSON.parse(grIndivQ.questions) : grIndivQ.questions;
+        let changed = false;
+        for (const q of qs) {
+          if (q.key === 'id_passport_photo' && q.required !== false) { q.required = false; changed = true; }
+        }
+        if (changed) {
+          await db.prepare("UPDATE questionnaires SET questions = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(JSON.stringify(qs), grIndivQ.id, tenantId).run();
+        }
+      }
+    } catch (e) { console.error('Fix questionnaire id_passport_photo error:', e); }
+
     return c.json({
       success: true,
       message: 'Goldrush company, questionnaires, targets, and sample board seeded',
