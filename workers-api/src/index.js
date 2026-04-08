@@ -12734,7 +12734,7 @@ api.post('/seed/goldrush', authMiddleware, async (c) => {
       { key: 'id_passport', label: 'ID/Passport Number', type: 'text', required: false, order: 4 },
       { key: 'cellphone', label: 'Cellphone Number', type: 'text', required: true, order: 5 },
       { key: 'goldrush_id', label: 'Goldrush ID', type: 'text', required: true, order: 6 },
-      { key: 'id_passport_photo', label: 'ID/Passport Photo', type: 'image', required: false, order: 7 },
+      { key: 'id_passport_photo', label: 'ID/Passport Photo', type: 'image', required: true, order: 7 },
       { key: 'consumer_converted', label: 'Did the consumer convert (buy first voucher)?', type: 'radio', options: ['Yes', 'No'], required: true, order: 8 },
       { key: 'betting_elsewhere', label: 'Is the consumer betting somewhere?', type: 'radio', options: ['Yes', 'No'], required: true, order: 9 },
       { key: 'competitor_company', label: 'What company do you use?', type: 'text', required: false, order: 10 },
@@ -12837,7 +12837,7 @@ api.post('/seed/goldrush', authMiddleware, async (c) => {
       { key: 'id_passport', label: 'ID/Passport Number', type: 'text', options: null, required: 0, order: 4, visit_target_type: 'individual', show_in_reports: 1 },
       { key: 'cellphone', label: 'Cellphone Number', type: 'text', options: null, required: 1, order: 5, visit_target_type: 'individual', show_in_reports: 1 },
       { key: 'goldrush_id', label: 'Goldrush ID', type: 'text', options: null, required: 1, order: 6, visit_target_type: 'individual', show_in_reports: 1 },
-      { key: 'id_passport_photo', label: 'ID/Passport Photo', type: 'image', options: null, required: 0, order: 7, visit_target_type: 'individual', show_in_reports: 1, enable_ai: 0 },
+      { key: 'id_passport_photo', label: 'ID/Passport Photo', type: 'image', options: null, required: 1, order: 7, visit_target_type: 'individual', show_in_reports: 1, enable_ai: 0 },
       { key: 'consumer_converted', label: 'Did the consumer convert (buy first voucher)?', type: 'radio', options: ['Yes', 'No'], required: 1, order: 8, visit_target_type: 'individual', show_in_reports: 1 },
       { key: 'betting_elsewhere', label: 'Is the consumer betting somewhere?', type: 'radio', options: ['Yes', 'No'], required: 1, order: 9, visit_target_type: 'individual', show_in_reports: 1 },
       { key: 'competitor_company', label: 'What company do you use?', type: 'text', options: null, required: 0, order: 10, visit_target_type: 'individual', show_in_reports: 1 },
@@ -12858,6 +12858,11 @@ api.post('/seed/goldrush', authMiddleware, async (c) => {
         }
       } catch (e) { console.error(`Company custom question seed error for ${q.key}:`, e); }
     }
+
+    // Fix existing id_passport_photo records to be required
+    try {
+      await db.prepare("UPDATE company_custom_questions SET is_required = 1, updated_at = datetime('now') WHERE tenant_id = ? AND company_id = ? AND question_key = 'id_passport_photo' AND visit_target_type = 'individual' AND is_required = 0").bind(tenantId, goldrushId).run();
+    } catch (e) { console.error('Fix id_passport_photo required error:', e); }
 
     return c.json({
       success: true,
