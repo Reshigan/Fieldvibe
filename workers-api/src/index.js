@@ -1292,10 +1292,20 @@ app.get('/api/agent/performance', authMiddleware, async (c) => {
         if (!perfCtrResult.results || perfCtrResult.results.length === 0) {
           perfCtrResult = await db.prepare(`SELECT individual_target_per_day, target_visits_per_day, company_id FROM company_target_rules WHERE tenant_id = ? AND company_id IN (${ph})`).bind(tenantId, ...perfCompanyIds).all().catch(() => ({ results: [] }));
         }
+        // For team leads/managers, compute per-company agent count for accurate scaling
+        const perfAgentCompanyCount = {};
+        if (perfUserRole === 'team_lead' || perfUserRole === 'manager') {
+          try {
+            const apcPh2 = perfCompanyIds.map(() => '?').join(',');
+            const daPh2 = perfAgentIdsForCounts.map(() => '?').join(',');
+            const apcRes = await db.prepare(`SELECT company_id, COUNT(DISTINCT agent_id) as cnt FROM agent_company_links WHERE tenant_id = ? AND agent_id IN (${daPh2}) AND company_id IN (${apcPh2}) AND is_active = 1 GROUP BY company_id`).bind(tenantId, ...perfAgentIdsForCounts, ...perfCompanyIds).all().catch(() => ({ results: [] }));
+            for (const row of (apcRes.results || [])) perfAgentCompanyCount[row.company_id] = row.cnt || 1;
+          } catch { /* fallback below */ }
+        }
         for (const r of (perfCtrResult.results || [])) {
           const perAgentTarget = (r.individual_target_per_day != null ? r.individual_target_per_day : r.target_visits_per_day) || 0;
-          // For team leads/managers, scale by number of agents (perfAgentIdsForCounts includes all agents)
-          const perfMult = (perfUserRole === 'team_lead' || perfUserRole === 'manager') ? perfAgentIdsForCounts.length : 1;
+          // For team leads/managers, scale by per-company agent count (not total agent count)
+          const perfMult = (perfUserRole === 'team_lead' || perfUserRole === 'manager') ? (perfAgentCompanyCount[r.company_id] || perfAgentIdsForCounts.length) : 1;
           dailyIndividualTarget += perAgentTarget * perfMult;
         }
       }
