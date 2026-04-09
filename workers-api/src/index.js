@@ -13559,7 +13559,7 @@ api.post('/visit-photos/migrate-base64', authMiddleware, async (c) => {
               await db.prepare('INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, r2_url, captured_at, photo_hash, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), ?, ?)').bind(
                 photoId, tenantId, rowMeta.visit_id,
                 key.includes('board') || key.includes('ad_board') ? 'board' : key.includes('exterior') ? 'store_front' : 'general',
-                photoKey, r2Url, photoHash, 'migration'
+                photoKey, r2Url, photoHash, c.get('userId')
               ).run();
 
               data[key] = r2Url;
