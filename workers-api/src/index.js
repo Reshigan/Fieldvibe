@@ -13500,48 +13500,48 @@ api.post('/visit-photos/migrate-base64', authMiddleware, async (c) => {
     if (!bucket) return c.json({ success: false, message: 'R2 bucket not configured' }, 500);
 
     const { limit: batchLimit } = c.req.query();
-    const maxBatch = Math.min(parseInt(batchLimit) || 20, 50);
+    const maxBatch = Math.min(parseInt(batchLimit) || 5, 10);
     let migrated = 0;
     let skipped = 0;
+    const errors = [];
 
-    // Find visit_responses with base64 images (store_custom_questions and regular questionnaire responses)
-    const responses = await db.prepare(
-      `SELECT vr.id, vr.visit_id, vr.tenant_id, vr.visit_type, vr.responses
-       FROM visit_responses vr
-       WHERE vr.tenant_id = ? AND vr.responses LIKE '%data:image%'
-       ORDER BY vr.id
-       LIMIT ?`
+    // Step 1: Fetch only IDs of rows with base64 images (lightweight query — avoids D1 size limits)
+    const responseIds = await db.prepare(
+      "SELECT id, visit_id, visit_type FROM visit_responses WHERE tenant_id = ? AND responses LIKE '%data:image%' ORDER BY id LIMIT ?"
     ).bind(tenantId, maxBatch).all();
 
-    // Also check visit_individuals custom_field_values
-    const indivResponses = await db.prepare(
-      `SELECT vi.id, vi.visit_id, vi.tenant_id, vi.custom_field_values as responses, 'individual_custom' as visit_type
-       FROM visit_individuals vi
-       WHERE vi.tenant_id = ? AND vi.custom_field_values LIKE '%data:image%'
-       ORDER BY vi.id
-       LIMIT ?`
+    const indivIds = await db.prepare(
+      "SELECT id, visit_id, 'individual_custom' as visit_type FROM visit_individuals WHERE tenant_id = ? AND custom_field_values LIKE '%data:image%' ORDER BY id LIMIT ?"
     ).bind(tenantId, maxBatch).all();
 
-    const allRows = [...(responses.results || []), ...(indivResponses.results || [])];
+    const allIds = [...(responseIds.results || []), ...(indivIds.results || [])];
 
-    for (const row of allRows) {
+    // Step 2: Process each row individually (fetch full data one at a time)
+    for (const rowMeta of allIds) {
       try {
-        const data = typeof row.responses === 'string' ? JSON.parse(row.responses) : row.responses;
+        let fullRow;
+        if (rowMeta.visit_type === 'individual_custom') {
+          fullRow = await db.prepare("SELECT id, visit_id, custom_field_values as responses FROM visit_individuals WHERE id = ?").bind(rowMeta.id).first();
+        } else {
+          fullRow = await db.prepare("SELECT id, visit_id, visit_type, responses FROM visit_responses WHERE id = ?").bind(rowMeta.id).first();
+        }
+        if (!fullRow || !fullRow.responses) { errors.push('Row ' + rowMeta.id + ': no data'); continue; }
+
+        const data = typeof fullRow.responses === 'string' ? JSON.parse(fullRow.responses) : fullRow.responses;
         let updated = false;
 
         for (const [key, val] of Object.entries(data)) {
           if (typeof val === 'string' && val.startsWith('data:image')) {
             try {
               const base64Data = val.split(',')[1];
-              if (!base64Data) continue;
+              if (!base64Data) { errors.push('Row ' + rowMeta.id + ' key ' + key + ': no base64 after comma'); continue; }
+
               const binaryStr = atob(base64Data);
               const bytes = new Uint8Array(binaryStr.length);
               for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
 
-              // Compute hash for deduplication
               const photoHash = await computePhotoHash(bytes);
               if (await isPhotoHashDuplicate(db, tenantId, photoHash)) {
-                // Photo already exists in R2 — just replace base64 with existing R2 URL
                 const existing = await db.prepare("SELECT r2_url FROM visit_photos WHERE tenant_id = ? AND photo_hash = ? LIMIT 1").bind(tenantId, photoHash).first();
                 if (existing && existing.r2_url) {
                   data[key] = existing.r2_url;
@@ -13552,40 +13552,35 @@ api.post('/visit-photos/migrate-base64', authMiddleware, async (c) => {
               }
 
               const photoId = crypto.randomUUID();
-              const photoKey = `photos/${tenantId}/${row.visit_id}/${photoId}.jpg`;
+              const photoKey = 'photos/' + tenantId + '/' + rowMeta.visit_id + '/' + photoId + '.jpg';
               await bucket.put(photoKey, bytes, { httpMetadata: { contentType: 'image/jpeg' } });
-              const r2Url = new URL(`/api/uploads/${photoKey}`, c.req.url).href;
+              const r2Url = new URL('/api/uploads/' + photoKey, c.req.url).href;
 
-              // Insert into visit_photos
               await db.prepare('INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, r2_url, captured_at, photo_hash, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), ?, ?)').bind(
-                photoId, tenantId, row.visit_id,
+                photoId, tenantId, rowMeta.visit_id,
                 key.includes('board') || key.includes('ad_board') ? 'board' : key.includes('exterior') ? 'store_front' : 'general',
                 photoKey, r2Url, photoHash, 'migration'
               ).run();
 
-              // Replace base64 with R2 URL in data
               data[key] = r2Url;
               updated = true;
               migrated++;
 
-              // Trigger AI analysis
-              try { c.executionCtx.waitUntil(analyzePhotoWithAI(c.env, photoId, photoKey, tenantId, row.visit_id, key.includes('board') || key.includes('ad_board') ? 'board' : 'general')); } catch { /* AI optional */ }
-            } catch (imgErr) { console.error('Migration image error:', imgErr); }
+              try { c.executionCtx.waitUntil(analyzePhotoWithAI(c.env, photoId, photoKey, tenantId, rowMeta.visit_id, key.includes('board') || key.includes('ad_board') ? 'board' : 'general')); } catch { /* AI optional */ }
+            } catch (imgErr) { errors.push('Row ' + rowMeta.id + ' key ' + key + ': ' + (imgErr.message || imgErr)); }
           }
         }
 
-        // Update the row with R2 URLs replacing base64
         if (updated) {
-          if (row.visit_type === 'individual_custom') {
-            await db.prepare('UPDATE visit_individuals SET custom_field_values = ? WHERE id = ?').bind(JSON.stringify(data), row.id).run();
+          if (rowMeta.visit_type === 'individual_custom') {
+            await db.prepare('UPDATE visit_individuals SET custom_field_values = ? WHERE id = ?').bind(JSON.stringify(data), rowMeta.id).run();
           } else {
-            await db.prepare('UPDATE visit_responses SET responses = ? WHERE id = ?').bind(JSON.stringify(data), row.id).run();
+            await db.prepare('UPDATE visit_responses SET responses = ? WHERE id = ?').bind(JSON.stringify(data), rowMeta.id).run();
           }
         }
-      } catch (rowErr) { console.error('Migration row error:', rowErr); }
+      } catch (rowErr) { errors.push('Row ' + rowMeta.id + ': ' + (rowErr.message || rowErr)); }
     }
 
-    // Count remaining
     const remaining = await db.prepare(
       "SELECT COUNT(*) as count FROM visit_responses WHERE tenant_id = ? AND responses LIKE '%data:image%'"
     ).bind(tenantId).first();
@@ -13595,9 +13590,10 @@ api.post('/visit-photos/migrate-base64', authMiddleware, async (c) => {
 
     return c.json({
       success: true,
-      message: `Migrated ${migrated} photos to R2 (${skipped} duplicates skipped)`,
+      message: 'Migrated ' + migrated + ' photos to R2 (' + skipped + ' duplicates skipped)',
       migrated,
       skipped,
+      errors: errors.length > 0 ? errors.slice(0, 5) : undefined,
       total_remaining: (remaining?.count || 0) + (remainingIndiv?.count || 0)
     });
   } catch (e) {
