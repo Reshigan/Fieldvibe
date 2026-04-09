@@ -714,18 +714,35 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
     // Batch 2: Fetch company target rules + per-company regs (depends on companies result)
     let companyTargetRules = [];
     const perCompanyRegsLookup = {};
+    let ownRoleStoreTargetByCompany = {};
     const agentCompanyIds = (companies.results || []).map(co => co.id);
     if (agentCompanyIds.length > 0) {
       const ph = agentCompanyIds.map(() => '?').join(',');
-      const [ctrResult, perCompanyRegsTodayAll] = await Promise.all([
-        db.prepare(`SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ? AND ctr.company_id IN (${ph}) AND ctr.role_type = ?`).bind(tenantId, ...agentCompanyIds, dashAgentIds.length > 1 ? 'agent' : dashRoleType).all().catch(() => ({ results: [] })),
+      // For team leads/managers with multiple agents, fetch 'agent' rules for individual targets (scaled by agent count)
+      // Also fetch role-specific rules separately for team lead's own store target
+      const fetchRoleType = dashAgentIds.length > 1 ? 'agent' : dashRoleType;
+      const [ctrResult, perCompanyRegsTodayAll, ownRoleRulesResult] = await Promise.all([
+        db.prepare(`SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ? AND ctr.company_id IN (${ph}) AND ctr.role_type = ?`).bind(tenantId, ...agentCompanyIds, fetchRoleType).all().catch(() => ({ results: [] })),
         db.prepare(`SELECT company_id, SUM(CASE WHEN visit_date = ? THEN 1 ELSE 0 END) as today_count, COUNT(*) as month_count FROM visits WHERE tenant_id = ? AND ${dashAgentFilter} AND LOWER(visit_type) = 'store' AND company_id IN (${ph}) AND visit_date >= ? AND visit_date < ? GROUP BY company_id`).bind(today, tenantId, ...dashAgentIds, ...agentCompanyIds, monthStart, nextMonth).all().catch(() => ({ results: [] })),
+        // Fetch role-specific rules (team_lead or manager) for own store targets when viewing aggregate
+        (fetchRoleType !== dashRoleType)
+          ? db.prepare(`SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ? AND ctr.company_id IN (${ph}) AND ctr.role_type = ?`).bind(tenantId, ...agentCompanyIds, dashRoleType).all().catch(() => ({ results: [] }))
+          : Promise.resolve({ results: [] }),
       ]);
       companyTargetRules = ctrResult.results || [];
       // Fallback: get any rules if no role-specific ones found
       if (companyTargetRules.length === 0) {
         const fallbackResult = await db.prepare(`SELECT ctr.*, fc.name as company_name FROM company_target_rules ctr JOIN field_companies fc ON ctr.company_id = fc.id WHERE ctr.tenant_id = ? AND ctr.company_id IN (${ph})`).bind(tenantId, ...agentCompanyIds).all().catch(() => ({ results: [] }));
         companyTargetRules = fallbackResult.results || [];
+      }
+      // Build lookup of role-specific store targets (team_lead's own store target, manager's own target)
+      const ownRoleRules = (ownRoleRulesResult.results || []);
+      ownRoleStoreTargetByCompany = {};
+      for (const rule of ownRoleRules) {
+        ownRoleStoreTargetByCompany[rule.company_id] = {
+          store_target_per_day: (rule.store_target_per_day != null ? rule.store_target_per_day : rule.target_registrations_per_day) || 0,
+          store_target_per_month: rule.store_target_per_month || 0,
+        };
       }
       for (const r of (perCompanyRegsTodayAll.results || [])) {
         perCompanyRegsLookup[r.company_id] = { today: r.today_count || 0, month: r.month_count || 0 };
@@ -757,7 +774,9 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
         // Use new per-role fields first, fall back to legacy fields (use ?? to preserve explicit 0)
         // Scale by agent count for managers/team leads
         const indivPerDay = ((ctr.individual_target_per_day != null ? ctr.individual_target_per_day : ctr.target_visits_per_day) ?? 0) * mult;
-        const storePerDay = ((ctr.store_target_per_day != null ? ctr.store_target_per_day : ctr.target_registrations_per_day) ?? 0) * mult;
+        // For team leads/managers: use their own role-specific store target (not scaled by agents)
+        const ownStore = ownRoleStoreTargetByCompany[ctr.company_id];
+        const storePerDay = ownStore ? ownStore.store_target_per_day : (((ctr.store_target_per_day != null ? ctr.store_target_per_day : ctr.target_registrations_per_day) ?? 0) * mult);
         const indivPerWeek = (ctr.individual_target_per_week_agent ?? 0) * mult;
         const indivPerMonth = (ctr.individual_target_per_month_agent ?? (((ctr.individual_target_per_day != null ? ctr.individual_target_per_day : ctr.target_visits_per_day) ?? 0) * 22)) * mult;
         return {
@@ -765,9 +784,11 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
           company_id: ctr.company_id,
           target_visits: indivPerDay,
           target_registrations: storePerDay,
+          target_stores: storePerDay,
           target_conversions: (ctr.target_conversions_per_day || 0) * mult,
           actual_visits: ca.today_individual_visits || 0,
           actual_registrations: ca.today_store_visits || 0,
+          actual_stores: ca.today_store_visits || 0,
           actual_store_visits: ca.today_store_visits || 0,
           actual_individual_visits: ca.today_individual_visits || 0,
           individual_target_per_day: indivPerDay,
@@ -834,7 +855,10 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
       // Scale per-agent targets by number of agents assigned to this company (for managers/team leads)
       const agentMult = getAgentMultiplier(ctr.company_id);
       const dayTarget = perAgentDayTarget * agentMult;
-      const dayRegTarget = perAgentDayRegTarget * agentMult;
+      // For team leads/managers: use their own role-specific store target (not scaled by agents)
+      // Team lead's store target is their own (e.g. 4/day = 20/week), not per-agent
+      const ownStoreTarget = ownRoleStoreTargetByCompany[ctr.company_id];
+      const dayRegTarget = ownStoreTarget ? ownStoreTarget.store_target_per_day : (perAgentDayRegTarget * agentMult);
       weekTargetVisits += dayTarget * workingDaysPerWeek;
       weekTargetRegs += dayRegTarget * workingDaysPerWeek;
       monthTargetVisits += dayTarget * workingDaysPerMonth;
@@ -847,10 +871,13 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
         // Daily targets (scaled by agent count for managers/team leads)
         daily_target_visits: dayTarget,
         daily_target_registrations: dayRegTarget,
+        daily_target_stores: dayRegTarget,
         daily_actual_visits: ca.today_individual_visits || 0,
         daily_actual_registrations: ca.today_store_visits || 0,
+        daily_actual_stores: ca.today_store_visits || 0,
         // Store-specific targets (scaled by agent count)
-        store_target_per_month: ((ctr.store_target_per_month != null ? ctr.store_target_per_month : ctr.store_target_per_month_agent) ?? 0) * agentMult,
+        store_target_per_month: ownStoreTarget ? (ownStoreTarget.store_target_per_day * workingDaysPerMonth) : (((ctr.store_target_per_month != null ? ctr.store_target_per_month : ctr.store_target_per_month_agent) ?? 0) * agentMult),
+        month_target_stores: ownStoreTarget ? (ownStoreTarget.store_target_per_day * workingDaysPerMonth) : (((ctr.store_target_per_month != null ? ctr.store_target_per_month : ctr.store_target_per_month_agent) ?? 0) * agentMult),
         store_actual_month: ca.month_store_visits || 0,
         store_actual_today: ca.today_store_visits || 0,
         store_actual_week: weekStoreVisits,
@@ -896,8 +923,8 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
         daily_targets: dailyTargets,
         company_target_rules: companyTargetRules,
         company_targets: companyTargets,
-        weekly_targets: { target_visits: weekTargetVisits, actual_visits: totalWeekIndividual, actual_visits_all: weekVisits?.count || 0, target_registrations: weekTargetRegs, actual_registrations: totalWeekStore, actual_registrations_all: weekRegs?.count || 0 },
-        monthly_targets: { target_visits: monthTargetVisits, actual_visits: totalMonthIndividual, actual_visits_all: monthVisits?.count || 0, target_registrations: monthTargetRegs, actual_registrations: totalMonthStore, actual_registrations_all: monthRegs?.count || 0 },
+        weekly_targets: { target_visits: weekTargetVisits, actual_visits: totalWeekIndividual, actual_visits_all: weekVisits?.count || 0, target_registrations: weekTargetRegs, target_stores: weekTargetRegs, actual_registrations: totalWeekStore, actual_stores: totalWeekStore, actual_registrations_all: weekRegs?.count || 0 },
+        monthly_targets: { target_visits: monthTargetVisits, actual_visits: totalMonthIndividual, actual_visits_all: monthVisits?.count || 0, target_registrations: monthTargetRegs, target_stores: monthTargetRegs, actual_registrations: totalMonthStore, actual_stores: totalMonthStore, actual_registrations_all: monthRegs?.count || 0 },
         visit_breakdown: visitBreakdown.results || [],
       }
     });
@@ -1260,12 +1287,27 @@ app.get('/api/agent/performance', authMiddleware, async (c) => {
       const perfCompanyIds = (perfAgentCompanies.results || []).map(co => co.id);
       if (perfCompanyIds.length > 0) {
         const ph = perfCompanyIds.map(() => '?').join(',');
-        let perfCtrResult = await db.prepare(`SELECT individual_target_per_day, target_visits_per_day FROM company_target_rules WHERE tenant_id = ? AND company_id IN (${ph}) AND role_type = ?`).bind(tenantId, ...perfCompanyIds, perfRoleType).all().catch(() => ({ results: [] }));
+        // For team leads/managers: use agent rules and scale by agent count to get aggregate individual target
+        const perfFetchRole = (perfUserRole === 'team_lead' || perfUserRole === 'manager') ? 'agent' : perfRoleType;
+        let perfCtrResult = await db.prepare(`SELECT individual_target_per_day, target_visits_per_day, company_id FROM company_target_rules WHERE tenant_id = ? AND company_id IN (${ph}) AND role_type = ?`).bind(tenantId, ...perfCompanyIds, perfFetchRole).all().catch(() => ({ results: [] }));
         if (!perfCtrResult.results || perfCtrResult.results.length === 0) {
-          perfCtrResult = await db.prepare(`SELECT individual_target_per_day, target_visits_per_day FROM company_target_rules WHERE tenant_id = ? AND company_id IN (${ph})`).bind(tenantId, ...perfCompanyIds).all().catch(() => ({ results: [] }));
+          perfCtrResult = await db.prepare(`SELECT individual_target_per_day, target_visits_per_day, company_id FROM company_target_rules WHERE tenant_id = ? AND company_id IN (${ph})`).bind(tenantId, ...perfCompanyIds).all().catch(() => ({ results: [] }));
+        }
+        // For team leads/managers, compute per-company agent count for accurate scaling
+        const perfAgentCompanyCount = {};
+        if (perfUserRole === 'team_lead' || perfUserRole === 'manager') {
+          try {
+            const apcPh2 = perfCompanyIds.map(() => '?').join(',');
+            const daPh2 = perfAgentIdsForCounts.map(() => '?').join(',');
+            const apcRes = await db.prepare(`SELECT company_id, COUNT(DISTINCT agent_id) as cnt FROM agent_company_links WHERE tenant_id = ? AND agent_id IN (${daPh2}) AND company_id IN (${apcPh2}) AND is_active = 1 GROUP BY company_id`).bind(tenantId, ...perfAgentIdsForCounts, ...perfCompanyIds).all().catch(() => ({ results: [] }));
+            for (const row of (apcRes.results || [])) perfAgentCompanyCount[row.company_id] = row.cnt || 1;
+          } catch { /* fallback below */ }
         }
         for (const r of (perfCtrResult.results || [])) {
-          dailyIndividualTarget += (r.individual_target_per_day != null ? r.individual_target_per_day : r.target_visits_per_day) || 0;
+          const perAgentTarget = (r.individual_target_per_day != null ? r.individual_target_per_day : r.target_visits_per_day) || 0;
+          // For team leads/managers, scale by per-company agent count (not total agent count)
+          const perfMult = (perfUserRole === 'team_lead' || perfUserRole === 'manager') ? (perfAgentCompanyCount[r.company_id] || perfAgentIdsForCounts.length) : 1;
+          dailyIndividualTarget += perAgentTarget * perfMult;
         }
       }
     } catch { /* keep 0 */ }
@@ -8135,6 +8177,17 @@ api.post('/visits/check-photo-duplicate', authMiddleware, async (c) => {
 });
 
 
+// Rewrite old bad R2 URLs (fieldvibe-uploads.*.r2.dev) to API proxy URLs
+function rewriteR2Url(url, reqUrl) {
+  if (!url || typeof url !== 'string') return url;
+  // Match old format: https://fieldvibe-uploads.{tenantId}.r2.dev/{key}
+  const match = url.match(/^https?:\/\/fieldvibe-uploads\.[^/]+\.r2\.dev\/(.+)$/);
+  if (match) {
+    try { return new URL('/api/uploads/' + match[1], reqUrl).href; } catch { return '/api/uploads/' + match[1]; }
+  }
+  return url;
+}
+
 // Compute SHA-256 hash of photo bytes for deduplication
 async function computePhotoHash(bytes) {
   const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
@@ -8281,7 +8334,7 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
             const bucket = c.env.UPLOADS;
             if (bucket) {
               await bucket.put(indPhotoKey, bytes, { httpMetadata: { contentType: 'image/jpeg' } });
-              const r2Url = `https://fieldvibe-uploads.${tenantId}.r2.dev/${indPhotoKey}`;
+              const r2Url = new URL(`/api/uploads/${indPhotoKey}`, c.req.url).href;
               await db.prepare('INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, r2_url, captured_at, photo_hash, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), ?, ?)').bind(
                 indPhotoId, tenantId, visitId, key.includes('board') || key.includes('ad_board') ? 'board' : key.includes('exterior') ? 'store_front' : 'general',
                 indPhotoKey, r2Url, indPhotoHash, userId
@@ -8332,7 +8385,7 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
             const bucket = c.env.UPLOADS;
             if (bucket) {
               await bucket.put(cqPhotoKey, bytes, { httpMetadata: { contentType: 'image/jpeg' } });
-              const r2Url = `https://fieldvibe-uploads.${tenantId}.r2.dev/${cqPhotoKey}`;
+              const r2Url = new URL(`/api/uploads/${cqPhotoKey}`, c.req.url).href;
               await db.prepare('INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, r2_url, captured_at, photo_hash, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), ?, ?)').bind(
                 cqPhotoId, tenantId, visitId, key.includes('board') || key.includes('ad_board') ? 'board' : key.includes('exterior') ? 'store_front' : 'general',
                 cqPhotoKey, r2Url, cqPhotoHash, userId
@@ -12772,9 +12825,9 @@ api.post('/seed/goldrush', authMiddleware, async (c) => {
         const ruleId = crypto.randomUUID();
         // Set appropriate targets per role
         const targets = {
-          agent: { dayVisits: 8, dayRegs: 4, monthStore: 80, weekIndiv: 20 },
-          team_lead: { dayVisits: 0, dayRegs: 0, monthStore: 160, weekIndiv: 0 }, // Sum of agents
-          manager: { dayVisits: 0, dayRegs: 0, monthStore: 0, weekIndiv: 0 } // Sum of TLs
+          agent: { dayVisits: 20, dayRegs: 0, monthStore: 0, weekIndiv: 100 }, // 20 individuals/day, 100/week (5 days)
+          team_lead: { dayVisits: 0, dayRegs: 4, monthStore: 0, weekIndiv: 0 }, // 4 stores/day = 20/week; individual = sum of agents
+          manager: { dayVisits: 0, dayRegs: 0, monthStore: 0, weekIndiv: 0 } // Sum of TLs + agents
         };
         try {
           await db.prepare(`INSERT INTO company_target_rules (id, tenant_id, company_id, role_type,
@@ -13234,7 +13287,15 @@ async function analyzePhotoWithAI(env, photoId, r2Key, tenantId, visitId, photoT
     const bucket = env.UPLOADS;
     const object = await bucket.get(r2Key);
     if (!object) return;
-    const imageBytes = new Uint8Array(await object.arrayBuffer());
+    let imageBytes = new Uint8Array(await object.arrayBuffer());
+
+    // Llama Vision 128K context window: each image byte ≈ 1.5-2 tokens
+    // 128K tokens - ~3K for prompt/output = ~125K tokens for image ≈ ~80KB max
+    const MAX_AI_IMAGE_BYTES = 80000;
+    if (imageBytes.length > MAX_AI_IMAGE_BYTES) {
+      await env.DB.prepare("UPDATE visit_photos SET ai_analysis_status = 'skipped', ai_raw_response = ? WHERE id = ?").bind('Image ' + Math.round(imageBytes.length/1024) + 'KB exceeds ' + Math.round(MAX_AI_IMAGE_BYTES/1024) + 'KB limit for 128K context window', photoId).run();
+      return;
+    }
 
     let prompt = '';
     if (photoType === 'shelf' || photoType === 'compliance') {
@@ -13447,48 +13508,52 @@ api.post('/visit-photos/migrate-base64', authMiddleware, async (c) => {
     if (!bucket) return c.json({ success: false, message: 'R2 bucket not configured' }, 500);
 
     const { limit: batchLimit } = c.req.query();
-    const maxBatch = Math.min(parseInt(batchLimit) || 20, 50);
+    const maxBatch = Math.min(parseInt(batchLimit) || 5, 10);
     let migrated = 0;
     let skipped = 0;
+    const errors = [];
 
-    // Find visit_responses with base64 images (store_custom_questions and regular questionnaire responses)
-    const responses = await db.prepare(
-      `SELECT vr.id, vr.visit_id, vr.tenant_id, vr.visit_type, vr.responses
-       FROM visit_responses vr
-       WHERE vr.tenant_id = ? AND vr.responses LIKE '%data:image%'
-       ORDER BY vr.id
-       LIMIT ?`
+    // Step 1: Fetch only IDs of rows with base64 images (lightweight query — avoids D1 size limits)
+    const responseIds = await db.prepare(
+      "SELECT id, visit_id, visit_type FROM visit_responses WHERE tenant_id = ? AND responses LIKE '%data:image%' ORDER BY id LIMIT ?"
     ).bind(tenantId, maxBatch).all();
 
-    // Also check visit_individuals custom_field_values
-    const indivResponses = await db.prepare(
-      `SELECT vi.id, vi.visit_id, vi.tenant_id, vi.custom_field_values as responses, 'individual_custom' as visit_type
-       FROM visit_individuals vi
-       WHERE vi.tenant_id = ? AND vi.custom_field_values LIKE '%data:image%'
-       ORDER BY vi.id
-       LIMIT ?`
+    const indivIds = await db.prepare(
+      "SELECT id, visit_id, 'individual_custom' as visit_type FROM visit_individuals WHERE tenant_id = ? AND custom_field_values LIKE '%data:image%' ORDER BY id LIMIT ?"
     ).bind(tenantId, maxBatch).all();
 
-    const allRows = [...(responses.results || []), ...(indivResponses.results || [])];
+    const allIds = [...(responseIds.results || []), ...(indivIds.results || [])];
 
-    for (const row of allRows) {
+    // Step 2: Process each row individually (fetch full data one at a time)
+    for (const rowMeta of allIds) {
       try {
-        const data = typeof row.responses === 'string' ? JSON.parse(row.responses) : row.responses;
+        let fullRow;
+        if (rowMeta.visit_type === 'individual_custom') {
+          fullRow = await db.prepare("SELECT id, visit_id, custom_field_values as responses FROM visit_individuals WHERE id = ?").bind(rowMeta.id).first();
+        } else {
+          fullRow = await db.prepare("SELECT id, visit_id, visit_type, responses FROM visit_responses WHERE id = ?").bind(rowMeta.id).first();
+        }
+        if (!fullRow || !fullRow.responses) { errors.push('Row ' + rowMeta.id + ': no data'); continue; }
+
+        // Look up the visit's agent_id to use as uploaded_by (FK constraint requires valid user ID)
+        const visitRow = await db.prepare("SELECT agent_id FROM visits WHERE id = ?").bind(rowMeta.visit_id).first();
+        const uploadedBy = (visitRow && visitRow.agent_id) || c.get('userId');
+
+        const data = typeof fullRow.responses === 'string' ? JSON.parse(fullRow.responses) : fullRow.responses;
         let updated = false;
 
         for (const [key, val] of Object.entries(data)) {
           if (typeof val === 'string' && val.startsWith('data:image')) {
             try {
               const base64Data = val.split(',')[1];
-              if (!base64Data) continue;
+              if (!base64Data) { errors.push('Row ' + rowMeta.id + ' key ' + key + ': no base64 after comma'); continue; }
+
               const binaryStr = atob(base64Data);
               const bytes = new Uint8Array(binaryStr.length);
               for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
 
-              // Compute hash for deduplication
               const photoHash = await computePhotoHash(bytes);
               if (await isPhotoHashDuplicate(db, tenantId, photoHash)) {
-                // Photo already exists in R2 — just replace base64 with existing R2 URL
                 const existing = await db.prepare("SELECT r2_url FROM visit_photos WHERE tenant_id = ? AND photo_hash = ? LIMIT 1").bind(tenantId, photoHash).first();
                 if (existing && existing.r2_url) {
                   data[key] = existing.r2_url;
@@ -13499,40 +13564,35 @@ api.post('/visit-photos/migrate-base64', authMiddleware, async (c) => {
               }
 
               const photoId = crypto.randomUUID();
-              const photoKey = `photos/${tenantId}/${row.visit_id}/${photoId}.jpg`;
+              const photoKey = 'photos/' + tenantId + '/' + rowMeta.visit_id + '/' + photoId + '.jpg';
               await bucket.put(photoKey, bytes, { httpMetadata: { contentType: 'image/jpeg' } });
-              const r2Url = `https://fieldvibe-uploads.${tenantId}.r2.dev/${photoKey}`;
+              const r2Url = new URL('/api/uploads/' + photoKey, c.req.url).href;
 
-              // Insert into visit_photos
               await db.prepare('INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, r2_url, captured_at, photo_hash, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), ?, ?)').bind(
-                photoId, tenantId, row.visit_id,
+                photoId, tenantId, rowMeta.visit_id,
                 key.includes('board') || key.includes('ad_board') ? 'board' : key.includes('exterior') ? 'store_front' : 'general',
-                photoKey, r2Url, photoHash, 'migration'
+                photoKey, r2Url, photoHash, uploadedBy
               ).run();
 
-              // Replace base64 with R2 URL in data
               data[key] = r2Url;
               updated = true;
               migrated++;
 
-              // Trigger AI analysis
-              try { c.executionCtx.waitUntil(analyzePhotoWithAI(c.env, photoId, photoKey, tenantId, row.visit_id, key.includes('board') || key.includes('ad_board') ? 'board' : 'general')); } catch { /* AI optional */ }
-            } catch (imgErr) { console.error('Migration image error:', imgErr); }
+              try { c.executionCtx.waitUntil(analyzePhotoWithAI(c.env, photoId, photoKey, tenantId, rowMeta.visit_id, key.includes('board') || key.includes('ad_board') ? 'board' : 'general')); } catch { /* AI optional */ }
+            } catch (imgErr) { errors.push('Row ' + rowMeta.id + ' key ' + key + ': ' + (imgErr.message || imgErr)); }
           }
         }
 
-        // Update the row with R2 URLs replacing base64
         if (updated) {
-          if (row.visit_type === 'individual_custom') {
-            await db.prepare('UPDATE visit_individuals SET custom_field_values = ? WHERE id = ?').bind(JSON.stringify(data), row.id).run();
+          if (rowMeta.visit_type === 'individual_custom') {
+            await db.prepare('UPDATE visit_individuals SET custom_field_values = ? WHERE id = ?').bind(JSON.stringify(data), rowMeta.id).run();
           } else {
-            await db.prepare('UPDATE visit_responses SET responses = ? WHERE id = ?').bind(JSON.stringify(data), row.id).run();
+            await db.prepare('UPDATE visit_responses SET responses = ? WHERE id = ?').bind(JSON.stringify(data), rowMeta.id).run();
           }
         }
-      } catch (rowErr) { console.error('Migration row error:', rowErr); }
+      } catch (rowErr) { errors.push('Row ' + rowMeta.id + ': ' + (rowErr.message || rowErr)); }
     }
 
-    // Count remaining
     const remaining = await db.prepare(
       "SELECT COUNT(*) as count FROM visit_responses WHERE tenant_id = ? AND responses LIKE '%data:image%'"
     ).bind(tenantId).first();
@@ -13542,14 +13602,70 @@ api.post('/visit-photos/migrate-base64', authMiddleware, async (c) => {
 
     return c.json({
       success: true,
-      message: `Migrated ${migrated} photos to R2 (${skipped} duplicates skipped)`,
+      message: 'Migrated ' + migrated + ' photos to R2 (' + skipped + ' duplicates skipped)',
       migrated,
       skipped,
+      errors: errors.length > 0 ? errors.slice(0, 5) : undefined,
       total_remaining: (remaining?.count || 0) + (remainingIndiv?.count || 0)
     });
   } catch (e) {
     console.error('Base64 migration error:', e);
     return c.json({ success: false, message: 'Migration failed: ' + (e.message || e) }, 500);
+  }
+});
+
+// Fix old bad R2 URLs in visit_photos table (one-time migration)
+api.post('/visit-photos/fix-urls', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const role = c.get('role');
+    if (role !== 'admin' && role !== 'manager') return c.json({ success: false, message: 'Admin or manager access required' }, 403);
+    const reqUrl = c.req.url;
+    // Fix visit_photos.r2_url entries with old format
+    const badPhotos = await db.prepare("SELECT id, r2_url, r2_key FROM visit_photos WHERE tenant_id = ? AND r2_url LIKE '%fieldvibe-uploads%r2.dev%' LIMIT 200").bind(tenantId).all();
+    let fixed = 0;
+    for (const p of (badPhotos.results || [])) {
+      const newUrl = rewriteR2Url(p.r2_url, reqUrl);
+      if (newUrl !== p.r2_url) {
+        await db.prepare("UPDATE visit_photos SET r2_url = ? WHERE id = ? AND tenant_id = ?").bind(newUrl, p.id, tenantId).run();
+        fixed++;
+      }
+    }
+    // Also fix visit_responses that have old R2 URLs embedded in JSON
+    const badResponses = await db.prepare("SELECT id, responses FROM visit_responses WHERE tenant_id = ? AND responses LIKE '%fieldvibe-uploads%r2.dev%' LIMIT 200").bind(tenantId).all();
+    let fixedResponses = 0;
+    for (const r of (badResponses.results || [])) {
+      try {
+        let resp = r.responses;
+        if (typeof resp === 'string' && resp.includes('fieldvibe-uploads')) {
+          resp = resp.replace(/https?:\/\/fieldvibe-uploads\.[^/]+\.r2\.dev\//g, (match) => {
+            return new URL('/api/uploads/', reqUrl).href;
+          });
+          await db.prepare("UPDATE visit_responses SET responses = ? WHERE id = ?").bind(resp, r.id).run();
+          fixedResponses++;
+        }
+      } catch {}
+    }
+    // Also fix visit_individuals.custom_field_values
+    const badIndiv = await db.prepare("SELECT id, custom_field_values FROM visit_individuals WHERE tenant_id = ? AND custom_field_values LIKE '%fieldvibe-uploads%r2.dev%' LIMIT 200").bind(tenantId).all();
+    let fixedIndiv = 0;
+    for (const vi of (badIndiv.results || [])) {
+      try {
+        let vals = vi.custom_field_values;
+        if (typeof vals === 'string' && vals.includes('fieldvibe-uploads')) {
+          vals = vals.replace(/https?:\/\/fieldvibe-uploads\.[^/]+\.r2\.dev\//g, (match) => {
+            return new URL('/api/uploads/', reqUrl).href;
+          });
+          await db.prepare("UPDATE visit_individuals SET custom_field_values = ? WHERE id = ?").bind(vals, vi.id).run();
+          fixedIndiv++;
+        }
+      } catch {}
+    }
+    const remaining = await db.prepare("SELECT COUNT(*) as cnt FROM visit_photos WHERE tenant_id = ? AND r2_url LIKE '%fieldvibe-uploads%r2.dev%'").bind(tenantId).first();
+    return c.json({ success: true, message: 'Fixed ' + fixed + ' photo URLs, ' + fixedResponses + ' response URLs, ' + fixedIndiv + ' individual URLs', fixed, fixedResponses, fixedIndiv, remaining: remaining?.cnt || 0 });
+  } catch (e) {
+    return c.json({ success: false, message: 'Fix failed: ' + (e.message || e) }, 500);
   }
 });
 
@@ -15697,7 +15813,8 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
 
       // Use visit_photos (R2 URLs) first; for base64 photos from custom questions, only flag their existence
       const isUrl = (v) => v && typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://'));
-      const photo_url = row.thumbnail_url || (isUrl(id_passport_photo) ? id_passport_photo : null) || (isUrl(shop_exterior_photo) ? shop_exterior_photo : null) || (isUrl(ad_board_photo) ? ad_board_photo : null) || (isUrl(competitor_photo) ? competitor_photo : null) || (isUrl(custom_question_photo) ? custom_question_photo : null) || null;
+      const reqUrl = c.req.url;
+      const photo_url = rewriteR2Url(row.thumbnail_url, reqUrl) || (isUrl(id_passport_photo) ? rewriteR2Url(id_passport_photo, reqUrl) : null) || (isUrl(shop_exterior_photo) ? rewriteR2Url(shop_exterior_photo, reqUrl) : null) || (isUrl(ad_board_photo) ? rewriteR2Url(ad_board_photo, reqUrl) : null) || (isUrl(competitor_photo) ? rewriteR2Url(competitor_photo, reqUrl) : null) || (isUrl(custom_question_photo) ? rewriteR2Url(custom_question_photo, reqUrl) : null) || null;
       const has_photos = !!(id_passport_photo || shop_exterior_photo || ad_board_photo || competitor_photo || custom_question_photo);
 
       return {
@@ -15864,7 +15981,8 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
       // Use visit_photos (R2 URLs) first; for base64 photos from custom questions, only flag their existence
       // Don't include full base64 data in listing response (can be 100KB+ per photo, making response huge)
       const isUrl = (v) => v && typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://'));
-      const photo_url = row.thumbnail_url || (isUrl(shop_exterior_photo) ? shop_exterior_photo : null) || (isUrl(ad_board_photo) ? ad_board_photo : null) || (isUrl(competitor_photo) ? competitor_photo : null) || (isUrl(custom_question_photo) ? custom_question_photo : null) || null;
+      const reqUrl = c.req.url;
+      const photo_url = rewriteR2Url(row.thumbnail_url, reqUrl) || (isUrl(shop_exterior_photo) ? rewriteR2Url(shop_exterior_photo, reqUrl) : null) || (isUrl(ad_board_photo) ? rewriteR2Url(ad_board_photo, reqUrl) : null) || (isUrl(competitor_photo) ? rewriteR2Url(competitor_photo, reqUrl) : null) || (isUrl(custom_question_photo) ? rewriteR2Url(custom_question_photo, reqUrl) : null) || null;
       const has_photos = !!(shop_exterior_photo || ad_board_photo || competitor_photo || custom_question_photo);
 
       // Parse AI data before building return object so board_installed can be updated
@@ -15914,9 +16032,9 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
         goldrush_id,
         thumbnail_url: photo_url,
         has_photos,
-        shop_exterior_photo: isUrl(shop_exterior_photo) ? shop_exterior_photo : (shop_exterior_photo ? 'has_photo' : null),
-        competitor_photo: isUrl(competitor_photo) ? competitor_photo : (competitor_photo ? 'has_photo' : null),
-        ad_board_photo: isUrl(ad_board_photo) ? ad_board_photo : (ad_board_photo ? 'has_photo' : null),
+        shop_exterior_photo: isUrl(shop_exterior_photo) ? rewriteR2Url(shop_exterior_photo, reqUrl) : (shop_exterior_photo ? 'has_photo' : null),
+        competitor_photo: isUrl(competitor_photo) ? rewriteR2Url(competitor_photo, reqUrl) : (competitor_photo ? 'has_photo' : null),
+        ad_board_photo: isUrl(ad_board_photo) ? rewriteR2Url(ad_board_photo, reqUrl) : (ad_board_photo ? 'has_photo' : null),
         stock_source,
         competitors_in_store,
         competitor_stock_source,
@@ -17505,7 +17623,7 @@ api.get('/visits/:visitId/photos', authMiddleware, async (c) => {
     let photos = [];
     try {
       const photosRes = await db.prepare('SELECT id, photo_type, r2_url, captured_at FROM visit_photos WHERE visit_id = ? AND tenant_id = ?').bind(visitId, tenantId).all();
-      photos = (photosRes?.results || []).filter(p => p.r2_url);
+      photos = (photosRes?.results || []).filter(p => p.r2_url).map(p => ({ ...p, r2_url: rewriteR2Url(p.r2_url, c.req.url) }));
     } catch { /* visit_photos may not exist */ }
     // Fetch custom question photos (base64 or URL) from visit_responses
     const customFieldValues = {};
@@ -17737,6 +17855,24 @@ api.get('/warehouses/:warehouseId/inventory', authMiddleware, async (c) => {
 api.get('/warehouses/:warehouseId/stock-movements', authMiddleware, async (c) => {
   try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+// ==================== PUBLIC PHOTO SERVING (no auth required for <img> tags) ====================
+app.get('/api/uploads/:key{.+}', async (c) => {
+  try {
+    const bucket = c.env.UPLOADS;
+    if (!bucket) return c.json({ success: false, message: 'Storage not configured' }, 500);
+    const key = c.req.param('key');
+    const object = await bucket.get(key);
+    if (!object) return c.json({ success: false, message: 'File not found' }, 404);
+    const headers = new Headers();
+    object.writeHttpMetadata(headers);
+    headers.set('etag', object.httpEtag);
+    headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+    return new Response(object.body, { headers });
+  } catch (error) {
+    return c.json({ success: false, message: 'File retrieval failed' }, 500);
+  }
 });
 
 // ==================== MOUNT AND EXPORT ====================
