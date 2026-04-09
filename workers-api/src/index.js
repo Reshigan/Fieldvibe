@@ -8177,6 +8177,17 @@ api.post('/visits/check-photo-duplicate', authMiddleware, async (c) => {
 });
 
 
+// Rewrite old bad R2 URLs (fieldvibe-uploads.*.r2.dev) to API proxy URLs
+function rewriteR2Url(url, reqUrl) {
+  if (!url || typeof url !== 'string') return url;
+  // Match old format: https://fieldvibe-uploads.{tenantId}.r2.dev/{key}
+  const match = url.match(/^https?:\/\/fieldvibe-uploads\.[^/]+\.r2\.dev\/(.+)$/);
+  if (match) {
+    try { return new URL('/api/uploads/' + match[1], reqUrl).href; } catch { return '/api/uploads/' + match[1]; }
+  }
+  return url;
+}
+
 // Compute SHA-256 hash of photo bytes for deduplication
 async function computePhotoHash(bytes) {
   const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
@@ -8323,7 +8334,7 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
             const bucket = c.env.UPLOADS;
             if (bucket) {
               await bucket.put(indPhotoKey, bytes, { httpMetadata: { contentType: 'image/jpeg' } });
-              const r2Url = `https://fieldvibe-uploads.${tenantId}.r2.dev/${indPhotoKey}`;
+              const r2Url = new URL(`/api/uploads/${indPhotoKey}`, c.req.url).href;
               await db.prepare('INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, r2_url, captured_at, photo_hash, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), ?, ?)').bind(
                 indPhotoId, tenantId, visitId, key.includes('board') || key.includes('ad_board') ? 'board' : key.includes('exterior') ? 'store_front' : 'general',
                 indPhotoKey, r2Url, indPhotoHash, userId
@@ -8374,7 +8385,7 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
             const bucket = c.env.UPLOADS;
             if (bucket) {
               await bucket.put(cqPhotoKey, bytes, { httpMetadata: { contentType: 'image/jpeg' } });
-              const r2Url = `https://fieldvibe-uploads.${tenantId}.r2.dev/${cqPhotoKey}`;
+              const r2Url = new URL(`/api/uploads/${cqPhotoKey}`, c.req.url).href;
               await db.prepare('INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, r2_url, captured_at, photo_hash, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), ?, ?)').bind(
                 cqPhotoId, tenantId, visitId, key.includes('board') || key.includes('ad_board') ? 'board' : key.includes('exterior') ? 'store_front' : 'general',
                 cqPhotoKey, r2Url, cqPhotoHash, userId
@@ -13543,7 +13554,7 @@ api.post('/visit-photos/migrate-base64', authMiddleware, async (c) => {
               const photoId = crypto.randomUUID();
               const photoKey = `photos/${tenantId}/${row.visit_id}/${photoId}.jpg`;
               await bucket.put(photoKey, bytes, { httpMetadata: { contentType: 'image/jpeg' } });
-              const r2Url = `https://fieldvibe-uploads.${tenantId}.r2.dev/${photoKey}`;
+              const r2Url = new URL(`/api/uploads/${photoKey}`, c.req.url).href;
 
               // Insert into visit_photos
               await db.prepare('INSERT INTO visit_photos (id, tenant_id, visit_id, photo_type, r2_key, r2_url, captured_at, photo_hash, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), ?, ?)').bind(
@@ -13592,6 +13603,61 @@ api.post('/visit-photos/migrate-base64', authMiddleware, async (c) => {
   } catch (e) {
     console.error('Base64 migration error:', e);
     return c.json({ success: false, message: 'Migration failed: ' + (e.message || e) }, 500);
+  }
+});
+
+// Fix old bad R2 URLs in visit_photos table (one-time migration)
+api.post('/visit-photos/fix-urls', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const role = c.get('role');
+    if (role !== 'admin' && role !== 'manager') return c.json({ success: false, message: 'Admin or manager access required' }, 403);
+    const reqUrl = c.req.url;
+    // Fix visit_photos.r2_url entries with old format
+    const badPhotos = await db.prepare("SELECT id, r2_url, r2_key FROM visit_photos WHERE tenant_id = ? AND r2_url LIKE '%fieldvibe-uploads%r2.dev%' LIMIT 200").bind(tenantId).all();
+    let fixed = 0;
+    for (const p of (badPhotos.results || [])) {
+      const newUrl = rewriteR2Url(p.r2_url, reqUrl);
+      if (newUrl !== p.r2_url) {
+        await db.prepare("UPDATE visit_photos SET r2_url = ? WHERE id = ? AND tenant_id = ?").bind(newUrl, p.id, tenantId).run();
+        fixed++;
+      }
+    }
+    // Also fix visit_responses that have old R2 URLs embedded in JSON
+    const badResponses = await db.prepare("SELECT id, responses FROM visit_responses WHERE tenant_id = ? AND responses LIKE '%fieldvibe-uploads%r2.dev%' LIMIT 200").bind(tenantId).all();
+    let fixedResponses = 0;
+    for (const r of (badResponses.results || [])) {
+      try {
+        let resp = r.responses;
+        if (typeof resp === 'string' && resp.includes('fieldvibe-uploads')) {
+          resp = resp.replace(/https?:\/\/fieldvibe-uploads\.[^/]+\.r2\.dev\//g, (match) => {
+            return new URL('/api/uploads/', reqUrl).href;
+          });
+          await db.prepare("UPDATE visit_responses SET responses = ? WHERE id = ?").bind(resp, r.id).run();
+          fixedResponses++;
+        }
+      } catch {}
+    }
+    // Also fix visit_individuals.custom_field_values
+    const badIndiv = await db.prepare("SELECT id, custom_field_values FROM visit_individuals WHERE tenant_id = ? AND custom_field_values LIKE '%fieldvibe-uploads%r2.dev%' LIMIT 200").bind(tenantId).all();
+    let fixedIndiv = 0;
+    for (const vi of (badIndiv.results || [])) {
+      try {
+        let vals = vi.custom_field_values;
+        if (typeof vals === 'string' && vals.includes('fieldvibe-uploads')) {
+          vals = vals.replace(/https?:\/\/fieldvibe-uploads\.[^/]+\.r2\.dev\//g, (match) => {
+            return new URL('/api/uploads/', reqUrl).href;
+          });
+          await db.prepare("UPDATE visit_individuals SET custom_field_values = ? WHERE id = ?").bind(vals, vi.id).run();
+          fixedIndiv++;
+        }
+      } catch {}
+    }
+    const remaining = await db.prepare("SELECT COUNT(*) as cnt FROM visit_photos WHERE tenant_id = ? AND r2_url LIKE '%fieldvibe-uploads%r2.dev%'").bind(tenantId).first();
+    return c.json({ success: true, message: 'Fixed ' + fixed + ' photo URLs, ' + fixedResponses + ' response URLs, ' + fixedIndiv + ' individual URLs', fixed, fixedResponses, fixedIndiv, remaining: remaining?.cnt || 0 });
+  } catch (e) {
+    return c.json({ success: false, message: 'Fix failed: ' + (e.message || e) }, 500);
   }
 });
 
@@ -15739,7 +15805,8 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
 
       // Use visit_photos (R2 URLs) first; for base64 photos from custom questions, only flag their existence
       const isUrl = (v) => v && typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://'));
-      const photo_url = row.thumbnail_url || (isUrl(id_passport_photo) ? id_passport_photo : null) || (isUrl(shop_exterior_photo) ? shop_exterior_photo : null) || (isUrl(ad_board_photo) ? ad_board_photo : null) || (isUrl(competitor_photo) ? competitor_photo : null) || (isUrl(custom_question_photo) ? custom_question_photo : null) || null;
+      const reqUrl = c.req.url;
+      const photo_url = rewriteR2Url(row.thumbnail_url, reqUrl) || (isUrl(id_passport_photo) ? rewriteR2Url(id_passport_photo, reqUrl) : null) || (isUrl(shop_exterior_photo) ? rewriteR2Url(shop_exterior_photo, reqUrl) : null) || (isUrl(ad_board_photo) ? rewriteR2Url(ad_board_photo, reqUrl) : null) || (isUrl(competitor_photo) ? rewriteR2Url(competitor_photo, reqUrl) : null) || (isUrl(custom_question_photo) ? rewriteR2Url(custom_question_photo, reqUrl) : null) || null;
       const has_photos = !!(id_passport_photo || shop_exterior_photo || ad_board_photo || competitor_photo || custom_question_photo);
 
       return {
@@ -15906,7 +15973,8 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
       // Use visit_photos (R2 URLs) first; for base64 photos from custom questions, only flag their existence
       // Don't include full base64 data in listing response (can be 100KB+ per photo, making response huge)
       const isUrl = (v) => v && typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://'));
-      const photo_url = row.thumbnail_url || (isUrl(shop_exterior_photo) ? shop_exterior_photo : null) || (isUrl(ad_board_photo) ? ad_board_photo : null) || (isUrl(competitor_photo) ? competitor_photo : null) || (isUrl(custom_question_photo) ? custom_question_photo : null) || null;
+      const reqUrl = c.req.url;
+      const photo_url = rewriteR2Url(row.thumbnail_url, reqUrl) || (isUrl(shop_exterior_photo) ? rewriteR2Url(shop_exterior_photo, reqUrl) : null) || (isUrl(ad_board_photo) ? rewriteR2Url(ad_board_photo, reqUrl) : null) || (isUrl(competitor_photo) ? rewriteR2Url(competitor_photo, reqUrl) : null) || (isUrl(custom_question_photo) ? rewriteR2Url(custom_question_photo, reqUrl) : null) || null;
       const has_photos = !!(shop_exterior_photo || ad_board_photo || competitor_photo || custom_question_photo);
 
       // Parse AI data before building return object so board_installed can be updated
@@ -15956,9 +16024,9 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
         goldrush_id,
         thumbnail_url: photo_url,
         has_photos,
-        shop_exterior_photo: isUrl(shop_exterior_photo) ? shop_exterior_photo : (shop_exterior_photo ? 'has_photo' : null),
-        competitor_photo: isUrl(competitor_photo) ? competitor_photo : (competitor_photo ? 'has_photo' : null),
-        ad_board_photo: isUrl(ad_board_photo) ? ad_board_photo : (ad_board_photo ? 'has_photo' : null),
+        shop_exterior_photo: isUrl(shop_exterior_photo) ? rewriteR2Url(shop_exterior_photo, reqUrl) : (shop_exterior_photo ? 'has_photo' : null),
+        competitor_photo: isUrl(competitor_photo) ? rewriteR2Url(competitor_photo, reqUrl) : (competitor_photo ? 'has_photo' : null),
+        ad_board_photo: isUrl(ad_board_photo) ? rewriteR2Url(ad_board_photo, reqUrl) : (ad_board_photo ? 'has_photo' : null),
         stock_source,
         competitors_in_store,
         competitor_stock_source,
@@ -17547,7 +17615,7 @@ api.get('/visits/:visitId/photos', authMiddleware, async (c) => {
     let photos = [];
     try {
       const photosRes = await db.prepare('SELECT id, photo_type, r2_url, captured_at FROM visit_photos WHERE visit_id = ? AND tenant_id = ?').bind(visitId, tenantId).all();
-      photos = (photosRes?.results || []).filter(p => p.r2_url);
+      photos = (photosRes?.results || []).filter(p => p.r2_url).map(p => ({ ...p, r2_url: rewriteR2Url(p.r2_url, c.req.url) }));
     } catch { /* visit_photos may not exist */ }
     // Fetch custom question photos (base64 or URL) from visit_responses
     const customFieldValues = {};

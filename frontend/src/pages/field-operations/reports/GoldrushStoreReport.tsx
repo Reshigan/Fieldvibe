@@ -107,6 +107,12 @@ const GoldrushStoreReport: React.FC = () => {
   const handleMigratePhotos = async () => {
     setMigrating(true)
     try {
+      // Step 1: Fix any existing bad R2 URLs in the database
+      try {
+        await apiClient.post('/visit-photos/fix-urls')
+      } catch { /* fix-urls is optional, continue with migration */ }
+
+      // Step 2: Migrate remaining base64 photos to R2
       let totalMigrated = 0
       let totalSkipped = 0
       let remaining = 1
