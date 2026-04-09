@@ -17849,6 +17849,24 @@ api.get('/warehouses/:warehouseId/stock-movements', authMiddleware, async (c) =>
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 
+// ==================== PUBLIC PHOTO SERVING (no auth required for <img> tags) ====================
+app.get('/api/uploads/:key{.+}', async (c) => {
+  try {
+    const bucket = c.env.UPLOADS;
+    if (!bucket) return c.json({ success: false, message: 'Storage not configured' }, 500);
+    const key = c.req.param('key');
+    const object = await bucket.get(key);
+    if (!object) return c.json({ success: false, message: 'File not found' }, 404);
+    const headers = new Headers();
+    object.writeHttpMetadata(headers);
+    headers.set('etag', object.httpEtag);
+    headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+    return new Response(object.body, { headers });
+  } catch (error) {
+    return c.json({ success: false, message: 'File retrieval failed' }, 500);
+  }
+});
+
 // ==================== MOUNT AND EXPORT ====================
 app.route('/api', api);
 
