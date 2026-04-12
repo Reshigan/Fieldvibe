@@ -134,12 +134,31 @@ const BrandActivationFormPage: React.FC = () => {
   };
 
   const handlePhotoCapture = () => {
-    // Simulate photo capture
-    const mockPhoto = `photo-${Date.now()}.jpg`;
-    setFormData({
-      ...formData,
-      photos: [...(formData.photos || []), mockPhoto]
-    });
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.capture = 'environment';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await apiClient.post('/uploads', fd);
+        const url = res.data?.url || res.data?.data?.url || file.name;
+        setFormData(prev => ({
+          ...prev,
+          photos: [...(prev.photos || []), url]
+        }));
+      } catch {
+        // Fallback to local file name if upload fails
+        setFormData(prev => ({
+          ...prev,
+          photos: [...(prev.photos || []), file.name]
+        }));
+      }
+    };
+    input.click();
   };
 
   const removePhoto = (index: number) => {
