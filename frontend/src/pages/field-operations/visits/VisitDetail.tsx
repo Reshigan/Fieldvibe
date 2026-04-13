@@ -494,7 +494,7 @@ export default function VisitDetail() {
                     className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
                   />
                 </div>
-                {(photo.ai_analysis_status || photo.ai_share_of_voice != null || photo.board_condition) && (
+                {((photo.ai_analysis_status === 'completed' && photo.ai_labels) || photo.ai_analysis_status === 'processing' || (photo.ai_share_of_voice != null && photo.ai_share_of_voice > 0) || photo.board_condition) && (
                   <div className="p-2 space-y-1 bg-gray-50 dark:bg-gray-700/50">
                     {photo.ai_analysis_status === 'completed' && photo.ai_labels && (() => {
                       try {

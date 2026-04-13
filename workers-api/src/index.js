@@ -8431,6 +8431,7 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
     }
 
     // 4. Save photos with GPS, hash, and board placement data (with deduplication)
+    const stepPhotoIds = [];
     if (Array.isArray(body.photos) && body.photos.length > 0) {
       for (const photo of body.photos) {
         // Skip duplicate photos by hash
@@ -8457,13 +8458,15 @@ api.post('/visits/workflow', authMiddleware, async (c) => {
             photo.captured_at || now, photo.photo_hash || null, userId
           ).run();
         }
+        stepPhotoIds.push(photoId);
       }
     }
 
-    // 5. Trigger AI analysis for uploaded photos (runs async in background)
-    if (Array.isArray(body.photos) && body.photos.length > 0) {
+    // 5. Trigger AI analysis for uploaded body.photos only (custom question photos are handled in steps 2a/2c with aiEnabledKeys)
+    if (Array.isArray(body.photos) && body.photos.length > 0 && stepPhotoIds.length > 0) {
       try {
-        const savedPhotos = await db.prepare('SELECT id, r2_key, photo_type FROM visit_photos WHERE visit_id = ? AND tenant_id = ?').bind(visitId, tenantId).all();
+        const placeholders = stepPhotoIds.map(() => '?').join(',');
+        const savedPhotos = await db.prepare(`SELECT id, r2_key, photo_type FROM visit_photos WHERE id IN (${placeholders}) AND tenant_id = ?`).bind(...stepPhotoIds, tenantId).all();
         for (const sp of (savedPhotos?.results || [])) {
           if (sp.r2_key && !sp.r2_key.startsWith('data:')) {
             try { c.executionCtx.waitUntil(analyzePhotoWithAI(c.env, sp.id, sp.r2_key, tenantId, visitId, sp.photo_type)); } catch { /* AI analysis optional */ }
