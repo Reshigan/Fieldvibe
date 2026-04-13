@@ -87,7 +87,7 @@ const BrandBoards = lazyWithRetry(() => import('./pages/brands/BrandBoards'))
 const BrandCreate = lazyWithRetry(() => import('./pages/brands/BrandCreate'))
 const BrandDetail = lazyWithRetry(() => import('./pages/brands/BrandDetail'))
 const BrandEdit = lazyWithRetry(() => import('./pages/brands/BrandEdit'))
-const BrandInsightsPage = lazyWithRetry(() => import('./pages/field-operations/BrandInsightsPage'))
+// BrandInsightsPage consolidated into FieldOpsComprehensiveReport (Brand Insights tab)
 const BrandManagementPage = lazyWithRetry(() => import('./pages/admin/BrandManagementPage'))
 const BrandOwnerDashboard = lazyWithRetry(() => import('./pages/brand-owner/BrandOwnerDashboard'))
 const BrandOwnerReports = lazyWithRetry(() => import('./pages/brand-owner/BrandOwnerReports'))
@@ -171,12 +171,12 @@ const FOSurveyDetail = lazyWithRetry(() => import('./pages/field-operations/visi
 const FOVisitTaskDetail = lazyWithRetry(() => import('./pages/field-operations/visit-tasks/VisitTaskDetail'))
 const FOVisitTaskEdit = lazyWithRetry(() => import('./pages/field-operations/visit-tasks/VisitTaskEdit'))
 const FOVisitTaskList = lazyWithRetry(() => import('./pages/field-operations/visit-tasks/VisitTaskList'))
-const FieldAgentDashboardPage = lazyWithRetry(() => import('./pages/field-operations/FieldAgentDashboardPage'))
+// FieldAgentDashboardPage consolidated into FieldOpsComprehensiveReport (Overview tab)
 const FieldMarketingAgentPage = lazyWithRetry(() => import('./pages/FieldMarketingAgentPage'))
 const FieldOperationsDashboard = lazyWithRetry(() => import('./pages/field-operations/FieldOperationsDashboard'))
 const FieldOperationsProductivityReport = lazyWithRetry(() => import('./pages/reports/operations/FieldOperationsProductivityReport'))
 const FieldOpsInsights = lazyWithRetry(() => import('./pages/insights/FieldOpsInsights'))
-const FieldOpsPerformancePage = lazyWithRetry(() => import('./pages/field-operations/FieldOpsPerformancePage'))
+// FieldOpsPerformancePage consolidated into FieldOpsComprehensiveReport (Performance tab)
 const FieldOpsSettingsPage = lazyWithRetry(() => import('./pages/field-operations/FieldOpsSettingsPage'))
 const MonthlyTargetsPage = lazyWithRetry(() => import('./pages/field-operations/MonthlyTargetsPage'))
 const TargetCommissionsPage = lazyWithRetry(() => import('./pages/field-operations/TargetCommissionsPage'))
@@ -218,7 +218,7 @@ const KYCEdit = lazyWithRetry(() => import('./pages/kyc/KYCEdit'))
 const KYCManagement = lazyWithRetry(() => import('./pages/kyc/KYCManagement'))
 const KYCReports = lazyWithRetry(() => import('./pages/kyc/KYCReports'))
 const LandingPage = lazyWithRetry(() => import('./pages/marketing/LandingPage'))
-const LiveGPSTrackingPage = lazyWithRetry(() => import('./pages/field-operations/LiveGPSTrackingPage'))
+// LiveGPSTrackingPage consolidated into FieldOpsComprehensiveReport (GPS Tracking tab)
 const LoginPage = lazyWithRetry(() => import('./pages/auth/LoginPage'))
 const LotDetail = lazyWithRetry(() => import('./pages/inventory/batch-tracking/LotDetail'))
 const LotTracking = lazyWithRetry(() => import('./pages/inventory/batch-tracking/LotTracking'))
@@ -422,7 +422,7 @@ const ProcessFlowManagementPage = lazyWithRetry(() => import('./pages/field-oper
 const VisitCreate = lazyWithRetry(() => import('./pages/field-operations/visits/VisitCreate'))
 const VisitDetail = lazyWithRetry(() => import('./pages/field-operations/visits/VisitDetail'))
 const VisitEdit = lazyWithRetry(() => import('./pages/field-operations/visits/VisitEdit'))
-const VisitHistoryPage = lazyWithRetry(() => import('./pages/field-operations/VisitHistoryPage'))
+// VisitHistoryPage consolidated into FieldOpsComprehensiveReport (Check-ins tab)
 const VisitManagementPage = lazyWithRetry(() => import('./pages/field-operations/VisitManagementPage'))
 const VisitWorkflowPage = lazyWithRetry(() => import('./pages/VisitWorkflowPage'))
 const VisitsList = lazyWithRetry(() => import('./pages/field-operations/visits/VisitsList'))
@@ -559,11 +559,11 @@ function App() {
             {/* Field Operations Routes */}
             <Route path="field-operations" element={<PageLoader><FieldOperationsDashboard /></PageLoader>} />
             <Route path="field-operations/dashboard" element={<PageLoader><FieldOperationsDashboard /></PageLoader>} />
-            <Route path="field-operations/agent-dashboard" element={<PageLoader><FieldAgentDashboardPage /></PageLoader>} />
+            <Route path="field-operations/agent-dashboard" element={<Navigate to="/reports/operations/field-ops" replace />} />
             <Route path="field-operations/agents" element={<Navigate to="/field-operations" replace />} />
-            <Route path="field-operations/mapping" element={<Navigate to="/field-operations/gps-tracking" replace />} />
-            <Route path="field-operations/live-map" element={<PageLoader><LiveGPSTrackingPage /></PageLoader>} />
-            <Route path="field-operations/gps-tracking" element={<PageLoader><LiveGPSTrackingPage /></PageLoader>} />
+            <Route path="field-operations/mapping" element={<Navigate to="/reports/operations/field-ops" replace />} />
+            <Route path="field-operations/live-map" element={<Navigate to="/reports/operations/field-ops" replace />} />
+            <Route path="field-operations/gps-tracking" element={<Navigate to="/reports/operations/field-ops" replace />} />
             <Route path="field-operations/boards" element={<PageLoader><BoardPlacementsList /></PageLoader>} />
             <Route path="field-operations/boards/create" element={<PageLoader><BoardPlacementFormPage /></PageLoader>} />
             <Route path="field-operations/boards/:id" element={<PageLoader><BoardPlacementDetail /></PageLoader>} />
@@ -580,18 +580,18 @@ function App() {
             <Route path="field-operations/visits/:id/edit" element={<PageLoader><VisitEdit /></PageLoader>} />
             <Route path="field-operations/visit-configurations" element={<PageLoader><VisitConfigurationPage /></PageLoader>} />
             <Route path="field-operations/process-flows" element={<PageLoader><ProcessFlowManagementPage /></PageLoader>} />
-            <Route path="field-operations/visit-history" element={<PageLoader><VisitHistoryPage /></PageLoader>} />
+            <Route path="field-operations/visit-history" element={<Navigate to="/reports/operations/field-ops" replace />} />
             <Route path="field-operations/visit-management" element={<PageLoader><VisitManagementPage /></PageLoader>} />
 
             {/* Field Operations Refactor: New Routes */}
-            <Route path="field-operations/performance" element={<PageLoader><FieldOpsPerformancePage /></PageLoader>} />
+            <Route path="field-operations/performance" element={<Navigate to="/reports/operations/field-ops" replace />} />
             <Route path="field-operations/daily-targets" element={<PageLoader><DailyTargetsPage /></PageLoader>} />
             <Route path="field-operations/individuals" element={<PageLoader><IndividualRegistrationPage /></PageLoader>} />
             <Route path="field-operations/companies" element={<PageLoader><CompanyManagementPage /></PageLoader>} />
             <Route path="field-operations/company-dashboard/:companyId" element={<PageLoader><CompanyDashboardPage /></PageLoader>} />
             <Route path="field-operations/hierarchy" element={<PageLoader><AgentHierarchyPage /></PageLoader>} />
             <Route path="field-operations/drill-down/:userId" element={<PageLoader><PerformanceDrillDownPage /></PageLoader>} />
-            <Route path="field-operations/brand-insights" element={<PageLoader><BrandInsightsPage /></PageLoader>} />
+            <Route path="field-operations/brand-insights" element={<Navigate to="/reports/operations/field-ops" replace />} />
             <Route path="field-operations/company-logins" element={<PageLoader><CompanyLoginsPage /></PageLoader>} />
             <Route path="field-operations/working-days" element={<PageLoader><WorkingDaysConfigPage /></PageLoader>} />
             <Route path="field-operations/monthly-targets" element={<PageLoader><MonthlyTargetsPage /></PageLoader>} />
