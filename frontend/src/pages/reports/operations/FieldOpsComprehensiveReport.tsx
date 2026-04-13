@@ -1691,16 +1691,11 @@ function BrandKPICard({ title, value, icon, bg }: { title: string; value: string
 // ─── GPS Tracking Tab (was LiveGPSTrackingPage) ─────────────────────────────
 
 function GPSTrackingTab() {
-  const { data: locations, isLoading, isError, refetch } = useQuery({
+  const { data: locations, isLoading, isError } = useQuery({
     queryKey: ['live-locations'],
     queryFn: () => fieldOperationsService.getLiveLocations(),
     refetchInterval: 30000
   })
-
-  useEffect(() => {
-    const interval = setInterval(() => refetch(), 30000)
-    return () => clearInterval(interval)
-  }, [refetch])
 
   if (isLoading) return <LoadingSpinner />
   if (isError) return <ErrorBanner />
