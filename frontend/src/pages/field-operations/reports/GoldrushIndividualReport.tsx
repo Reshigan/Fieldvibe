@@ -122,8 +122,8 @@ const GoldrushIndividualReport: React.FC = () => {
       const res = await apiClient.get(`/field-ops/reports/goldrush-individuals${dateParams}${companyParam}`)
       return (res.data?.data || []) as GoldrushIndividual[]
     },
-    staleTime: 1000 * 30,
-    refetchInterval: 1000 * 30,
+    staleTime: 1000 * 60 * 5,
+    refetchInterval: 1000 * 60 * 5,
   })
 
   const filtered = individuals.filter(ind => {

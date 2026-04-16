@@ -193,8 +193,8 @@ const GoldrushStoreReport: React.FC = () => {
       const res = await apiClient.get(`/field-ops/reports/goldrush-stores${dateParams}${companyParam}`)
       return (res.data?.data || []) as GoldrushStore[]
     },
-    staleTime: 1000 * 30,
-    refetchInterval: 1000 * 30,
+    staleTime: 1000 * 60 * 5,
+    refetchInterval: 1000 * 60 * 5,
   })
 
   const filtered = stores.filter(s => {

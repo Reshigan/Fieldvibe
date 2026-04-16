@@ -48,8 +48,8 @@ export default function FieldOpsPerformancePage() {
       const result = await fieldOperationsService.getPerformance(params)
       return result
     },
-    staleTime: 1000 * 30,
-    refetchInterval: 1000 * 30,
+    staleTime: 1000 * 60 * 5,
+    refetchInterval: 1000 * 60 * 5,
   })
 
   const handleExport = async (format: 'csv' | 'excel' = 'excel') => {

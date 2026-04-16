@@ -35,8 +35,8 @@ export default function PerformanceDrillDownPage() {
       end_date: timePeriod === 'custom' ? dateRange.end_date : undefined
     }),
     enabled: !!userId,
-    staleTime: 1000 * 30,
-    refetchInterval: 1000 * 30,
+    staleTime: 1000 * 60 * 5,
+    refetchInterval: 1000 * 60 * 5,
   })
 
   const handleExport = async () => {

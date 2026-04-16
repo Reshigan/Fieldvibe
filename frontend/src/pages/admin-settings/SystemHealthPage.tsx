@@ -45,7 +45,7 @@ export const SystemHealthPage: React.FC = () => {
         totalCount: checks.length,
       }
     },
-    refetchInterval: autoRefresh ? 30000 : false,
+    refetchInterval: autoRefresh ? 60000 : false,
   })
 
   if (isLoading) return <LoadingSpinner />
