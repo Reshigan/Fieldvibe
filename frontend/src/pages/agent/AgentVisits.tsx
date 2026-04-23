@@ -19,6 +19,7 @@ interface Visit {
   individual_surname?: string
   notes: string
   thumbnail_url?: string | null
+  rejected_photo_count?: number
 }
 
 export default function AgentVisits() {
@@ -288,11 +289,11 @@ export default function AgentVisits() {
                   <p className="text-sm font-medium text-white truncate">
                     {visit.customer_name || (visit.individual_name ? `${visit.individual_name}${visit.individual_surname ? ' ' + visit.individual_surname : ''}` : 'Visit')}
                   </p>
-                  {rejectedVisitIds.includes(visit.id) && (
+                  {((visit.rejected_photo_count || 0) > 0 || rejectedVisitIds.includes(visit.id)) && (
                     <div className="mt-1">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-red-500/15 text-red-400 border border-red-500/30">
                         <XCircle className="w-3 h-3" />
-                        Rejected photo
+                        Rejected photo{(visit.rejected_photo_count || 0) > 1 ? 's' : ''}
                       </span>
                     </div>
                   )}

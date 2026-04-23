@@ -5279,7 +5279,48 @@ api.get('/field-operations/visits', authMiddleware, async (c) => {
   if (visit_type) { where += ' AND v.visit_type = ?'; params.push(visit_type); }
   if (company_id) { where += ' AND v.company_id = ?'; params.push(company_id); }
   const total = await db.prepare('SELECT COUNT(*) as count FROM visits v ' + where).bind(...params).first();
-  const visits = await db.prepare("SELECT v.*, c.name as customer_name, u.first_name || ' ' || u.last_name as agent_name, vp.r2_url as thumbnail_url FROM visits v LEFT JOIN customers c ON v.customer_id = c.id LEFT JOIN users u ON v.agent_id = u.id LEFT JOIN visit_photos vp ON vp.id = (SELECT vp2.id FROM visit_photos vp2 WHERE vp2.visit_id = v.id AND vp2.tenant_id = v.tenant_id AND vp2.r2_url IS NOT NULL LIMIT 1) " + where + " ORDER BY v.created_at DESC LIMIT ? OFFSET ?").bind(...params, parseInt(limit), offset).all();
+  let visits;
+  try {
+    visits = await db.prepare(`
+      SELECT v.*,
+             c.name as customer_name,
+             u.first_name || ' ' || u.last_name as agent_name,
+             vp.r2_url as thumbnail_url,
+             (
+               SELECT COUNT(*)
+               FROM visit_photos rp
+               WHERE rp.visit_id = v.id
+                 AND rp.tenant_id = v.tenant_id
+                 AND rp.review_status = 'rejected'
+                 AND NOT EXISTS (
+                   SELECT 1
+                   FROM visit_photos newer
+                   WHERE newer.visit_id = rp.visit_id
+                     AND newer.tenant_id = rp.tenant_id
+                     AND newer.photo_type = rp.photo_type
+                     AND newer.review_status = 'pending'
+                     AND datetime(newer.created_at) > datetime(rp.created_at)
+                 )
+             ) as rejected_photo_count
+      FROM visits v
+      LEFT JOIN customers c ON v.customer_id = c.id
+      LEFT JOIN users u ON v.agent_id = u.id
+      LEFT JOIN visit_photos vp ON vp.id = (
+        SELECT vp2.id
+        FROM visit_photos vp2
+        WHERE vp2.visit_id = v.id AND vp2.tenant_id = v.tenant_id AND vp2.r2_url IS NOT NULL
+        LIMIT 1
+      )
+      ${where}
+      ORDER BY v.created_at DESC
+      LIMIT ? OFFSET ?
+    `).bind(...params, parseInt(limit), offset).all();
+  } catch {
+    // Fallback for tenants that have not yet added photo review columns.
+    visits = await db.prepare(
+      "SELECT v.*, c.name as customer_name, u.first_name || ' ' || u.last_name as agent_name, vp.r2_url as thumbnail_url, 0 as rejected_photo_count FROM visits v LEFT JOIN customers c ON v.customer_id = c.id LEFT JOIN users u ON v.agent_id = u.id LEFT JOIN visit_photos vp ON vp.id = (SELECT vp2.id FROM visit_photos vp2 WHERE vp2.visit_id = v.id AND vp2.tenant_id = v.tenant_id AND vp2.r2_url IS NOT NULL LIMIT 1) " + where + " ORDER BY v.created_at DESC LIMIT ? OFFSET ?"
+    ).bind(...params, parseInt(limit), offset).all();
+  }
   return c.json({ data: visits.results || [], total: total?.count || 0, page: parseInt(page), limit: parseInt(limit) });
 });
 
@@ -13931,7 +13972,12 @@ api.delete('/visit-photos/:id', authMiddleware, async (c) => {
     const userId = c.get('userId');
     const role = c.get('role');
     const { id } = c.req.param();
-    const photo = await db.prepare('SELECT id, visit_id, r2_key, thumbnail_r2_key, review_status FROM visit_photos WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+    let photo;
+    try {
+      photo = await db.prepare('SELECT id, visit_id, r2_key, thumbnail_r2_key, review_status FROM visit_photos WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+    } catch {
+      photo = await db.prepare('SELECT id, visit_id, r2_key, NULL as thumbnail_r2_key, review_status FROM visit_photos WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+    }
     if (!photo) return c.json({ success: false, message: 'Photo not found' }, 404);
     if (role === 'agent' || role === 'field_agent') {
       const visit = await db.prepare('SELECT agent_id FROM visits WHERE id = ? AND tenant_id = ?').bind(photo.visit_id, tenantId).first();
