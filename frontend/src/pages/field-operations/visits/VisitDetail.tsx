@@ -417,6 +417,14 @@ export default function VisitDetail() {
                           />
                         </div>
                       )}
+
+                      {/* Pending review badge */}
+                      {photo.review_status === 'pending' && (
+                        <div className="absolute bottom-0 left-0 right-0 bg-amber-500/90 py-1 flex items-center justify-center gap-1">
+                          <Clock className="w-3 h-3 text-white" />
+                          <span className="text-[10px] font-semibold text-white">Pending Review</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Photo metadata */}
@@ -677,6 +685,14 @@ export default function VisitDetail() {
                         ref={el => { photoFileRefs.current[photo.id] = el }}
                         onChange={e => handleReplacePhoto(e.target.files, photo.id, photo.photo_type || 'general')}
                       />
+                    </div>
+                  )}
+
+                  {/* Pending review badge */}
+                  {photo.review_status === 'pending' && (
+                    <div className="absolute bottom-0 left-0 right-0 bg-amber-500/90 py-1.5 flex items-center justify-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-white" />
+                      <span className="text-xs font-semibold text-white">Pending Review</span>
                     </div>
                   )}
                 </div>

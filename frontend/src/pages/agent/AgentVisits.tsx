@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { photoReviewService } from '../../services/insights.service'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { MapPin, Clock, CheckCircle, Search, ChevronRight, Calendar, XCircle, Store, User, Plus, RefreshCw } from 'lucide-react'
 import { apiClient } from '../../services/api.service'
 import { toast } from 'react-hot-toast'
@@ -24,11 +24,16 @@ interface Visit {
 
 export default function AgentVisits() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [visits, setVisits] = useState<Visit[]>([])
-  const [rejectedVisitIds, setRejectedVisitIds] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'completed' | 'in_progress' | 'pending' | 'rejected_photos'>('all')
+  const validFilters = ['all', 'completed', 'in_progress', 'pending', 'rejected_photos'] as const
+  type FilterType = typeof validFilters[number]
+  const urlFilter = searchParams.get('filter') as FilterType | null
+  const [filter, setFilter] = useState<FilterType>(
+    urlFilter && validFilters.includes(urlFilter) ? urlFilter : 'all'
+  )
   const [typeFilter, setTypeFilter] = useState<'all' | 'store' | 'individual'>('all')
   const [search, setSearch] = useState('')
 
@@ -46,7 +51,6 @@ export default function AgentVisits() {
       const visitList = (Array.isArray(data) ? data : data?.results || data?.visits || []) as Visit[]
       const rejectedItems = Array.isArray(rejectedRes) ? rejectedRes : (rejectedRes as any)?.photos || []
       const rejectedIdSet = new Set(rejectedItems.map((p: any) => p.id || p.visit_id).filter(Boolean))
-      setRejectedVisitIds(Array.from(rejectedIdSet) as string[])
       setVisits(visitList.map((v: Visit) => ({
         ...v,
         has_rejected_photos: rejectedIdSet.has(v.id) || (Number(v.rejected_photo_count || 0) > 0),
