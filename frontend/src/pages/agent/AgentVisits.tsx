@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
-import { useLocation } from 'react-router-dom'
 import { photoReviewService } from '../../services/insights.service'
 import { useNavigate } from 'react-router-dom'
 import { MapPin, Clock, CheckCircle, Search, ChevronRight, Calendar, XCircle, Store, User, Plus, RefreshCw } from 'lucide-react'
@@ -20,17 +19,16 @@ interface Visit {
   notes: string
   thumbnail_url?: string | null
   rejected_photo_count?: number
+  has_rejected_photos?: boolean
 }
 
 export default function AgentVisits() {
   const navigate = useNavigate()
   const [visits, setVisits] = useState<Visit[]>([])
   const [rejectedVisitIds, setRejectedVisitIds] = useState<string[]>([])
-  const [showRejectedOnly, setShowRejectedOnly] = useState(false)
-  const location = useLocation()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'completed' | 'in_progress' | 'pending'>('all')
+  const [filter, setFilter] = useState<'all' | 'completed' | 'in_progress' | 'pending' | 'rejected_photos'>('all')
   const [typeFilter, setTypeFilter] = useState<'all' | 'store' | 'individual'>('all')
   const [search, setSearch] = useState('')
 
@@ -40,11 +38,19 @@ export default function AgentVisits() {
     try {
       const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Visits timeout')), 15000))
       const visitsPromise = apiClient.get('/field-operations/visits?limit=100&agent_id=me', { signal })
-      const res = await Promise.race([visitsPromise, timeoutPromise])
-      const json = res.data
+      const rejectedPromise = photoReviewService.getNeedsReupload().catch(() => [])
+      const [res, rejectedRes] = await Promise.all([Promise.race([visitsPromise, timeoutPromise]), rejectedPromise])
+      const json = (res as any).data
       // Response format: {data: [...], total: N} (no success field)
       const data = json.data || json
-      setVisits(Array.isArray(data) ? data : data?.results || data?.visits || [])
+      const visitList = (Array.isArray(data) ? data : data?.results || data?.visits || []) as Visit[]
+      const rejectedItems = Array.isArray(rejectedRes) ? rejectedRes : (rejectedRes as any)?.photos || []
+      const rejectedIdSet = new Set(rejectedItems.map((p: any) => p.id || p.visit_id).filter(Boolean))
+      setRejectedVisitIds(Array.from(rejectedIdSet) as string[])
+      setVisits(visitList.map((v: Visit) => ({
+        ...v,
+        has_rejected_photos: rejectedIdSet.has(v.id) || (Number(v.rejected_photo_count || 0) > 0),
+      })))
       setError(false)
     } catch (err: unknown) {
       if (signal?.aborted) return
@@ -74,27 +80,6 @@ export default function AgentVisits() {
     }
   }, [])
 
-  // Always fetch rejected-photo visits for badge visibility on list cards.
-  useEffect(() => {
-    let mounted = true
-    photoReviewService.getNeedsReupload().then((res: any) => {
-      if (!mounted) return
-      const photos = Array.isArray(res) ? res : res?.photos || []
-      const visitIds = [...new Set(photos.map((p: any) => p.id || p.visit_id).filter(Boolean))]
-      setRejectedVisitIds(visitIds)
-    }).catch(() => {
-      if (mounted) setRejectedVisitIds([])
-    })
-    return () => { mounted = false }
-  }, [])
-
-  // Check for rejected_photos filter in query params
-  useEffect(() => {
-    const params = new URLSearchParams(location.search)
-    const rejected = params.get('filter') === 'rejected_photos'
-    setShowRejectedOnly(rejected)
-  }, [location.search])
-
   useEffect(() => {
     const abortController = new AbortController()
     fetchVisits(abortController.signal)
@@ -106,13 +91,12 @@ export default function AgentVisits() {
   }, [fetchVisits])
 
   const filtered = useMemo(() => {
-    let base = visits
-    // If user came from rejected KPI filter, show only visits with rejected photos.
-    if (showRejectedOnly && rejectedVisitIds.length > 0) {
-      base = base.filter(v => rejectedVisitIds.includes(v.id))
-    }
-    return base.filter(v => {
-      if (filter !== 'all' && v.status !== filter) return false
+    return visits.filter(v => {
+      if (filter === 'rejected_photos') {
+        if (!v.has_rejected_photos) return false
+      } else if (filter !== 'all' && v.status !== filter) {
+        return false
+      }
       if (typeFilter !== 'all') {
         const vType = (v.visit_target_type || v.visit_type || '').toLowerCase()
         if (vType !== typeFilter) return false
@@ -125,11 +109,12 @@ export default function AgentVisits() {
       }
       return true
     })
-  }, [visits, filter, typeFilter, search, rejectedVisitIds, showRejectedOnly])
+  }, [visits, filter, typeFilter, search])
 
   // Count by type
   const storeCount = useMemo(() => visits.filter(v => (v.visit_target_type || v.visit_type || '').toLowerCase() === 'store').length, [visits])
   const individualCount = useMemo(() => visits.filter(v => (v.visit_target_type || v.visit_type || '').toLowerCase() === 'individual').length, [visits])
+  const rejectedVisitsCount = useMemo(() => visits.filter(v => v.has_rejected_photos).length, [visits])
 
   const statusIcon = (status: string) => {
     switch (status) {
@@ -221,7 +206,7 @@ export default function AgentVisits() {
 
         {/* Status filters */}
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {(['all', 'completed', 'in_progress', 'pending'] as const).map((f) => (
+          {(['all', 'completed', 'in_progress', 'pending', 'rejected_photos'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -229,7 +214,13 @@ export default function AgentVisits() {
                 filter === f ? 'bg-white/20 text-white' : 'bg-white/5 text-gray-400 border border-white/10'
               }`}
             >
-              {f === 'all' ? 'All Status' : f === 'in_progress' ? 'In Progress' : f.charAt(0).toUpperCase() + f.slice(1)}
+              {f === 'all'
+                ? 'All Status'
+                : f === 'in_progress'
+                  ? 'In Progress'
+                  : f === 'rejected_photos'
+                    ? `Rejected Photos (${rejectedVisitsCount})`
+                    : f.charAt(0).toUpperCase() + f.slice(1)}
             </button>
           ))}
         </div>
@@ -289,7 +280,7 @@ export default function AgentVisits() {
                   <p className="text-sm font-medium text-white truncate">
                     {visit.customer_name || (visit.individual_name ? `${visit.individual_name}${visit.individual_surname ? ' ' + visit.individual_surname : ''}` : 'Visit')}
                   </p>
-                  {((visit.rejected_photo_count || 0) > 0 || rejectedVisitIds.includes(visit.id)) && (
+                  {visit.has_rejected_photos && (
                     <div className="mt-1">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full bg-red-500/15 text-red-400 border border-red-500/30">
                         <XCircle className="w-3 h-3" />
