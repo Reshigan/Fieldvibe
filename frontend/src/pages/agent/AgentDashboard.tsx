@@ -124,10 +124,12 @@ export default function AgentDashboard() {
     setRejectedPhotoLoading(true)
     photoReviewService.getNeedsReupload().then((res: any) => {
       if (!mounted) return
+      // getNeedsReupload returns visit rows (each with .id = visit ID, and .rejected_count)
       const items = Array.isArray(res) ? res : Array.isArray(res?.photos) ? res.photos : []
-      setRejectedPhotoCount(items.length)
-      const visitIds = [...new Set(items.map((p: any) => p.visit_id).filter(Boolean))] as string[]
-setRejectedVisitIds(visitIds)
+      const totalRejected = items.reduce((n: number, v: any) => n + (v.rejected_count || 1), 0)
+      setRejectedPhotoCount(totalRejected)
+      const visitIds = [...new Set(items.map((v: any) => v.id).filter(Boolean))] as string[]
+      setRejectedVisitIds(visitIds)
     }).catch(() => { setRejectedPhotoCount(0); setRejectedVisitIds([]) }).finally(() => setRejectedPhotoLoading(false))
     return () => { mounted = false }
   }, [])
