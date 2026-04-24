@@ -173,7 +173,12 @@ export default function VisitDetail() {
     const displayName = visit.customer_name || visit.individual_name || visit.store_name || 'Visit'
     const photos = visit.photos || []
     const hasRejectedPhotos = photos.some((p: any) => p.review_status === 'rejected')
-    const responses = visit.responses || []
+    // Backend returns survey_responses as a parsed object; normalise to array-of-rows format
+    const responses: any[] = visit.responses?.length
+      ? visit.responses
+      : visit.survey_responses
+        ? [{ responses: typeof visit.survey_responses === 'string' ? visit.survey_responses : JSON.stringify(visit.survey_responses) }]
+        : []
     const individuals = visit.individuals || []
 
     return (
@@ -584,7 +589,12 @@ export default function VisitDetail() {
 
   const photos = visit.photos || []
   const hasRejectedPhotos = photos.some((p: any) => p.review_status === 'rejected')
-  const responses = visit.responses || []
+  // Backend returns survey_responses as a parsed object; normalise to array-of-rows format
+  const responses: any[] = visit.responses?.length
+    ? visit.responses
+    : visit.survey_responses
+      ? [{ responses: typeof visit.survey_responses === 'string' ? visit.survey_responses : JSON.stringify(visit.survey_responses) }]
+      : []
 
   const fields = [
     { label: 'Visit ID', value: visit.visit_number || visit.id },
