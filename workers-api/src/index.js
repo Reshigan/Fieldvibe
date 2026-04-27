@@ -3579,8 +3579,40 @@ api.put('/sales-orders/:id', async (c) => {
 api.put('/sales-orders/:id/cancel', async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
   const { id } = c.req.param();
+  let reason = 'Order cancelled';
+  try { const body = await c.req.json(); if (body && typeof body.reason === 'string' && body.reason.trim()) reason = body.reason.trim(); } catch { /* body optional */ }
+
+  // Idempotency: skip if already cancelled so auto-reversals don't double-fire.
+  const order = await db.prepare('SELECT id, status FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!order) return c.json({ success: false, message: 'Order not found' }, 404);
+  if (order.status === 'cancelled') return c.json({ success: true, message: 'Order already cancelled' });
+
   await db.prepare("UPDATE sales_orders SET status = 'cancelled', updated_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(id, tenantId).run();
+
+  // Auto-reverse commissions tied to this order. Only approved/paid earnings need a reversal sibling row;
+  // pending/disputed are simply marked rejected so they never become payable.
+  try {
+    const earnings = await db.prepare("SELECT id, earner_id, source_type, source_id, rule_id, rate, base_amount, amount, status FROM commission_earnings WHERE tenant_id = ? AND source_id = ? AND status IN ('pending', 'disputed', 'approved', 'paid')").bind(tenantId, id).all();
+    for (const e of (earnings.results || [])) {
+      if (e.status === 'pending' || e.status === 'disputed') {
+        await db.prepare("UPDATE commission_earnings SET status = 'rejected', rejection_reason = ?, approved_by = ?, approved_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind('Auto: ' + reason, userId, e.id, tenantId).run();
+      } else {
+        const reversalId = uuidv4();
+        await db.batch([
+          db.prepare("INSERT INTO commission_earnings (id, tenant_id, earner_id, source_type, source_id, rule_id, rate, base_amount, amount, status, reversal_of, reversal_reason, reversed_by, reversed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'reversed', ?, ?, ?, datetime('now'), datetime('now'))").bind(
+            reversalId, tenantId, e.earner_id, e.source_type, e.source_id, e.rule_id, e.rate, e.base_amount, -Math.abs(e.amount || 0), e.id, 'Auto: ' + reason, userId
+          ),
+          db.prepare("UPDATE commission_earnings SET status = 'reversed', reversal_reason = ?, reversed_by = ?, reversed_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind('Auto: ' + reason, userId, e.id, tenantId)
+        ]);
+      }
+    }
+  } catch (err) {
+    // Don't fail the cancel if commission lookup blows up — log and continue.
+    console.error('Commission auto-reverse failed for order', id, err && err.message);
+  }
+
   return c.json({ success: true, message: 'Order cancelled' });
 });
 
@@ -4130,8 +4162,75 @@ api.put('/commission-earnings/:id/reject', requireRole('admin', 'manager'), asyn
   const tenantId = c.get('tenantId');
   const userId = c.get('userId');
   const { id } = c.req.param();
-  await db.prepare("UPDATE commission_earnings SET status = 'rejected', approved_by = ?, approved_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(userId, id, tenantId).run();
+  let reason = null;
+  try { const body = await c.req.json(); reason = body && typeof body.reason === 'string' ? body.reason.trim() : null; } catch { /* body optional */ }
+  if (!reason) return c.json({ success: false, message: 'reason is required to reject a commission' }, 400);
+  const row = await db.prepare('SELECT status FROM commission_earnings WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!row) return c.json({ success: false, message: 'Commission earning not found' }, 404);
+  if (row.status !== 'pending' && row.status !== 'disputed') {
+    return c.json({ success: false, message: `Cannot reject a commission in status '${row.status}'` }, 400);
+  }
+  await db.prepare("UPDATE commission_earnings SET status = 'rejected', rejection_reason = ?, approved_by = ?, approved_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(reason, userId, id, tenantId).run();
   return c.json({ success: true, message: 'Commission rejected' });
+});
+
+// Agent-initiated dispute on a pending earning. Manager then approves or rejects.
+api.post('/commission-earnings/:id/dispute', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const { id } = c.req.param();
+  let reason = null;
+  try { const body = await c.req.json(); reason = body && typeof body.reason === 'string' ? body.reason.trim() : null; } catch { /* body optional */ }
+  if (!reason) return c.json({ success: false, message: 'reason is required' }, 400);
+  const row = await db.prepare('SELECT earner_id, status FROM commission_earnings WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!row) return c.json({ success: false, message: 'Commission earning not found' }, 404);
+  if (row.earner_id !== userId) return c.json({ success: false, message: 'Only the earner of a commission can dispute it' }, 403);
+  if (row.status !== 'pending') return c.json({ success: false, message: `Cannot dispute a commission in status '${row.status}'` }, 400);
+  await db.prepare("UPDATE commission_earnings SET status = 'disputed', dispute_reason = ?, disputed_by = ?, disputed_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(reason, userId, id, tenantId).run();
+  return c.json({ success: true, message: 'Commission disputed; awaiting manager review' });
+});
+
+// Manager-initiated reversal of an approved or paid earning. Creates a sibling row with negative amount
+// linked via reversal_of so the audit trail is complete.
+api.post('/commission-earnings/:id/reverse', requireRole('admin', 'manager'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const { id } = c.req.param();
+  let reason = null;
+  try { const body = await c.req.json(); reason = body && typeof body.reason === 'string' ? body.reason.trim() : null; } catch { /* body optional */ }
+  if (!reason) return c.json({ success: false, message: 'reason is required to reverse a commission' }, 400);
+
+  const row = await db.prepare('SELECT * FROM commission_earnings WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!row) return c.json({ success: false, message: 'Commission earning not found' }, 404);
+  if (row.status !== 'approved' && row.status !== 'paid') {
+    return c.json({ success: false, message: `Cannot reverse a commission in status '${row.status}'` }, 400);
+  }
+  if (row.reversal_of) {
+    return c.json({ success: false, message: 'Cannot reverse a row that is itself a reversal' }, 400);
+  }
+
+  const reversalId = uuidv4();
+  await db.batch([
+    // Sibling negative row for accounting trail.
+    db.prepare("INSERT INTO commission_earnings (id, tenant_id, earner_id, source_type, source_id, rule_id, rate, base_amount, amount, status, reversal_of, reversal_reason, reversed_by, reversed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'reversed', ?, ?, ?, datetime('now'), datetime('now'))").bind(
+      reversalId, tenantId, row.earner_id, row.source_type, row.source_id, row.rule_id, row.rate, row.base_amount, -Math.abs(row.amount || 0), row.id, reason, userId
+    ),
+    // Original row flips to reversed so dashboards stop counting it as approved.
+    db.prepare("UPDATE commission_earnings SET status = 'reversed', reversal_reason = ?, reversed_by = ?, reversed_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(reason, userId, id, tenantId)
+  ]);
+
+  // Record an audit entry; failures here must not roll back the reversal.
+  try {
+    await db.prepare('INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, old_values, new_values) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(
+      uuidv4(), tenantId, userId, 'COMMISSION_REVERSE', 'COMMISSION_EARNING', id,
+      JSON.stringify({ status: row.status, amount: row.amount }),
+      JSON.stringify({ status: 'reversed', reversal_id: reversalId, reason })
+    ).run();
+  } catch { /* audit_log may not exist on tenants that haven't run that migration */ }
+
+  return c.json({ success: true, data: { reversal_id: reversalId, original_status: row.status, new_status: 'reversed' } });
 });
 
 api.post('/commission-earnings/bulk-approve', requireRole('admin', 'manager'), async (c) => {
