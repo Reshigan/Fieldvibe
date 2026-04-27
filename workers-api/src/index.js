@@ -5074,10 +5074,10 @@ api.post('/credit-notes/create', authMiddleware, async (c) => {
   const cnId = uuidv4();
   const cnNumber = 'CN-' + Date.now().toString(36).toUpperCase();
   await db.batch([
-    db.prepare('INSERT INTO credit_notes (id, tenant_id, customer_id, credit_number, amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))').bind(cnId, tenantId, body.customer_id, cnNumber, body.amount, 'ISSUED'),
+    db.prepare('INSERT INTO credit_notes (id, tenant_id, customer_id, credit_number, amount, applied_amount, remaining_balance, status, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, datetime("now"))').bind(cnId, tenantId, body.customer_id, cnNumber, body.amount, body.amount, 'ISSUED'),
     db.prepare('UPDATE customers SET outstanding_balance = outstanding_balance - ? WHERE id = ? AND tenant_id = ?').bind(body.amount, body.customer_id, tenantId)
   ]);
-  return c.json({ success: true, data: { id: cnId, credit_number: cnNumber, amount: body.amount } }, 201);
+  return c.json({ success: true, data: { id: cnId, credit_number: cnNumber, amount: body.amount, remaining_balance: body.amount } }, 201);
 });
 
 api.post('/credit-notes/:id/transition', authMiddleware, async (c) => {
@@ -11035,10 +11035,10 @@ api.put('/returns/:id/approve', requireRole('admin', 'manager'), async (c) => {
   // Create credit note
   const cnId = uuidv4();
   const cnNumber = 'CN-' + Date.now().toString(36).toUpperCase();
-  await db.prepare('INSERT INTO credit_notes (id, tenant_id, return_id, customer_id, credit_number, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(cnId, tenantId, id, order.customer_id, cnNumber, ret.net_credit_amount, 'ISSUED').run();
+  await db.prepare('INSERT INTO credit_notes (id, tenant_id, return_id, customer_id, credit_number, amount, applied_amount, remaining_balance, status) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)').bind(cnId, tenantId, id, order.customer_id, cnNumber, ret.net_credit_amount, ret.net_credit_amount, 'ISSUED').run();
 
   // Reduce customer outstanding balance
-  await db.prepare('UPDATE customers SET outstanding_balance = outstanding_balance - ? WHERE id = ?').bind(ret.net_credit_amount, order.customer_id).run();
+  await db.prepare('UPDATE customers SET outstanding_balance = outstanding_balance - ? WHERE id = ? AND tenant_id = ?').bind(ret.net_credit_amount, order.customer_id, tenantId).run();
 
   // Update return status
   await db.prepare("UPDATE returns SET status = 'PROCESSED', approved_by = ?, updated_at = datetime('now') WHERE id = ?").bind(userId, id).run();
@@ -11067,21 +11067,57 @@ api.get('/credit-notes', async (c) => {
 api.post('/credit-notes/:id/apply', async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
   const { id } = c.req.param();
-  const { order_id } = await c.req.json();
+  const body = await c.req.json();
+  const orderId = body.order_id;
+  if (!orderId) return c.json({ success: false, message: 'order_id is required' }, 400);
+
   const cn = await db.prepare('SELECT * FROM credit_notes WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
   if (!cn) return c.json({ success: false, message: 'Credit note not found' }, 404);
   if (cn.status === 'FULLY_APPLIED' || cn.status === 'VOIDED') return c.json({ success: false, message: 'Credit note already used or voided' }, 400);
 
+  // Verify order belongs to tenant and is for the same customer.
+  const order = await db.prepare('SELECT id, customer_id, total_amount FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(orderId, tenantId).first();
+  if (!order) return c.json({ success: false, message: 'Order not found or access denied' }, 404);
+  if (order.customer_id !== cn.customer_id) return c.json({ success: false, message: 'Credit note customer does not match order customer' }, 400);
+
+  const remaining = (cn.remaining_balance != null) ? cn.remaining_balance : (cn.amount - (cn.applied_amount || 0));
+  if (remaining <= 0) return c.json({ success: false, message: 'Credit note has no remaining balance' }, 400);
+
+  // Determine application amount: caller can request a specific amount; otherwise apply the lesser of
+  // the credit-note's remaining balance and the order's outstanding balance.
+  const totalPaidRow = await db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE sales_order_id = ? AND tenant_id = ? AND status = ?').bind(orderId, tenantId, 'completed').first();
+  const orderOutstanding = (order.total_amount || 0) - (totalPaidRow?.total || 0);
+  const requested = Number(body.amount);
+  let applyAmount;
+  if (Number.isFinite(requested) && requested > 0) {
+    if (requested > remaining) return c.json({ success: false, message: `Requested amount exceeds credit note remaining balance (${remaining})` }, 400);
+    applyAmount = requested;
+  } else {
+    applyAmount = Math.min(remaining, Math.max(0, orderOutstanding));
+    if (applyAmount <= 0) return c.json({ success: false, message: 'Order has no outstanding balance' }, 400);
+  }
+
+  const newApplied = (cn.applied_amount || 0) + applyAmount;
+  const newRemaining = Math.max(0, (cn.amount || 0) - newApplied);
+  const newStatus = newRemaining <= 0.0001 ? 'FULLY_APPLIED' : 'PARTIALLY_APPLIED';
+
   const appliedOrders = cn.applied_to_orders ? JSON.parse(cn.applied_to_orders) : [];
-  appliedOrders.push(order_id);
-  await db.prepare("UPDATE credit_notes SET status = 'FULLY_APPLIED', applied_to_orders = ? WHERE id = ?").bind(JSON.stringify(appliedOrders), id).run();
+  appliedOrders.push({ order_id: orderId, amount: applyAmount, applied_at: new Date().toISOString(), applied_by: userId });
 
-  // Apply as payment to order
   const paymentId = uuidv4();
-  await db.prepare('INSERT INTO payments (id, tenant_id, sales_order_id, amount, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(paymentId, tenantId, order_id, cn.amount, 'CREDIT_NOTE', cn.credit_number, 'completed').run();
+  await db.batch([
+    db.prepare('UPDATE credit_notes SET status = ?, applied_amount = ?, remaining_balance = ?, applied_to_orders = ? WHERE id = ? AND tenant_id = ?').bind(newStatus, newApplied, newRemaining, JSON.stringify(appliedOrders), id, tenantId),
+    db.prepare('INSERT INTO payments (id, tenant_id, sales_order_id, amount, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(paymentId, tenantId, orderId, applyAmount, 'CREDIT_NOTE', cn.credit_number, 'completed')
+  ]);
 
-  return c.json({ success: true, message: 'Credit note applied' });
+  // Recompute order payment_status from the payments table.
+  const updatedPaid = await db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE sales_order_id = ? AND tenant_id = ? AND status = ?').bind(orderId, tenantId, 'completed').first();
+  const newPaymentStatus = (updatedPaid?.total || 0) >= (order.total_amount || 0) ? 'PAID' : 'PARTIAL';
+  await db.prepare('UPDATE sales_orders SET payment_status = ? WHERE id = ? AND tenant_id = ?').bind(newPaymentStatus, orderId, tenantId).run();
+
+  return c.json({ success: true, data: { applied_amount: applyAmount, remaining_balance: newRemaining, status: newStatus, payment_id: paymentId } });
 });
 
 api.put('/credit-notes/:id/void', requireRole('admin'), async (c) => {
@@ -11090,9 +11126,11 @@ api.put('/credit-notes/:id/void', requireRole('admin'), async (c) => {
   const { id } = c.req.param();
   const cn = await db.prepare('SELECT * FROM credit_notes WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
   if (!cn) return c.json({ success: false, message: 'Credit note not found' }, 404);
-  await db.prepare("UPDATE credit_notes SET status = 'VOIDED' WHERE id = ?").bind(id).run();
-  // Re-increase customer balance
-  await db.prepare('UPDATE customers SET outstanding_balance = outstanding_balance + ? WHERE id = ?').bind(cn.amount, cn.customer_id).run();
+  if (cn.status === 'FULLY_APPLIED' || cn.status === 'PARTIALLY_APPLIED') return c.json({ success: false, message: 'Cannot void a credit note that has been applied; reverse the applications first' }, 400);
+  await db.batch([
+    db.prepare("UPDATE credit_notes SET status = 'VOIDED', remaining_balance = 0 WHERE id = ? AND tenant_id = ?").bind(id, tenantId),
+    db.prepare('UPDATE customers SET outstanding_balance = outstanding_balance + ? WHERE id = ? AND tenant_id = ?').bind(cn.amount, cn.customer_id, tenantId)
+  ]);
   return c.json({ success: true, message: 'Credit note voided' });
 });
 
