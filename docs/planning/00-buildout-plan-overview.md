@@ -36,7 +36,7 @@ Migrations are numbered by branch in the order they should be applied:
 
 Subsequent items (#3 ledger, #5 van-sales, #8 KYC) will introduce `0005` onwards once those PRs are written.
 
-There are still **two** mirror copies of the migrations folder — `/migrations/` (referenced from `wrangler.toml`) and `/workers-api/migrations/` (orphan). Each new migration is committed to both copies for now to avoid silent drift, but the audit recommendation to delete the orphan still stands and should be done as a one-line PR before the next migration round.
+**Migrations folder is now single-source.** The orphan `/workers-api/migrations/` mirror was deleted in `chore/dead-code-cleanup`. Future migrations go to `/migrations/` only, which is what `wrangler.toml`'s `migrations_dir` points at.
 
 ## Things this plan deliberately does not do
 
