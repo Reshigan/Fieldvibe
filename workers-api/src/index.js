@@ -18604,9 +18604,137 @@ api.get('/kyc/:id', authMiddleware, async (c) => {
   try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
+// ==================== KYC DOCUMENTS (R2-backed) ====================
+// The kyc_documents table stores metadata only; binaries live in R2 under
+//   kyc/{tenant_id}/{kyc_case_id}/{document_type}-{uuid}.{ext}
+// The bucket is private; reads always go through the Worker so we can authenticate
+// and audit access to PII.
+
+const KYC_ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+const KYC_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+
 api.get('/kyc/:id/documents', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const id = c.req.param('id');
+    const docs = await db.prepare(
+      'SELECT id, kyc_case_id, document_type, file_name, content_type, file_size, r2_key, sha256, uploaded_by, created_at ' +
+      'FROM kyc_documents WHERE tenant_id = ? AND kyc_case_id = ? ORDER BY created_at DESC'
+    ).bind(tenantId, id).all();
+    return c.json({ success: true, data: docs.results || [] });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+api.post('/kyc/:id/documents', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const userId = c.get('userId');
+    const caseId = c.req.param('id');
+    const bucket = c.env.UPLOADS;
+    if (!bucket) return c.json({ success: false, message: 'Storage not configured' }, 500);
+
+    // Multi-tenant guard: confirm the case exists in this tenant before letting anyone
+    // upload PII tagged with its id.
+    const kycCase = await db.prepare('SELECT id FROM kyc_cases WHERE id = ? AND tenant_id = ?').bind(caseId, tenantId).first();
+    if (!kycCase) return c.json({ success: false, message: 'KYC case not found' }, 404);
+
+    const form = await c.req.parseBody();
+    const file = form['file'];
+    if (!file || typeof file === 'string') return c.json({ success: false, message: 'file field is required' }, 400);
+
+    const documentType = String(form['document_type'] || 'other').slice(0, 32);
+    const contentType = file.type || 'application/octet-stream';
+    if (!KYC_ALLOWED_MIME.includes(contentType)) {
+      return c.json({ success: false, message: `Unsupported content_type: ${contentType}. Allowed: ${KYC_ALLOWED_MIME.join(', ')}` }, 415);
+    }
+    if (file.size > KYC_MAX_BYTES) {
+      return c.json({ success: false, message: `File too large (${file.size} bytes > ${KYC_MAX_BYTES})` }, 413);
+    }
+
+    const ext = contentType === 'application/pdf' ? 'pdf'
+      : contentType === 'image/png' ? 'png'
+      : contentType === 'image/webp' ? 'webp'
+      : 'jpg';
+    const docId = uuidv4();
+    const r2Key = `kyc/${tenantId}/${caseId}/${documentType}-${docId}.${ext}`;
+
+    const buf = await file.arrayBuffer();
+    // Compute sha256 for tamper-evidence; cheap on Workers.
+    const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+    const sha256 = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    await bucket.put(r2Key, buf, { httpMetadata: { contentType } });
+
+    await db.prepare(
+      'INSERT INTO kyc_documents (id, tenant_id, kyc_case_id, document_type, file_name, content_type, file_size, sha256, r2_key, uploaded_by, created_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))'
+    ).bind(docId, tenantId, caseId, documentType, file.name || `${documentType}.${ext}`, contentType, file.size, sha256, r2Key, userId).run();
+
+    return c.json({
+      success: true,
+      data: {
+        id: docId,
+        kyc_case_id: caseId,
+        document_type: documentType,
+        file_name: file.name || null,
+        content_type: contentType,
+        file_size: file.size,
+        sha256,
+        download_url: `/api/kyc/documents/${docId}/download`,
+      },
+    }, 201);
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+api.delete('/kyc/:id/documents/:documentId', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const docId = c.req.param('documentId');
+    const bucket = c.env.UPLOADS;
+    const doc = await db.prepare('SELECT r2_key FROM kyc_documents WHERE id = ? AND tenant_id = ?').bind(docId, tenantId).first();
+    if (!doc) return c.json({ success: false, message: 'Document not found' }, 404);
+    if (doc.r2_key && bucket) {
+      try { await bucket.delete(doc.r2_key); } catch (e) { /* keep going; orphan is recoverable */ }
+    }
+    await db.prepare('DELETE FROM kyc_documents WHERE id = ? AND tenant_id = ?').bind(docId, tenantId).run();
+    return c.json({ success: true, message: 'Document deleted' });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+api.get('/kyc/documents/:documentId/download', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const userId = c.get('userId');
+    const role = c.get('role');
+    if (!['admin', 'manager', 'super_admin', 'compliance', 'kyc_reviewer'].includes(role)) {
+      return c.json({ success: false, message: 'KYC review permission required' }, 403);
+    }
+    const docId = c.req.param('documentId');
+    const doc = await db.prepare('SELECT r2_key, content_type, file_name FROM kyc_documents WHERE id = ? AND tenant_id = ?').bind(docId, tenantId).first();
+    if (!doc || !doc.r2_key) return c.json({ success: false, message: 'Document not found' }, 404);
+    const bucket = c.env.UPLOADS;
+    if (!bucket) return c.json({ success: false, message: 'Storage not configured' }, 500);
+    const obj = await bucket.get(doc.r2_key);
+    if (!obj) return c.json({ success: false, message: 'Object not found in storage' }, 404);
+
+    // Best-effort access audit log; failures here must not block the read.
+    try {
+      await db.prepare(
+        'INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, new_values) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).bind(uuidv4(), tenantId, userId, 'KYC_DOC_VIEW', 'KYC_DOCUMENT', docId, JSON.stringify({ r2_key: doc.r2_key })).run();
+    } catch { /* audit_log may be missing on older tenants */ }
+
+    const headers = new Headers();
+    obj.writeHttpMetadata(headers);
+    headers.set('Content-Type', doc.content_type || obj.httpMetadata?.contentType || 'application/octet-stream');
+    if (doc.file_name) headers.set('Content-Disposition', `inline; filename="${String(doc.file_name).replace(/"/g, '')}"`);
+    headers.set('Cache-Control', 'private, max-age=300');
+    return new Response(obj.body, { headers });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 
 // orders additional routes (restored)
