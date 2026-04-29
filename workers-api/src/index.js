@@ -2451,6 +2451,28 @@ app.post('/api/agent/change-pin', authMiddleware, async (c) => {
   }
 });
 
+// Agent: Get visits with rejected Goldrush IDs for the current agent
+app.get('/api/agent/goldrush-rejected', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const userId = c.get('userId');
+    const result = await db.prepare(`
+      SELECT v.id as visit_id, v.visit_date, v.individual_name,
+        JSON_EXTRACT(vi.custom_field_values, '$.goldrush_id') as goldrush_id,
+        JSON_EXTRACT(vi.custom_field_values, '$.goldrush_id_rejection_reason') as rejection_reason
+      FROM visits v
+      JOIN visit_individuals vi ON vi.visit_id = v.id AND vi.tenant_id = v.tenant_id
+      WHERE v.tenant_id = ? AND v.agent_id = ?
+        AND (JSON_EXTRACT(vi.custom_field_values, '$.goldrush_id_rejected') = 1
+          OR JSON_EXTRACT(vi.custom_field_values, '$.goldrush_id_rejected') = 'true')
+      ORDER BY v.created_at DESC
+    `).bind(tenantId, userId).all();
+    const data = result.results || [];
+    return c.json({ success: true, data, count: data.length });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
 // Manager/Admin: Get list of agents with PIN status
 app.get('/api/agent/pin-status', authMiddleware, async (c) => {
   try {
@@ -16830,6 +16852,8 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
       let likes_goldrush = '';
       let platform_suggestions = '';
       let gave_brand_info = '';
+      let goldrush_id_rejected = false;
+      let goldrush_id_rejection_reason = '';
       let id_passport_photo = '';
       let shop_exterior_photo = '';
       let ad_board_photo = '';
@@ -16861,6 +16885,8 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
         likes_goldrush = responses.likes_goldrush || '';
         platform_suggestions = responses.platform_suggestions || '';
         gave_brand_info = responses.gave_brand_info || '';
+        goldrush_id_rejected = customFields.goldrush_id_rejected === true || customFields.goldrush_id_rejected === 'true';
+        goldrush_id_rejection_reason = customFields.goldrush_id_rejection_reason || '';
         // Extract questionnaire image URLs from Goldrush Individual Visit process steps
         id_passport_photo = responses.id_passport_photo || '';
         shop_exterior_photo = responses.shop_exterior_photo || '';
@@ -16892,6 +16918,8 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
         email: row.email,
         product_app_player_id: row.product_app_player_id,
         goldrush_id,
+        goldrush_id_rejected,
+        goldrush_id_rejection_reason,
         converted: row.converted === 1 ? 1 : (consumer_converted === 'Yes' ? 1 : 0),
         conversion_date: row.conversion_date,
         agent_name: row.agent_name,
