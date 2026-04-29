@@ -2707,6 +2707,38 @@ app.post('/api/auth/change-password', authMiddleware, rateLimiter(5, 900000), as
 // ==================== PROTECTED API ROUTES ====================
 const api = new Hono();
 api.use('*', authMiddleware);
+
+// ==================== PAYMENT LEDGER HELPER (item #3) ====================
+// Writes a RECEIPT + APPLICATION pair to payment_ledger to mirror a payments INSERT.
+// Best-effort: a ledger failure must NEVER fail the payments write that drives
+// existing dashboards. The opt-in /admin/payments/backfill-ledger endpoint can
+// repair any gaps after the fact.
+async function writePaymentLedgerEntries(db, { tenantId, paymentId, salesOrderId, amount, userId, notes, currency }) {
+  try {
+    if (!tenantId || !paymentId || amount == null) return;
+    const amt = Number(amount) || 0;
+    if (!Number.isFinite(amt) || amt === 0) return;
+    const cur = currency || 'ZAR';
+    const receiptId = uuidv4();
+    const stmts = [
+      db.prepare(
+        'INSERT INTO payment_ledger (id, tenant_id, payment_id, sales_order_id, entry_type, direction, amount, currency, notes, created_by) ' +
+        "VALUES (?, ?, ?, NULL, 'RECEIPT', 'CREDIT', ?, ?, ?, ?)"
+      ).bind(receiptId, tenantId, paymentId, Math.abs(amt), cur, notes || null, userId || 'system'),
+    ];
+    if (salesOrderId) {
+      stmts.push(
+        db.prepare(
+          'INSERT INTO payment_ledger (id, tenant_id, payment_id, sales_order_id, entry_type, direction, amount, currency, notes, created_by) ' +
+          "VALUES (?, ?, ?, ?, 'APPLICATION', 'CREDIT', ?, ?, ?, ?)"
+        ).bind(uuidv4(), tenantId, paymentId, salesOrderId, Math.abs(amt), cur, notes || null, userId || 'system'),
+      );
+    }
+    await db.batch(stmts);
+  } catch (err) {
+    console.error('payment_ledger write failed for payment', paymentId, err && err.message);
+  }
+}
 // General API rate limiting (100 req/min)
 api.use('*', rateLimiter(100, 60000));
 
@@ -3146,11 +3178,46 @@ api.get('/visits', async (c) => {
   const pageNum = parseInt(page) || 1;
   const limitNum = parseInt(limit) || 50;
   const offset = (pageNum - 1) * limitNum;
-  const countR = await db.prepare('SELECT COUNT(*) as total FROM visits v LEFT JOIN customers c ON v.customer_id = c.id ' + where).bind(...params).first();
+  // 1) Page of visits — single read, no per-row subqueries.
+  const [countR, visits] = await Promise.all([
+    db.prepare('SELECT COUNT(*) as total FROM visits v LEFT JOIN customers c ON v.customer_id = c.id ' + where).bind(...params).first(),
+    db.prepare(
+      "SELECT v.*, c.name as customer_name, c.address as customer_address, " +
+      "u.first_name || ' ' || u.last_name as agent_name " +
+      "FROM visits v " +
+      "LEFT JOIN customers c ON v.customer_id = c.id " +
+      "LEFT JOIN users u ON v.agent_id = u.id " +
+      where + ' ORDER BY v.created_at DESC LIMIT ? OFFSET ?'
+    ).bind(...params, limitNum, offset).all()
+  ]);
   const total = countR ? countR.total : 0;
-  const visits = await db.prepare("SELECT v.*, c.name as customer_name, c.address as customer_address, u.first_name || ' ' || u.last_name as agent_name, (SELECT vp.r2_url FROM visit_photos vp WHERE vp.visit_id = v.id AND vp.tenant_id = v.tenant_id AND vp.r2_url IS NOT NULL LIMIT 1) as thumbnail_url, (SELECT vr.responses FROM visit_responses vr WHERE vr.visit_id = v.id AND (vr.visit_type IS NULL OR vr.visit_type != 'store_custom_questions') LIMIT 1) as _raw_responses, (SELECT vi.custom_field_values FROM visit_individuals vi WHERE vi.visit_id = v.id LIMIT 1) as _raw_custom_fields FROM visits v LEFT JOIN customers c ON v.customer_id = c.id LEFT JOIN users u ON v.agent_id = u.id " + where + ' ORDER BY v.created_at DESC LIMIT ? OFFSET ?').bind(...params, limitNum, offset).all();
-  // Extract image thumbnails from custom question responses where show_in_reports is enabled
   const visitRows = visits.results || [];
+  const visitIds = visitRows.map(v => v.id).filter(Boolean);
+
+  // 2) Batch the three previously-correlated subqueries into single IN-queries.
+  let thumbByVisit = {};
+  let responsesByVisit = {};
+  let customFieldsByVisit = {};
+  if (visitIds.length > 0) {
+    const ph = visitIds.map(() => '?').join(',');
+    const [thumbs, resps, individuals] = await Promise.all([
+      db.prepare(`SELECT visit_id, r2_url FROM visit_photos WHERE tenant_id = ? AND visit_id IN (${ph}) AND r2_url IS NOT NULL`).bind(tenantId, ...visitIds).all(),
+      db.prepare(`SELECT visit_id, responses FROM visit_responses WHERE visit_id IN (${ph}) AND (visit_type IS NULL OR visit_type != 'store_custom_questions')`).bind(...visitIds).all(),
+      db.prepare(`SELECT visit_id, custom_field_values FROM visit_individuals WHERE visit_id IN (${ph})`).bind(...visitIds).all(),
+    ]);
+    // First photo per visit wins (mirrors the old LIMIT 1 behaviour deterministically).
+    for (const r of (thumbs.results || [])) {
+      if (!thumbByVisit[r.visit_id]) thumbByVisit[r.visit_id] = r.r2_url;
+    }
+    for (const r of (resps.results || [])) {
+      if (!responsesByVisit[r.visit_id]) responsesByVisit[r.visit_id] = r.responses;
+    }
+    for (const r of (individuals.results || [])) {
+      if (!customFieldsByVisit[r.visit_id]) customFieldsByVisit[r.visit_id] = r.custom_field_values;
+    }
+  }
+
+  // 3) Batch report-image-key lookup (was already batched, kept the shape).
   const companyIds = [...new Set(visitRows.map(v => v.company_id).filter(Boolean))];
   let reportImageKeys = {};
   if (companyIds.length > 0) {
@@ -3161,15 +3228,16 @@ api.get('/visits', async (c) => {
       reportImageKeys[q.company_id].push(q.question_key);
     }
   }
+
   const enrichedVisits = visitRows.map(v => {
-    const row = { ...v };
-    delete row._raw_responses;
-    delete row._raw_custom_fields;
+    const row = { ...v, thumbnail_url: thumbByVisit[v.id] || null };
     if (!row.thumbnail_url && !row.photo_url && v.company_id && reportImageKeys[v.company_id]) {
       try {
         const resp = {};
-        if (v._raw_custom_fields) { try { Object.assign(resp, typeof v._raw_custom_fields === 'string' ? JSON.parse(v._raw_custom_fields) : v._raw_custom_fields); } catch {} }
-        if (v._raw_responses) { try { Object.assign(resp, typeof v._raw_responses === 'string' ? JSON.parse(v._raw_responses) : v._raw_responses); } catch {} }
+        const rawCustom = customFieldsByVisit[v.id];
+        const rawResponses = responsesByVisit[v.id];
+        if (rawCustom) { try { Object.assign(resp, typeof rawCustom === 'string' ? JSON.parse(rawCustom) : rawCustom); } catch {} }
+        if (rawResponses) { try { Object.assign(resp, typeof rawResponses === 'string' ? JSON.parse(rawResponses) : rawResponses); } catch {} }
         for (const key of reportImageKeys[v.company_id]) {
           if (resp[key] && typeof resp[key] === 'string' && (resp[key].startsWith('data:image') || resp[key].startsWith('http'))) {
             row.thumbnail_url = resp[key];
@@ -3587,8 +3655,40 @@ api.put('/sales-orders/:id', async (c) => {
 api.put('/sales-orders/:id/cancel', async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
   const { id } = c.req.param();
+  let reason = 'Order cancelled';
+  try { const body = await c.req.json(); if (body && typeof body.reason === 'string' && body.reason.trim()) reason = body.reason.trim(); } catch { /* body optional */ }
+
+  // Idempotency: skip if already cancelled so auto-reversals don't double-fire.
+  const order = await db.prepare('SELECT id, status FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!order) return c.json({ success: false, message: 'Order not found' }, 404);
+  if (order.status === 'cancelled') return c.json({ success: true, message: 'Order already cancelled' });
+
   await db.prepare("UPDATE sales_orders SET status = 'cancelled', updated_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(id, tenantId).run();
+
+  // Auto-reverse commissions tied to this order. Only approved/paid earnings need a reversal sibling row;
+  // pending/disputed are simply marked rejected so they never become payable.
+  try {
+    const earnings = await db.prepare("SELECT id, earner_id, source_type, source_id, rule_id, rate, base_amount, amount, status FROM commission_earnings WHERE tenant_id = ? AND source_id = ? AND status IN ('pending', 'disputed', 'approved', 'paid')").bind(tenantId, id).all();
+    for (const e of (earnings.results || [])) {
+      if (e.status === 'pending' || e.status === 'disputed') {
+        await db.prepare("UPDATE commission_earnings SET status = 'rejected', rejection_reason = ?, approved_by = ?, approved_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind('Auto: ' + reason, userId, e.id, tenantId).run();
+      } else {
+        const reversalId = uuidv4();
+        await db.batch([
+          db.prepare("INSERT INTO commission_earnings (id, tenant_id, earner_id, source_type, source_id, rule_id, rate, base_amount, amount, status, reversal_of, reversal_reason, reversed_by, reversed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'reversed', ?, ?, ?, datetime('now'), datetime('now'))").bind(
+            reversalId, tenantId, e.earner_id, e.source_type, e.source_id, e.rule_id, e.rate, e.base_amount, -Math.abs(e.amount || 0), e.id, 'Auto: ' + reason, userId
+          ),
+          db.prepare("UPDATE commission_earnings SET status = 'reversed', reversal_reason = ?, reversed_by = ?, reversed_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind('Auto: ' + reason, userId, e.id, tenantId)
+        ]);
+      }
+    }
+  } catch (err) {
+    // Don't fail the cancel if commission lookup blows up — log and continue.
+    console.error('Commission auto-reverse failed for order', id, err && err.message);
+  }
+
   return c.json({ success: true, message: 'Order cancelled' });
 });
 
@@ -3611,9 +3711,12 @@ api.get('/payments', async (c) => {
 api.post('/payments', async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
   const body = await c.req.json();
   const id = uuidv4();
   await db.prepare("INSERT INTO payments (id, tenant_id, sales_order_id, amount, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, 'completed')").bind(id, tenantId, body.sales_order_id, body.amount, body.method || 'cash', body.reference || null).run();
+  // Mirror to the payment_ledger for the item-#3 ledger view. Best-effort.
+  await writePaymentLedgerEntries(db, { tenantId, paymentId: id, salesOrderId: body.sales_order_id, amount: body.amount, userId, notes: body.reference || null });
   // Update order payment status
   const order = await db.prepare('SELECT total_amount FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(body.sales_order_id, tenantId).first();
   const totalPaid = await db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE sales_order_id = ? AND tenant_id = ?').bind(body.sales_order_id, tenantId).first();
@@ -3622,6 +3725,96 @@ api.post('/payments', async (c) => {
     await db.prepare("UPDATE sales_orders SET payment_status = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(newStatus, body.sales_order_id, tenantId).run();
   }
   return c.json({ success: true, data: { id }, message: 'Payment recorded' }, 201);
+});
+
+// ==================== PAYMENT LEDGER (item #3) ====================
+// Read-only ledger endpoints. All writes happen via writePaymentLedgerEntries
+// alongside the existing payments inserts. The legacy /payments + sales_orders
+// payment_status flow remains the source of truth; this is a parallel view
+// suitable for finance reporting and future reversal flows.
+api.get('/payment-ledger', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { sales_order_id, payment_id, entry_type, limit = 100, page = 1 } = c.req.query();
+  let where = 'WHERE tenant_id = ?';
+  const params = [tenantId];
+  if (sales_order_id) { where += ' AND sales_order_id = ?'; params.push(sales_order_id); }
+  if (payment_id) { where += ' AND payment_id = ?'; params.push(payment_id); }
+  if (entry_type) { where += ' AND entry_type = ?'; params.push(entry_type); }
+  const limitNum = Math.min(parseInt(limit) || 100, 500);
+  const offset = (Math.max(parseInt(page) || 1, 1) - 1) * limitNum;
+  const rows = await db.prepare('SELECT * FROM payment_ledger ' + where + ' ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?').bind(...params, limitNum, offset).all();
+  return c.json({ success: true, data: rows.results || [] });
+});
+
+api.get('/sales-orders/:id/ledger', async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const order = await db.prepare('SELECT total_amount FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!order) return c.json({ success: false, message: 'Order not found' }, 404);
+  const rows = await db.prepare('SELECT * FROM payment_ledger WHERE tenant_id = ? AND sales_order_id = ? ORDER BY created_at ASC, id ASC').bind(tenantId, id).all();
+  const list = rows.results || [];
+  let applied = 0;
+  for (const r of list) {
+    if (r.entry_type === 'APPLICATION') applied += Number(r.amount || 0);
+    if (r.entry_type === 'REVERSAL') applied -= Number(r.amount || 0);
+  }
+  return c.json({
+    success: true,
+    data: {
+      total_amount: Number(order.total_amount || 0),
+      applied,
+      outstanding: Math.max(0, Number(order.total_amount || 0) - applied),
+      entries: list,
+    },
+  });
+});
+
+// One-shot backfill admin endpoint: walks every payments row and inserts the
+// matching RECEIPT + APPLICATION pair into payment_ledger if not already present.
+// Idempotent — checks for an existing RECEIPT row keyed by payment_id before writing.
+api.post('/admin/payments/backfill-ledger', requireRole('admin', 'super_admin'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const { limit = 200 } = c.req.query();
+  const batch = Math.min(parseInt(limit) || 200, 500);
+
+  const payments = await db.prepare(
+    'SELECT p.id, p.sales_order_id, p.amount, p.reference, p.created_at FROM payments p ' +
+    'WHERE p.tenant_id = ? ' +
+    'AND NOT EXISTS (SELECT 1 FROM payment_ledger pl WHERE pl.payment_id = p.id AND pl.entry_type = "RECEIPT") ' +
+    'ORDER BY p.created_at ASC LIMIT ?'
+  ).bind(tenantId, batch).all();
+
+  const list = payments.results || [];
+  let inserted = 0;
+  for (const p of list) {
+    await writePaymentLedgerEntries(db, {
+      tenantId,
+      paymentId: p.id,
+      salesOrderId: p.sales_order_id,
+      amount: p.amount,
+      userId,
+      notes: p.reference || 'Backfilled from payments table',
+    });
+    inserted += 1;
+  }
+
+  const remainingR = await db.prepare(
+    'SELECT COUNT(*) as c FROM payments p WHERE p.tenant_id = ? ' +
+    'AND NOT EXISTS (SELECT 1 FROM payment_ledger pl WHERE pl.payment_id = p.id AND pl.entry_type = "RECEIPT")'
+  ).bind(tenantId).first();
+
+  return c.json({
+    success: true,
+    data: {
+      processed: inserted,
+      remaining: remainingR?.c || 0,
+      done: (remainingR?.c || 0) === 0,
+    },
+  });
 });
 
 // ==================== WAREHOUSES & STOCK ====================
@@ -4138,8 +4331,95 @@ api.put('/commission-earnings/:id/reject', requireRole('admin', 'manager'), asyn
   const tenantId = c.get('tenantId');
   const userId = c.get('userId');
   const { id } = c.req.param();
-  await db.prepare("UPDATE commission_earnings SET status = 'rejected', approved_by = ?, approved_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(userId, id, tenantId).run();
+  let reason = null;
+  try { const body = await c.req.json(); reason = body && typeof body.reason === 'string' ? body.reason.trim() : null; } catch { /* body optional */ }
+  if (!reason) return c.json({ success: false, message: 'reason is required to reject a commission' }, 400);
+  const row = await db.prepare('SELECT status FROM commission_earnings WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!row) return c.json({ success: false, message: 'Commission earning not found' }, 404);
+  if (row.status !== 'pending' && row.status !== 'disputed') {
+    return c.json({ success: false, message: `Cannot reject a commission in status '${row.status}'` }, 400);
+  }
+  await db.prepare("UPDATE commission_earnings SET status = 'rejected', rejection_reason = ?, approved_by = ?, approved_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(reason, userId, id, tenantId).run();
   return c.json({ success: true, message: 'Commission rejected' });
+});
+
+// Earnings owned by the authenticated user. Used by the agent dispute UI on the dashboard.
+api.get('/commission-earnings/my', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const { status, limit } = c.req.query();
+  const limitNum = Math.min(parseInt(limit) || 50, 200);
+  let where = 'WHERE ce.tenant_id = ? AND ce.earner_id = ?';
+  const params = [tenantId, userId];
+  if (status) { where += ' AND ce.status = ?'; params.push(status); }
+  const rows = await db.prepare(
+    "SELECT ce.id, ce.source_type, ce.source_id, ce.rate, ce.base_amount, ce.amount, ce.status, " +
+    "ce.dispute_reason, ce.disputed_at, ce.rejection_reason, ce.reversal_reason, " +
+    "ce.created_at, ce.approved_at, cr.name as rule_name " +
+    "FROM commission_earnings ce LEFT JOIN commission_rules cr ON ce.rule_id = cr.id " +
+    where + ' ORDER BY ce.created_at DESC LIMIT ?'
+  ).bind(...params, limitNum).all();
+  return c.json({ success: true, data: rows.results || [] });
+});
+
+// Agent-initiated dispute on a pending earning. Manager then approves or rejects.
+api.post('/commission-earnings/:id/dispute', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const { id } = c.req.param();
+  let reason = null;
+  try { const body = await c.req.json(); reason = body && typeof body.reason === 'string' ? body.reason.trim() : null; } catch { /* body optional */ }
+  if (!reason) return c.json({ success: false, message: 'reason is required' }, 400);
+  const row = await db.prepare('SELECT earner_id, status FROM commission_earnings WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!row) return c.json({ success: false, message: 'Commission earning not found' }, 404);
+  if (row.earner_id !== userId) return c.json({ success: false, message: 'Only the earner of a commission can dispute it' }, 403);
+  if (row.status !== 'pending') return c.json({ success: false, message: `Cannot dispute a commission in status '${row.status}'` }, 400);
+  await db.prepare("UPDATE commission_earnings SET status = 'disputed', dispute_reason = ?, disputed_by = ?, disputed_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(reason, userId, id, tenantId).run();
+  return c.json({ success: true, message: 'Commission disputed; awaiting manager review' });
+});
+
+// Manager-initiated reversal of an approved or paid earning. Creates a sibling row with negative amount
+// linked via reversal_of so the audit trail is complete.
+api.post('/commission-earnings/:id/reverse', requireRole('admin', 'manager'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const { id } = c.req.param();
+  let reason = null;
+  try { const body = await c.req.json(); reason = body && typeof body.reason === 'string' ? body.reason.trim() : null; } catch { /* body optional */ }
+  if (!reason) return c.json({ success: false, message: 'reason is required to reverse a commission' }, 400);
+
+  const row = await db.prepare('SELECT * FROM commission_earnings WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
+  if (!row) return c.json({ success: false, message: 'Commission earning not found' }, 404);
+  if (row.status !== 'approved' && row.status !== 'paid') {
+    return c.json({ success: false, message: `Cannot reverse a commission in status '${row.status}'` }, 400);
+  }
+  if (row.reversal_of) {
+    return c.json({ success: false, message: 'Cannot reverse a row that is itself a reversal' }, 400);
+  }
+
+  const reversalId = uuidv4();
+  await db.batch([
+    // Sibling negative row for accounting trail.
+    db.prepare("INSERT INTO commission_earnings (id, tenant_id, earner_id, source_type, source_id, rule_id, rate, base_amount, amount, status, reversal_of, reversal_reason, reversed_by, reversed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'reversed', ?, ?, ?, datetime('now'), datetime('now'))").bind(
+      reversalId, tenantId, row.earner_id, row.source_type, row.source_id, row.rule_id, row.rate, row.base_amount, -Math.abs(row.amount || 0), row.id, reason, userId
+    ),
+    // Original row flips to reversed so dashboards stop counting it as approved.
+    db.prepare("UPDATE commission_earnings SET status = 'reversed', reversal_reason = ?, reversed_by = ?, reversed_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(reason, userId, id, tenantId)
+  ]);
+
+  // Record an audit entry; failures here must not roll back the reversal.
+  try {
+    await db.prepare('INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, old_values, new_values) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(
+      uuidv4(), tenantId, userId, 'COMMISSION_REVERSE', 'COMMISSION_EARNING', id,
+      JSON.stringify({ status: row.status, amount: row.amount }),
+      JSON.stringify({ status: 'reversed', reversal_id: reversalId, reason })
+    ).run();
+  } catch { /* audit_log may not exist on tenants that haven't run that migration */ }
+
+  return c.json({ success: true, data: { reversal_id: reversalId, original_status: row.status, new_status: 'reversed' } });
 });
 
 api.post('/commission-earnings/bulk-approve', requireRole('admin', 'manager'), async (c) => {
@@ -4940,26 +5220,33 @@ api.post('/invoices/create', authMiddleware, async (c) => {
   try {
     const batchStatements = [];
     let subtotal = 0;
+    let taxTotal = 0;
 
-    // Resolve items
+    // Resolve items — unit_price is treated as tax-exclusive; tax derived from products.tax_rate
     const resolvedItems = [];
     for (const item of (body.items || [])) {
       const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
       const unitPrice = item.unit_price || (product ? product.price : 0) || 0;
       const qty = item.quantity || 1;
       const lineTotal = unitPrice * qty;
+      const taxRate = (item.tax_rate != null) ? item.tax_rate : (product && product.tax_rate != null ? product.tax_rate : 0);
+      const lineTax = lineTotal * (taxRate / 100);
       subtotal += lineTotal;
+      taxTotal += lineTax;
       resolvedItems.push({ product_id: item.product_id, quantity: qty, unit_price: unitPrice, line_total: lineTotal });
     }
 
-    batchStatements.push(db.prepare('INSERT INTO sales_orders (id, tenant_id, order_number, agent_id, customer_id, order_type, status, subtotal, total_amount, payment_method, payment_status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))').bind(id, tenantId, invoiceNum, userId, body.customer_id, 'invoice', 'CONFIRMED', subtotal, subtotal, body.payment_method || 'CASH', 'PENDING', body.notes || null));
+    const discountAmount = Number(body.discount_amount) || 0;
+    const totalAmount = subtotal + taxTotal - discountAmount;
+
+    batchStatements.push(db.prepare('INSERT INTO sales_orders (id, tenant_id, order_number, agent_id, customer_id, order_type, status, subtotal, tax_amount, discount_amount, total_amount, payment_method, payment_status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))').bind(id, tenantId, invoiceNum, userId, body.customer_id, 'invoice', 'CONFIRMED', subtotal, taxTotal, discountAmount, totalAmount, body.payment_method || 'CASH', 'PENDING', body.notes || null));
 
     for (const item of resolvedItems) {
       batchStatements.push(db.prepare('INSERT INTO sales_order_items (id, sales_order_id, product_id, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?)').bind(uuidv4(), id, item.product_id, item.quantity, item.unit_price, item.line_total));
     }
 
     await db.batch(batchStatements);
-    return c.json({ success: true, data: { id, invoice_number: invoiceNum, total_amount: subtotal } }, 201);
+    return c.json({ success: true, data: { id, invoice_number: invoiceNum, subtotal, tax_amount: taxTotal, discount_amount: discountAmount, total_amount: totalAmount } }, 201);
   } catch (error) {
     return c.json({ success: false, message: 'Invoice creation failed: ' + error.message }, 500);
   }
@@ -5017,6 +5304,7 @@ api.post('/sales/payments', authMiddleware, async (c) => {
       const linkedOrder = await db.prepare('SELECT id FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(linkedOrderId, tenantId).first();
       if (!linkedOrder) return c.json({ success: false, message: 'Order not found or access denied' }, 404);
       await db.prepare('INSERT INTO payments (id, tenant_id, sales_order_id, amount, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(paymentId, tenantId, linkedOrderId, body.amount, body.method || 'cash', body.reference || null, 'completed').run();
+      await writePaymentLedgerEntries(db, { tenantId, paymentId, salesOrderId: linkedOrderId, amount: body.amount, userId, notes: body.reference || null });
     } else {
       return c.json({ success: false, message: 'order_id or sales_order_id is required — payments must be linked to an order' }, 400);
     }
@@ -5075,10 +5363,10 @@ api.post('/credit-notes/create', authMiddleware, async (c) => {
   const cnId = uuidv4();
   const cnNumber = 'CN-' + Date.now().toString(36).toUpperCase();
   await db.batch([
-    db.prepare('INSERT INTO credit_notes (id, tenant_id, customer_id, credit_number, amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))').bind(cnId, tenantId, body.customer_id, cnNumber, body.amount, 'ISSUED'),
+    db.prepare('INSERT INTO credit_notes (id, tenant_id, customer_id, credit_number, amount, applied_amount, remaining_balance, status, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, datetime("now"))').bind(cnId, tenantId, body.customer_id, cnNumber, body.amount, body.amount, 'ISSUED'),
     db.prepare('UPDATE customers SET outstanding_balance = outstanding_balance - ? WHERE id = ? AND tenant_id = ?').bind(body.amount, body.customer_id, tenantId)
   ]);
-  return c.json({ success: true, data: { id: cnId, credit_number: cnNumber, amount: body.amount } }, 201);
+  return c.json({ success: true, data: { id: cnId, credit_number: cnNumber, amount: body.amount, remaining_balance: body.amount } }, 201);
 });
 
 api.post('/credit-notes/:id/transition', authMiddleware, async (c) => {
@@ -5118,24 +5406,52 @@ api.post('/sales/returns/create', authMiddleware, async (c) => {
   const returnNum = 'RET-' + Date.now().toString(36).toUpperCase();
 
   try {
-    const batchStatements = [];
-    let totalAmount = 0;
-
-    batchStatements.push(db.prepare('INSERT INTO returns (id, tenant_id, original_order_id, return_number, reason, status, net_credit_amount, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))').bind(returnId, tenantId, body.order_id || null, returnNum, body.reason || 'Customer return', 'PENDING', 0, userId));
-
+    // Resolve items first so we can compute totals before INSERT (single source of truth in one row).
+    let totalCreditAmount = 0;
+    let taxTotal = 0;
+    const resolvedItems = [];
     for (const item of (body.items || [])) {
       const product = await db.prepare('SELECT * FROM products WHERE id = ? AND tenant_id = ?').bind(item.product_id, tenantId).first();
       const unitPrice = item.unit_price || (product ? product.price : 0) || 0;
       const qty = item.quantity || 1;
-      totalAmount += unitPrice * qty;
       const lineCredit = unitPrice * qty;
-      batchStatements.push(db.prepare('INSERT INTO return_items (id, return_id, product_id, quantity, condition, unit_price, line_credit) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(uuidv4(), returnId, item.product_id, qty, item.condition || item.reason || 'good', unitPrice, lineCredit));
+      const taxRate = (item.tax_rate != null) ? item.tax_rate : (product && product.tax_rate != null ? product.tax_rate : 0);
+      const lineTax = lineCredit * (taxRate / 100);
+      totalCreditAmount += lineCredit;
+      taxTotal += lineTax;
+      resolvedItems.push({
+        product_id: item.product_id,
+        quantity: qty,
+        condition: item.condition || item.reason || 'good',
+        unit_price: unitPrice,
+        line_credit: lineCredit,
+        original_order_item_id: item.original_order_item_id || null
+      });
     }
 
-    batchStatements.push(db.prepare('UPDATE returns SET net_credit_amount = ? WHERE id = ?').bind(totalAmount, returnId));
+    // Restock fee: accept either a flat amount or a percentage of total_credit_amount.
+    let restockFee = 0;
+    if (body.restock_fee_pct != null) {
+      restockFee = totalCreditAmount * (Number(body.restock_fee_pct) / 100);
+    } else if (body.restock_fee != null) {
+      restockFee = Number(body.restock_fee) || 0;
+    }
+    const netCreditAmount = totalCreditAmount + taxTotal - restockFee;
+
+    const batchStatements = [];
+    batchStatements.push(db.prepare('INSERT INTO returns (id, tenant_id, original_order_id, return_number, return_type, reason, status, total_credit_amount, tax_amount, restock_fee, net_credit_amount, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))').bind(
+      returnId, tenantId, body.order_id || null, returnNum,
+      body.return_type || 'PARTIAL',
+      body.reason || 'Customer return', 'PENDING',
+      totalCreditAmount, taxTotal, restockFee, netCreditAmount,
+      userId
+    ));
+    for (const item of resolvedItems) {
+      batchStatements.push(db.prepare('INSERT INTO return_items (id, return_id, product_id, quantity, condition, unit_price, line_credit, original_order_item_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(uuidv4(), returnId, item.product_id, item.quantity, item.condition, item.unit_price, item.line_credit, item.original_order_item_id));
+    }
 
     await db.batch(batchStatements);
-    return c.json({ success: true, data: { id: returnId, return_number: returnNum, total_amount: totalAmount } }, 201);
+    return c.json({ success: true, data: { id: returnId, return_number: returnNum, total_credit_amount: totalCreditAmount, tax_amount: taxTotal, restock_fee: restockFee, net_credit_amount: netCreditAmount } }, 201);
   } catch (error) {
     return c.json({ success: false, message: 'Return creation failed: ' + error.message }, 500);
   }
@@ -5467,8 +5783,16 @@ api.get('/field-operations/visits/export', authMiddleware, async (c) => {
 api.get('/van-sales/vans', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
-  const vans = await db.prepare("SELECT u.id, u.first_name || ' ' || u.last_name as name, u.email, u.phone FROM users u WHERE u.tenant_id = ? AND u.role IN ('van_sales', 'agent') AND u.is_active = 1").bind(tenantId).all();
-  return c.json(vans.results || []);
+  // Returns rows from the `vans` table (vehicles), joined with assigned driver name.
+  // Was previously returning USERS filtered by role — confusing the UI which expected
+  // van_number / registration / driver_name fields.
+  const vans = await db.prepare(
+    "SELECT v.id, v.name, v.registration_number, v.driver_id, v.status, v.created_at, " +
+    "u.first_name || ' ' || u.last_name as driver_name " +
+    "FROM vans v LEFT JOIN users u ON v.driver_id = u.id " +
+    "WHERE v.tenant_id = ? ORDER BY v.name"
+  ).bind(tenantId).all();
+  return c.json({ success: true, data: vans.results || [] });
 });
 
 api.get('/van-sales/routes', authMiddleware, async (c) => {
@@ -6588,6 +6912,20 @@ api.post('/vans/:vanId/assign-driver', authMiddleware, async (c) => {
   const body = await c.req.json();
   await db.prepare("UPDATE vans SET driver_id = ? WHERE id = ? AND tenant_id = ?").bind(body.driver_id, vanId, tenantId).run();
   return c.json({ success: true, message: 'Driver assigned' });
+});
+
+api.delete('/vans/:id', requireRole('admin', 'manager'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  // Don't hard-delete if there are loads referencing it; soft-retire instead.
+  const refCount = await db.prepare('SELECT COUNT(*) as c FROM van_stock_loads WHERE tenant_id = ? AND vehicle_reg IN (SELECT registration_number FROM vans WHERE id = ? AND tenant_id = ?)').bind(tenantId, id, tenantId).first();
+  if ((refCount?.c || 0) > 0) {
+    await db.prepare("UPDATE vans SET status = 'retired' WHERE id = ? AND tenant_id = ?").bind(id, tenantId).run();
+    return c.json({ success: true, message: 'Van retired (had load history)' });
+  }
+  await db.prepare('DELETE FROM vans WHERE id = ? AND tenant_id = ?').bind(id, tenantId).run();
+  return c.json({ success: true, message: 'Van deleted' });
 });
 
 // ==================== COMMISSION ADDITIONAL ROUTES ====================
@@ -9964,11 +10302,64 @@ api.delete('/trade-marketing/campaigns/:id', authMiddleware, async (c) => {
 api.get('/trade-marketing/board-installations', authMiddleware, async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
-  return c.json({ data: [] });
+  const { customer_id, brand_id, status, limit = 200 } = c.req.query();
+  let where = 'WHERE bi.tenant_id = ?';
+  const params = [tenantId];
+  if (customer_id) { where += ' AND bi.customer_id = ?'; params.push(customer_id); }
+  if (brand_id) { where += ' AND bi.brand_id = ?'; params.push(brand_id); }
+  if (status) { where += ' AND bi.status = ?'; params.push(status); }
+  const limitNum = Math.min(parseInt(limit) || 200, 500);
+  const rows = await db.prepare(
+    "SELECT bi.*, c.name as customer_name, b.name as brand_name, " +
+    "u.first_name || ' ' || u.last_name as installed_by_name " +
+    "FROM board_installations bi " +
+    "LEFT JOIN customers c ON bi.customer_id = c.id " +
+    "LEFT JOIN brands b ON bi.brand_id = b.id " +
+    "LEFT JOIN users u ON bi.installed_by = u.id " +
+    where + ' ORDER BY bi.installed_at DESC, bi.created_at DESC LIMIT ?'
+  ).bind(...params, limitNum).all();
+  return c.json({ success: true, data: rows.results || [] });
 });
 
 api.post('/trade-marketing/board-installations', authMiddleware, async (c) => {
-  return c.json({ success: false, message: 'Board installation recorded' }, 201);
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
+  const body = await c.req.json();
+  if (!body.customer_id) return c.json({ success: false, message: 'customer_id is required' }, 400);
+  const id = uuidv4();
+  await db.prepare(
+    'INSERT INTO board_installations (id, tenant_id, customer_id, visit_id, brand_id, board_type, condition, location_description, placement_position, installed_at, installed_by, photo_id, status, notes) ' +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'active'), ?)"
+  ).bind(
+    id, tenantId, body.customer_id, body.visit_id || null, body.brand_id || null,
+    body.board_type || 'signage', body.condition || 'good',
+    body.location_description || null, body.placement_position || null,
+    body.installed_at || new Date().toISOString(),
+    body.installed_by || userId, body.photo_id || null,
+    body.status || null, body.notes || null
+  ).run();
+  return c.json({ success: true, data: { id }, message: 'Board installation recorded' }, 201);
+});
+
+api.put('/trade-marketing/board-installations/:id', authMiddleware, async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  await db.prepare(
+    'UPDATE board_installations SET ' +
+    'condition = COALESCE(?, condition), location_description = COALESCE(?, location_description), ' +
+    'placement_position = COALESCE(?, placement_position), status = COALESCE(?, status), ' +
+    "removed_at = CASE WHEN ? = 'removed' THEN datetime('now') ELSE removed_at END, " +
+    "notes = COALESCE(?, notes), updated_at = datetime('now') " +
+    'WHERE id = ? AND tenant_id = ?'
+  ).bind(
+    body.condition || null, body.location_description || null,
+    body.placement_position || null, body.status || null, body.status || null,
+    body.notes || null, id, tenantId
+  ).run();
+  return c.json({ success: true, message: 'Board installation updated' });
 });
 
 api.get('/trade-marketing/activations', authMiddleware, async (c) => {
@@ -9998,15 +10389,55 @@ api.get('/trade-marketing/stats', authMiddleware, async (c) => {
 });
 
 api.get('/trade-marketing/promoters', authMiddleware, async (c) => {
-  return c.json({ data: [] });
+  // Promoters are users tagged with role 'promoter' or 'field_marketing'
+  // (decision doc option B). Tenant-scoped.
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const rows = await db.prepare(
+    "SELECT id, first_name, last_name, email, phone, role, status, is_active, created_at " +
+    "FROM users WHERE tenant_id = ? AND role IN ('promoter', 'field_marketing') AND COALESCE(is_active, 1) = 1 " +
+    "ORDER BY first_name, last_name"
+  ).bind(tenantId).all();
+  return c.json({ success: true, data: rows.results || [] });
 });
 
-api.delete('/trade-marketing/promoters/:id', authMiddleware, async (c) => {
-  return c.json({ success: true, message: 'Promoter removed' });
+api.delete('/trade-marketing/promoters/:id', requireRole('admin', 'manager'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  // Soft-deactivate: don't delete the user record, just clear the promoter role.
+  await db.prepare(
+    "UPDATE users SET role = 'agent', updated_at = datetime('now') " +
+    "WHERE id = ? AND tenant_id = ? AND role IN ('promoter', 'field_marketing')"
+  ).bind(id, tenantId).run();
+  return c.json({ success: true, message: 'Promoter role removed' });
 });
 
 api.get('/trade-marketing/merchandising-compliance', authMiddleware, async (c) => {
-  return c.json({ data: [] });
+  // Compliance score per customer, derived from visit_photos.ai_compliance_score
+  // (decision doc option B — no separate compliance table).
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const { customer_id, period_start, period_end, limit = 100 } = c.req.query();
+  let where = 'WHERE vp.tenant_id = ? AND vp.ai_compliance_score IS NOT NULL';
+  const params = [tenantId];
+  if (customer_id) { where += ' AND v.customer_id = ?'; params.push(customer_id); }
+  if (period_start) { where += ' AND vp.created_at >= ?'; params.push(period_start); }
+  if (period_end) { where += ' AND vp.created_at <= ?'; params.push(period_end); }
+  const limitNum = Math.min(parseInt(limit) || 100, 500);
+  const rows = await db.prepare(
+    'SELECT v.customer_id, c.name as customer_name, ' +
+    'COUNT(vp.id) as photos_audited, ' +
+    'AVG(vp.ai_compliance_score) as avg_compliance_score, ' +
+    'MIN(vp.ai_compliance_score) as min_score, ' +
+    'MAX(vp.ai_compliance_score) as max_score, ' +
+    'MAX(vp.created_at) as last_audited_at ' +
+    'FROM visit_photos vp ' +
+    'JOIN visits v ON vp.visit_id = v.id AND v.tenant_id = vp.tenant_id ' +
+    'LEFT JOIN customers c ON v.customer_id = c.id ' +
+    where + ' GROUP BY v.customer_id, c.name ORDER BY avg_compliance_score ASC LIMIT ?'
+  ).bind(...params, limitNum).all();
+  return c.json({ success: true, data: rows.results || [] });
 });
 
 api.get('/trade-marketing/analytics', authMiddleware, async (c) => {
@@ -10637,8 +11068,28 @@ api.put('/sales/orders/:id/status', requireRole('admin', 'manager'), async (c) =
       await db.prepare('INSERT INTO stock_movements (id, tenant_id, product_id, movement_type, quantity, reference_type, reference_id, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(smId, tenantId, item.product_id, 'ADJUSTMENT_UP', item.quantity, 'ORDER_CANCEL', id, 'Order cancelled - stock returned', userId).run();
       await db.prepare('UPDATE stock_levels SET quantity = quantity + ? WHERE tenant_id = ? AND product_id = ?').bind(item.quantity, tenantId, item.product_id).run();
     }
-    // Void commissions
-    await db.prepare("UPDATE commission_earnings SET status = 'voided' WHERE source_id = ? AND tenant_id = ?").bind(id, tenantId).run();
+    // Reverse commissions: pending/disputed -> rejected; approved/paid -> reversed (with sibling
+    // negative-amount audit row). Mirrors the behaviour of /sales-orders/:id/cancel so both cancel
+    // paths produce the same commission ledger.
+    try {
+      const cancelReason = 'Auto: order cancelled' + ((reason && String(reason).trim()) ? ' — ' + String(reason).trim() : '');
+      const earnings = await db.prepare("SELECT id, earner_id, source_type, source_id, rule_id, rate, base_amount, amount, status FROM commission_earnings WHERE tenant_id = ? AND source_id = ? AND status IN ('pending', 'disputed', 'approved', 'paid')").bind(tenantId, id).all();
+      for (const e of (earnings.results || [])) {
+        if (e.status === 'pending' || e.status === 'disputed') {
+          await db.prepare("UPDATE commission_earnings SET status = 'rejected', rejection_reason = ?, approved_by = ?, approved_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(cancelReason, userId, e.id, tenantId).run();
+        } else {
+          const reversalId = uuidv4();
+          await db.batch([
+            db.prepare("INSERT INTO commission_earnings (id, tenant_id, earner_id, source_type, source_id, rule_id, rate, base_amount, amount, status, reversal_of, reversal_reason, reversed_by, reversed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'reversed', ?, ?, ?, datetime('now'), datetime('now'))").bind(
+              reversalId, tenantId, e.earner_id, e.source_type, e.source_id, e.rule_id, e.rate, e.base_amount, -Math.abs(e.amount || 0), e.id, cancelReason, userId
+            ),
+            db.prepare("UPDATE commission_earnings SET status = 'reversed', reversal_reason = ?, reversed_by = ?, reversed_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(cancelReason, userId, e.id, tenantId)
+          ]);
+        }
+      }
+    } catch (err) {
+      console.error('Commission auto-reverse failed in transitions for order', id, err && err.message);
+    }
     // Restore customer balance
     if (order.payment_method === 'CREDIT' || order.payment_method === 'credit') {
       await db.prepare('UPDATE customers SET outstanding_balance = outstanding_balance - ? WHERE id = ?').bind(order.total_amount, order.customer_id).run();
@@ -11022,10 +11473,10 @@ api.put('/returns/:id/approve', requireRole('admin', 'manager'), async (c) => {
   // Create credit note
   const cnId = uuidv4();
   const cnNumber = 'CN-' + Date.now().toString(36).toUpperCase();
-  await db.prepare('INSERT INTO credit_notes (id, tenant_id, return_id, customer_id, credit_number, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(cnId, tenantId, id, order.customer_id, cnNumber, ret.net_credit_amount, 'ISSUED').run();
+  await db.prepare('INSERT INTO credit_notes (id, tenant_id, return_id, customer_id, credit_number, amount, applied_amount, remaining_balance, status) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)').bind(cnId, tenantId, id, order.customer_id, cnNumber, ret.net_credit_amount, ret.net_credit_amount, 'ISSUED').run();
 
   // Reduce customer outstanding balance
-  await db.prepare('UPDATE customers SET outstanding_balance = outstanding_balance - ? WHERE id = ?').bind(ret.net_credit_amount, order.customer_id).run();
+  await db.prepare('UPDATE customers SET outstanding_balance = outstanding_balance - ? WHERE id = ? AND tenant_id = ?').bind(ret.net_credit_amount, order.customer_id, tenantId).run();
 
   // Update return status
   await db.prepare("UPDATE returns SET status = 'PROCESSED', approved_by = ?, updated_at = datetime('now') WHERE id = ?").bind(userId, id).run();
@@ -11054,21 +11505,57 @@ api.get('/credit-notes', async (c) => {
 api.post('/credit-notes/:id/apply', async (c) => {
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
+  const userId = c.get('userId');
   const { id } = c.req.param();
-  const { order_id } = await c.req.json();
+  const body = await c.req.json();
+  const orderId = body.order_id;
+  if (!orderId) return c.json({ success: false, message: 'order_id is required' }, 400);
+
   const cn = await db.prepare('SELECT * FROM credit_notes WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
   if (!cn) return c.json({ success: false, message: 'Credit note not found' }, 404);
   if (cn.status === 'FULLY_APPLIED' || cn.status === 'VOIDED') return c.json({ success: false, message: 'Credit note already used or voided' }, 400);
 
+  // Verify order belongs to tenant and is for the same customer.
+  const order = await db.prepare('SELECT id, customer_id, total_amount FROM sales_orders WHERE id = ? AND tenant_id = ?').bind(orderId, tenantId).first();
+  if (!order) return c.json({ success: false, message: 'Order not found or access denied' }, 404);
+  if (order.customer_id !== cn.customer_id) return c.json({ success: false, message: 'Credit note customer does not match order customer' }, 400);
+
+  const remaining = (cn.remaining_balance != null) ? cn.remaining_balance : (cn.amount - (cn.applied_amount || 0));
+  if (remaining <= 0) return c.json({ success: false, message: 'Credit note has no remaining balance' }, 400);
+
+  // Determine application amount: caller can request a specific amount; otherwise apply the lesser of
+  // the credit-note's remaining balance and the order's outstanding balance.
+  const totalPaidRow = await db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE sales_order_id = ? AND tenant_id = ? AND status = ?').bind(orderId, tenantId, 'completed').first();
+  const orderOutstanding = (order.total_amount || 0) - (totalPaidRow?.total || 0);
+  const requested = Number(body.amount);
+  let applyAmount;
+  if (Number.isFinite(requested) && requested > 0) {
+    if (requested > remaining) return c.json({ success: false, message: `Requested amount exceeds credit note remaining balance (${remaining})` }, 400);
+    applyAmount = requested;
+  } else {
+    applyAmount = Math.min(remaining, Math.max(0, orderOutstanding));
+    if (applyAmount <= 0) return c.json({ success: false, message: 'Order has no outstanding balance' }, 400);
+  }
+
+  const newApplied = (cn.applied_amount || 0) + applyAmount;
+  const newRemaining = Math.max(0, (cn.amount || 0) - newApplied);
+  const newStatus = newRemaining <= 0.0001 ? 'FULLY_APPLIED' : 'PARTIALLY_APPLIED';
+
   const appliedOrders = cn.applied_to_orders ? JSON.parse(cn.applied_to_orders) : [];
-  appliedOrders.push(order_id);
-  await db.prepare("UPDATE credit_notes SET status = 'FULLY_APPLIED', applied_to_orders = ? WHERE id = ?").bind(JSON.stringify(appliedOrders), id).run();
+  appliedOrders.push({ order_id: orderId, amount: applyAmount, applied_at: new Date().toISOString(), applied_by: userId });
 
-  // Apply as payment to order
   const paymentId = uuidv4();
-  await db.prepare('INSERT INTO payments (id, tenant_id, sales_order_id, amount, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(paymentId, tenantId, order_id, cn.amount, 'CREDIT_NOTE', cn.credit_number, 'completed').run();
+  await db.batch([
+    db.prepare('UPDATE credit_notes SET status = ?, applied_amount = ?, remaining_balance = ?, applied_to_orders = ? WHERE id = ? AND tenant_id = ?').bind(newStatus, newApplied, newRemaining, JSON.stringify(appliedOrders), id, tenantId),
+    db.prepare('INSERT INTO payments (id, tenant_id, sales_order_id, amount, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(paymentId, tenantId, orderId, applyAmount, 'CREDIT_NOTE', cn.credit_number, 'completed')
+  ]);
 
-  return c.json({ success: true, message: 'Credit note applied' });
+  // Recompute order payment_status from the payments table.
+  const updatedPaid = await db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE sales_order_id = ? AND tenant_id = ? AND status = ?').bind(orderId, tenantId, 'completed').first();
+  const newPaymentStatus = (updatedPaid?.total || 0) >= (order.total_amount || 0) ? 'PAID' : 'PARTIAL';
+  await db.prepare('UPDATE sales_orders SET payment_status = ? WHERE id = ? AND tenant_id = ?').bind(newPaymentStatus, orderId, tenantId).run();
+
+  return c.json({ success: true, data: { applied_amount: applyAmount, remaining_balance: newRemaining, status: newStatus, payment_id: paymentId } });
 });
 
 api.put('/credit-notes/:id/void', requireRole('admin'), async (c) => {
@@ -11077,9 +11564,11 @@ api.put('/credit-notes/:id/void', requireRole('admin'), async (c) => {
   const { id } = c.req.param();
   const cn = await db.prepare('SELECT * FROM credit_notes WHERE id = ? AND tenant_id = ?').bind(id, tenantId).first();
   if (!cn) return c.json({ success: false, message: 'Credit note not found' }, 404);
-  await db.prepare("UPDATE credit_notes SET status = 'VOIDED' WHERE id = ?").bind(id).run();
-  // Re-increase customer balance
-  await db.prepare('UPDATE customers SET outstanding_balance = outstanding_balance + ? WHERE id = ?').bind(cn.amount, cn.customer_id).run();
+  if (cn.status === 'FULLY_APPLIED' || cn.status === 'PARTIALLY_APPLIED') return c.json({ success: false, message: 'Cannot void a credit note that has been applied; reverse the applications first' }, 400);
+  await db.batch([
+    db.prepare("UPDATE credit_notes SET status = 'VOIDED', remaining_balance = 0 WHERE id = ? AND tenant_id = ?").bind(id, tenantId),
+    db.prepare('UPDATE customers SET outstanding_balance = outstanding_balance + ? WHERE id = ? AND tenant_id = ?').bind(cn.amount, cn.customer_id, tenantId)
+  ]);
   return c.json({ success: true, message: 'Credit note voided' });
 });
 
@@ -12214,8 +12703,8 @@ api.get('/process/audit', requireRole('admin'), async (c) => {
       status: 'implemented'
     },
     commissions: {
-      forward: ['pending -> approved -> paid'],
-      reverse: ['voided (on order cancel)'],
+      forward: ['pending -> approved -> paid', 'pending -> disputed (agent) -> approved | rejected'],
+      reverse: ['rejected (manager, with reason)', 'reversed (sibling negative-amount row, on order cancel or manual reversal)'],
       status: 'implemented'
     },
     trade_promotions: {
@@ -13492,11 +13981,12 @@ async function analyzePhotoWithAI(env, photoId, r2Key, tenantId, visitId, photoT
     if (!object) return;
     let imageBytes = new Uint8Array(await object.arrayBuffer());
 
-    // Llama Vision 128K context window: each image byte ≈ 1.5-2 tokens
-    // 128K tokens - ~3K for prompt/output = ~125K tokens for image ≈ ~80KB max
-    const MAX_AI_IMAGE_BYTES = 80000;
+    // Vision encoder tokenizes the image into a fixed number of visual tokens
+    // independent of raw byte size, so the 128K text context is not the constraint.
+    // Cap is a safety valve against runaway payloads; frontend compresses to ~1MB.
+    const MAX_AI_IMAGE_BYTES = 5_000_000;
     if (imageBytes.length > MAX_AI_IMAGE_BYTES) {
-      await env.DB.prepare("UPDATE visit_photos SET ai_analysis_status = 'skipped', ai_raw_response = ? WHERE id = ?").bind('Image ' + Math.round(imageBytes.length/1024) + 'KB exceeds ' + Math.round(MAX_AI_IMAGE_BYTES/1024) + 'KB limit for 128K context window', photoId).run();
+      await env.DB.prepare("UPDATE visit_photos SET ai_analysis_status = 'skipped', ai_raw_response = ? WHERE id = ?").bind('Image ' + Math.round(imageBytes.length/1024) + 'KB exceeds ' + Math.round(MAX_AI_IMAGE_BYTES/1024) + 'KB safety cap', photoId).run();
       return;
     }
 
@@ -14232,7 +14722,7 @@ api.post('/visit-photos/ai-backfill', authMiddleware, async (c) => {
       FROM visit_photos vp
       WHERE vp.tenant_id = ?
         AND vp.r2_key IS NOT NULL
-        AND (vp.ai_analysis_status IS NULL OR vp.ai_analysis_status = '' OR vp.ai_analysis_status = 'pending')
+        AND (vp.ai_analysis_status IS NULL OR vp.ai_analysis_status = '' OR vp.ai_analysis_status = 'pending' OR vp.ai_analysis_status = 'skipped')
         AND NOT EXISTS (
           SELECT 1 FROM visit_photos vp2
           WHERE vp2.tenant_id = vp.tenant_id
@@ -14258,7 +14748,7 @@ api.post('/visit-photos/ai-backfill', authMiddleware, async (c) => {
 
     // Count total pending for progress info
     const pendingCount = await db.prepare(
-      `SELECT COUNT(*) as count FROM visit_photos WHERE tenant_id = ? AND r2_key IS NOT NULL AND (ai_analysis_status IS NULL OR ai_analysis_status = '' OR ai_analysis_status = 'pending')`
+      `SELECT COUNT(*) as count FROM visit_photos WHERE tenant_id = ? AND r2_key IS NOT NULL AND (ai_analysis_status IS NULL OR ai_analysis_status = '' OR ai_analysis_status = 'pending' OR ai_analysis_status = 'skipped')`
     ).bind(tenantId).first();
 
     // Mark all as processing
@@ -14297,7 +14787,7 @@ api.get('/visit-photos/ai-status', authMiddleware, async (c) => {
       db.prepare("SELECT COUNT(*) as count FROM visit_photos WHERE tenant_id = ? AND ai_analysis_status = 'completed'").bind(tenantId).first(),
       db.prepare("SELECT COUNT(*) as count FROM visit_photos WHERE tenant_id = ? AND ai_analysis_status = 'processing'").bind(tenantId).first(),
       db.prepare("SELECT COUNT(*) as count FROM visit_photos WHERE tenant_id = ? AND ai_analysis_status = 'failed'").bind(tenantId).first(),
-      db.prepare("SELECT COUNT(*) as count FROM visit_photos WHERE tenant_id = ? AND r2_key IS NOT NULL AND (ai_analysis_status IS NULL OR ai_analysis_status = '' OR ai_analysis_status = 'pending')").bind(tenantId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM visit_photos WHERE tenant_id = ? AND r2_key IS NOT NULL AND (ai_analysis_status IS NULL OR ai_analysis_status = '' OR ai_analysis_status = 'pending' OR ai_analysis_status = 'skipped')").bind(tenantId).first(),
     ]);
 
     return c.json({
@@ -15243,10 +15733,27 @@ api.get('/trade-marketing/promotions', authMiddleware, async (c) => {
 });
 
 api.get('/trade-marketing/channel-partners', authMiddleware, async (c) => {
+  // Channel partners are customers tagged with a partner_type (decision doc option B).
+  // partner_type is a free-text value at the application layer; common values include
+  // 'wholesaler', 'distributor', 'sub_distributor', 'reseller'.
   const db = c.env.DB;
   const tenantId = c.get('tenantId');
-  const partners = await db.prepare("SELECT * FROM customers WHERE tenant_id = ? AND customer_type = 'partner' ORDER BY name").bind(tenantId).all();
+  const { partner_type } = c.req.query();
+  let where = 'WHERE tenant_id = ? AND partner_type IS NOT NULL';
+  const params = [tenantId];
+  if (partner_type) { where += ' AND partner_type = ?'; params.push(partner_type); }
+  const partners = await db.prepare("SELECT id, name, code, partner_type, status, phone, email, address, created_at FROM customers " + where + " ORDER BY name").bind(...params).all();
   return c.json({ success: true, data: partners.results || [] });
+});
+
+api.put('/trade-marketing/channel-partners/:id', requireRole('admin', 'manager'), async (c) => {
+  const db = c.env.DB;
+  const tenantId = c.get('tenantId');
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  // partner_type=null promotes a customer back to non-partner.
+  await db.prepare("UPDATE customers SET partner_type = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?").bind(body.partner_type || null, id, tenantId).run();
+  return c.json({ success: true, message: body.partner_type ? 'Channel partner updated' : 'Customer demoted from channel partner' });
 });
 
 api.get('/trade-marketing/competitor-analysis', authMiddleware, async (c) => {
@@ -15310,7 +15817,7 @@ api.get('/workflow/processes', authMiddleware, async (c) => {
     sales_order: { forward: ['draft -> CONFIRMED', 'CONFIRMED -> PROCESSING', 'PROCESSING -> READY', 'READY -> DISPATCHED', 'DISPATCHED -> DELIVERED', 'DELIVERED -> COMPLETED'], reverse: ['Any -> CANCELLED'], status: 'implemented' },
     van_sales: { forward: ['load -> in_field', 'in_field -> sell', 'in_field -> returned'], reverse: ['Stock discrepancy detection', 'Cash reconciliation'], status: 'implemented' },
     returns: { forward: ['PENDING -> PROCESSED', 'PENDING -> REJECTED'], reverse: ['Stock return', 'Credit note creation'], status: 'implemented' },
-    commissions: { forward: ['pending -> approved -> paid'], reverse: ['voided (on cancel)'], status: 'implemented' },
+    commissions: { forward: ['pending -> approved -> paid', 'pending -> disputed -> approved | rejected'], reverse: ['rejected (manager)', 'reversed (auto on order cancel, or manual)'], status: 'implemented' },
     inventory: { forward: ['PURCHASE_IN, TRANSFER_IN, ADJUSTMENT_UP'], reverse: ['SALE_OUT, TRANSFER_OUT, ADJUSTMENT_DOWN'], status: 'implemented' },
   }});
 });
@@ -17964,12 +18471,76 @@ api.post('/van-sales/bulk', authMiddleware, async (c) => {
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 api.get('/van-sales/cash-reconciliation', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const { status, agent_id, limit = '100' } = c.req.query();
+    const limitNum = Math.min(parseInt(limit) || 100, 500);
+    let where = 'WHERE vr.tenant_id = ?';
+    const params = [tenantId];
+    if (status) { where += ' AND vr.status = ?'; params.push(status); }
+    if (agent_id) { where += ' AND vsl.agent_id = ?'; params.push(agent_id); }
+    const rows = await db.prepare(
+      "SELECT vr.*, vsl.vehicle_reg, vsl.agent_id, " +
+      "u.first_name || ' ' || u.last_name as agent_name " +
+      "FROM van_reconciliations vr " +
+      "LEFT JOIN van_stock_loads vsl ON vr.van_stock_load_id = vsl.id " +
+      "LEFT JOIN users u ON vsl.agent_id = u.id " +
+      where + ' ORDER BY vr.created_at DESC LIMIT ?'
+    ).bind(...params, limitNum).all();
+    const data = rows.results || [];
+    return c.json({ success: true, data, total: data.length });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 api.get('/van-sales/cash-reconciliation/:id', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const id = c.req.param('id');
+    const row = await db.prepare(
+      "SELECT vr.*, vsl.vehicle_reg, vsl.agent_id, vsl.warehouse_id, " +
+      "u.first_name || ' ' || u.last_name as agent_name " +
+      "FROM van_reconciliations vr " +
+      "LEFT JOIN van_stock_loads vsl ON vr.van_stock_load_id = vsl.id " +
+      "LEFT JOIN users u ON vsl.agent_id = u.id " +
+      "WHERE vr.id = ? AND vr.tenant_id = ?"
+    ).bind(id, tenantId).first();
+    if (!row) return c.json({ success: false, message: 'Cash reconciliation not found' }, 404);
+    return c.json({ success: true, data: row });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+// Persist a cash reconciliation submitted from the van-sales create flow. The form supplies
+// expected_cash/actual_cash and either van_stock_load_id or van_id; we resolve van_id to the
+// most recent active load for that van so the row joins correctly to the van_stock_loads chain.
+api.post('/van-sales/cash-reconciliation', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const userId = c.get('userId');
+    const body = await c.req.json();
+    let loadId = body.van_stock_load_id || body.load_id || null;
+    if (!loadId && body.van_id) {
+      const active = await db.prepare(
+        "SELECT id FROM van_stock_loads WHERE tenant_id = ? AND vehicle_reg IN (SELECT registration_number FROM vans WHERE id = ? AND tenant_id = ?) " +
+        "AND status NOT IN ('returned', 'reconciled') ORDER BY load_date DESC LIMIT 1"
+      ).bind(tenantId, body.van_id, tenantId).first();
+      loadId = active?.id || null;
+    }
+    if (!loadId) return c.json({ success: false, message: 'van_stock_load_id (or a van_id with an open load) is required' }, 400);
+    const expected = Number(body.cash_expected ?? body.expected_cash ?? 0) || 0;
+    const actual = Number(body.cash_actual ?? body.actual_cash ?? 0) || 0;
+    const variance = actual - expected;
+    const id = uuidv4();
+    await db.prepare(
+      'INSERT INTO van_reconciliations (id, tenant_id, van_stock_load_id, cash_expected, cash_actual, variance, denominations, status, notes, created_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))'
+    ).bind(
+      id, tenantId, loadId, expected, actual, variance,
+      body.denominations ? JSON.stringify(body.denominations) : null,
+      'pending', body.notes || null
+    ).run();
+    return c.json({ success: true, data: { id, van_stock_load_id: loadId, cash_expected: expected, cash_actual: actual, variance, status: 'pending' } }, 201);
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 api.post('/van-sales/create', authMiddleware, async (c) => {
   try { const body = await c.req.json().catch(() => ({})); return c.json({ success: true, data: { id: crypto.randomUUID(), ...body, status: 'completed', updated_at: new Date().toISOString() } }); }
@@ -18322,9 +18893,137 @@ api.get('/kyc/:id', authMiddleware, async (c) => {
   try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
   catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
+// ==================== KYC DOCUMENTS (R2-backed) ====================
+// The kyc_documents table stores metadata only; binaries live in R2 under
+//   kyc/{tenant_id}/{kyc_case_id}/{document_type}-{uuid}.{ext}
+// The bucket is private; reads always go through the Worker so we can authenticate
+// and audit access to PII.
+
+const KYC_ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+const KYC_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+
 api.get('/kyc/:id/documents', authMiddleware, async (c) => {
-  try { const tenantId = c.get('tenantId'); return c.json({ success: true, data: [], total: 0 }); }
-  catch (e) { return c.json({ success: false, message: e.message }, 500); }
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const id = c.req.param('id');
+    const docs = await db.prepare(
+      'SELECT id, kyc_case_id, document_type, file_name, content_type, file_size, r2_key, sha256, uploaded_by, created_at ' +
+      'FROM kyc_documents WHERE tenant_id = ? AND kyc_case_id = ? ORDER BY created_at DESC'
+    ).bind(tenantId, id).all();
+    return c.json({ success: true, data: docs.results || [] });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+api.post('/kyc/:id/documents', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const userId = c.get('userId');
+    const caseId = c.req.param('id');
+    const bucket = c.env.UPLOADS;
+    if (!bucket) return c.json({ success: false, message: 'Storage not configured' }, 500);
+
+    // Multi-tenant guard: confirm the case exists in this tenant before letting anyone
+    // upload PII tagged with its id.
+    const kycCase = await db.prepare('SELECT id FROM kyc_cases WHERE id = ? AND tenant_id = ?').bind(caseId, tenantId).first();
+    if (!kycCase) return c.json({ success: false, message: 'KYC case not found' }, 404);
+
+    const form = await c.req.parseBody();
+    const file = form['file'];
+    if (!file || typeof file === 'string') return c.json({ success: false, message: 'file field is required' }, 400);
+
+    const documentType = String(form['document_type'] || 'other').slice(0, 32);
+    const contentType = file.type || 'application/octet-stream';
+    if (!KYC_ALLOWED_MIME.includes(contentType)) {
+      return c.json({ success: false, message: `Unsupported content_type: ${contentType}. Allowed: ${KYC_ALLOWED_MIME.join(', ')}` }, 415);
+    }
+    if (file.size > KYC_MAX_BYTES) {
+      return c.json({ success: false, message: `File too large (${file.size} bytes > ${KYC_MAX_BYTES})` }, 413);
+    }
+
+    const ext = contentType === 'application/pdf' ? 'pdf'
+      : contentType === 'image/png' ? 'png'
+      : contentType === 'image/webp' ? 'webp'
+      : 'jpg';
+    const docId = uuidv4();
+    const r2Key = `kyc/${tenantId}/${caseId}/${documentType}-${docId}.${ext}`;
+
+    const buf = await file.arrayBuffer();
+    // Compute sha256 for tamper-evidence; cheap on Workers.
+    const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+    const sha256 = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    await bucket.put(r2Key, buf, { httpMetadata: { contentType } });
+
+    await db.prepare(
+      'INSERT INTO kyc_documents (id, tenant_id, kyc_case_id, document_type, file_name, content_type, file_size, sha256, r2_key, uploaded_by, created_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))'
+    ).bind(docId, tenantId, caseId, documentType, file.name || `${documentType}.${ext}`, contentType, file.size, sha256, r2Key, userId).run();
+
+    return c.json({
+      success: true,
+      data: {
+        id: docId,
+        kyc_case_id: caseId,
+        document_type: documentType,
+        file_name: file.name || null,
+        content_type: contentType,
+        file_size: file.size,
+        sha256,
+        download_url: `/api/kyc/documents/${docId}/download`,
+      },
+    }, 201);
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+api.delete('/kyc/:id/documents/:documentId', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const docId = c.req.param('documentId');
+    const bucket = c.env.UPLOADS;
+    const doc = await db.prepare('SELECT r2_key FROM kyc_documents WHERE id = ? AND tenant_id = ?').bind(docId, tenantId).first();
+    if (!doc) return c.json({ success: false, message: 'Document not found' }, 404);
+    if (doc.r2_key && bucket) {
+      try { await bucket.delete(doc.r2_key); } catch (e) { /* keep going; orphan is recoverable */ }
+    }
+    await db.prepare('DELETE FROM kyc_documents WHERE id = ? AND tenant_id = ?').bind(docId, tenantId).run();
+    return c.json({ success: true, message: 'Document deleted' });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
+});
+
+api.get('/kyc/documents/:documentId/download', authMiddleware, async (c) => {
+  try {
+    const db = c.env.DB;
+    const tenantId = c.get('tenantId');
+    const userId = c.get('userId');
+    const role = c.get('role');
+    if (!['admin', 'manager', 'super_admin', 'compliance', 'kyc_reviewer'].includes(role)) {
+      return c.json({ success: false, message: 'KYC review permission required' }, 403);
+    }
+    const docId = c.req.param('documentId');
+    const doc = await db.prepare('SELECT r2_key, content_type, file_name FROM kyc_documents WHERE id = ? AND tenant_id = ?').bind(docId, tenantId).first();
+    if (!doc || !doc.r2_key) return c.json({ success: false, message: 'Document not found' }, 404);
+    const bucket = c.env.UPLOADS;
+    if (!bucket) return c.json({ success: false, message: 'Storage not configured' }, 500);
+    const obj = await bucket.get(doc.r2_key);
+    if (!obj) return c.json({ success: false, message: 'Object not found in storage' }, 404);
+
+    // Best-effort access audit log; failures here must not block the read.
+    try {
+      await db.prepare(
+        'INSERT INTO audit_log (id, tenant_id, user_id, action, resource_type, resource_id, new_values) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).bind(uuidv4(), tenantId, userId, 'KYC_DOC_VIEW', 'KYC_DOCUMENT', docId, JSON.stringify({ r2_key: doc.r2_key })).run();
+    } catch { /* audit_log may be missing on older tenants */ }
+
+    const headers = new Headers();
+    obj.writeHttpMetadata(headers);
+    headers.set('Content-Type', doc.content_type || obj.httpMetadata?.contentType || 'application/octet-stream');
+    if (doc.file_name) headers.set('Content-Disposition', `inline; filename="${String(doc.file_name).replace(/"/g, '')}"`);
+    headers.set('Cache-Control', 'private, max-age=300');
+    return new Response(obj.body, { headers });
+  } catch (e) { return c.json({ success: false, message: e.message }, 500); }
 });
 
 // orders additional routes (restored)
@@ -18658,6 +19357,48 @@ api.get('/pricing/customer-prices', async (c) => {
   return c.json({ success: true, data: prices });
 });
 
+// Drain AI photo analysis backlog: each cron tick processes up to AI_DRAIN_BATCH_SIZE photos
+// from any tenant whose photos are pending. Bounded so a backlog spike can't blow Worker CPU
+// or Workers AI quota in a single tick.
+const AI_DRAIN_BATCH_SIZE = 25;
+async function drainAiBacklog(env) {
+  try {
+    const photos = await env.DB.prepare(
+      "SELECT id, r2_key, tenant_id, visit_id, photo_type FROM visit_photos " +
+      "WHERE r2_key IS NOT NULL " +
+      "AND (ai_analysis_status IS NULL OR ai_analysis_status = '' OR ai_analysis_status = 'pending' OR ai_analysis_status = 'skipped') " +
+      "AND NOT EXISTS (SELECT 1 FROM visit_photos vp2 WHERE vp2.tenant_id = visit_photos.tenant_id AND vp2.photo_hash = visit_photos.photo_hash AND vp2.photo_hash IS NOT NULL AND vp2.photo_hash != '' AND vp2.ai_analysis_status = 'completed' AND vp2.id != visit_photos.id) " +
+      "ORDER BY created_at DESC LIMIT ?"
+    ).bind(AI_DRAIN_BATCH_SIZE).all();
+    const list = photos.results || [];
+    if (list.length === 0) return;
+    for (const p of list) {
+      await env.DB.prepare("UPDATE visit_photos SET ai_analysis_status = 'processing' WHERE id = ?").bind(p.id).run();
+    }
+    // Fire and let the scheduled handler's ctx.waitUntil run them in the background.
+    await Promise.all(list.map(p =>
+      analyzePhotoWithAI(env, p.id, p.r2_key, p.tenant_id, p.visit_id, p.photo_type || 'general')
+        .catch(err => console.error('drainAiBacklog: analysis failed for', p.id, err && err.message))
+    ));
+  } catch (err) {
+    console.error('drainAiBacklog: top-level error', err && err.message);
+  }
+}
+
+// Reset stuck 'processing' rows older than 30 minutes back to 'pending' so they get retried.
+async function reapStuckAiProcessing(db) {
+  try {
+    await db.prepare(
+      "UPDATE visit_photos SET ai_analysis_status = 'pending' " +
+      "WHERE ai_analysis_status = 'processing' " +
+      "AND (ai_processed_at IS NULL OR ai_processed_at < datetime('now', '-30 minutes')) " +
+      "AND created_at < datetime('now', '-30 minutes')"
+    ).run();
+  } catch (err) {
+    console.error('reapStuckAiProcessing failed', err && err.message);
+  }
+}
+
 export default {
   fetch: app.fetch,
   scheduled: async (event, env, ctx) => {
@@ -18671,5 +19412,10 @@ export default {
     if (day === 1 && hour === 5) await generateAgingReport(env.DB);
     // Hourly performance summaries: 6am-3pm UTC = 8am-5pm SAST (Mon-Fri)
     if (hour >= 6 && hour <= 15) await generatePerformanceSummaries(env.DB);
+    // Reap stuck rows first so they re-enter the drain queue this tick.
+    await reapStuckAiProcessing(env.DB);
+    // Drain pending AI analysis on every tick. Bounded by AI_DRAIN_BATCH_SIZE; the existing
+    // 14-cron schedule means roughly 14 * BATCH photos per day = 350/day at the current setting.
+    ctx.waitUntil(drainAiBacklog(env));
   },
 };

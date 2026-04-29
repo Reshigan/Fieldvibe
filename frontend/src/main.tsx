@@ -62,6 +62,45 @@ const queryClient = new QueryClient({
   },
 })
 
+// Register the service worker after first paint. injectRegister:false in
+// vite.config.ts means VitePWA does not auto-inject; we control timing here.
+// Wrapped in load+idle so it never delays first interactive frame.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  // Snapshot whether the page is ALREADY controlled by an SW before we
+  // register. If it isn't (first-ever install), the controllerchange that
+  // clientsClaim fires is benign — we must NOT reload, or we'd wipe whatever
+  // the user is typing (especially on the login form).
+  const hadControllerOnLoad = !!navigator.serviceWorker.controller
+
+  const register = () => {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).then((reg) => {
+      let refreshing = false
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        // Only reload on a genuine update (post-deploy), not on first install.
+        if (!hadControllerOnLoad) return
+        if (refreshing) return
+        refreshing = true
+        window.location.reload()
+      })
+      // Poll for SW updates every hour for users who keep the tab open all day.
+      if (reg && reg.update) {
+        setInterval(() => { try { reg.update() } catch (_) { /* ignore */ } }, 60 * 60 * 1000)
+      }
+    }).catch(() => {
+      // SW registration is best-effort; never block the app on failure.
+    })
+  }
+  if (document.readyState === 'complete') {
+    if ('requestIdleCallback' in window) (window as any).requestIdleCallback(register, { timeout: 2000 })
+    else setTimeout(register, 1500)
+  } else {
+    window.addEventListener('load', () => {
+      if ('requestIdleCallback' in window) (window as any).requestIdleCallback(register, { timeout: 2000 })
+      else setTimeout(register, 1500)
+    })
+  }
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
