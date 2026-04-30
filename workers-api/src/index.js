@@ -776,7 +776,7 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
         (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND ${dashAgentFilter} AND visit_date >= ?) as week_visits,
         (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND ${dashAgentFilter} AND LOWER(visit_type) = 'store' AND visit_date >= ?) as week_regs,
         (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND ${dashAgentFilter} AND visit_date >= ? AND visit_date < ?) as prior_month_visits,
-        (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND ${dashAgentFilter} AND LOWER(visit_type) = 'individual' AND visit_date >= ? AND visit_date < ?) as prior_month_individual,
+        (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND ${dashAgentFilter} AND LOWER(visit_type) != 'store' AND visit_date >= ? AND visit_date < ?) as prior_month_individual,
         (SELECT COUNT(*) FROM visits WHERE tenant_id = ? AND ${dashAgentFilter} AND LOWER(visit_type) = 'store' AND visit_date >= ? AND visit_date < ?) as prior_month_store
     `;
     const countsResult = await db.prepare(countsQuery).bind(
@@ -823,7 +823,8 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
       if (vt === 'store') {
         perCompanyActuals[cid].today_store_visits += item.today_count || 0;
         perCompanyActuals[cid].month_store_visits += item.month_count || 0;
-      } else if (vt === 'individual') {
+      } else {
+        // All non-store visits (individual, customer, etc.) count as individual — matches team-lead counting logic
         perCompanyActuals[cid].today_individual_visits += item.today_count || 0;
         perCompanyActuals[cid].month_individual_visits += item.month_count || 0;
       }
@@ -932,8 +933,8 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
     // Compute week type-filtered counts from weekVisitsByCompany
     let totalWeekIndividual = 0, totalWeekStore = 0;
     for (const wv of (weekVisitsByCompany.results || [])) {
-      if ((wv.visit_type || '').toLowerCase() === 'individual') totalWeekIndividual += wv.count || 0;
       if ((wv.visit_type || '').toLowerCase() === 'store') totalWeekStore += wv.count || 0;
+      else totalWeekIndividual += wv.count || 0;
     }
 
     // Batch 3: Resolve working days configs for all companies in 1 query (was 4*N sequential queries)
@@ -966,7 +967,7 @@ app.get('/api/agent/dashboard', authMiddleware, async (c) => {
         if (wv.company_id === ctr.company_id) {
           weekTotalVisits += wv.count || 0;
           if ((wv.visit_type || '').toLowerCase() === 'store') weekStoreVisits += wv.count || 0;
-          if ((wv.visit_type || '').toLowerCase() === 'individual') weekIndividualVisits += wv.count || 0;
+          else weekIndividualVisits += wv.count || 0;
         }
       }
       // Use new per-role fields first, fall back to legacy fields
@@ -1615,8 +1616,9 @@ app.get('/api/team-lead/dashboard', authMiddleware, async (c) => {
     }
 
     // Fetch rejected photo counts for all team members in one query
+    // Excludes photos already re-uploaded (newer pending photo of same type exists)
     const rejectedPhotosByAgent = new Map();
-    const rejQuery = await db.prepare(`SELECT v.agent_id, COUNT(vp.id) as rejected_count FROM visit_photos vp JOIN visits v ON vp.visit_id = v.id WHERE v.tenant_id = ? AND v.agent_id IN (${placeholders}) AND vp.review_status = 'rejected' GROUP BY v.agent_id`).bind(tenantId, ...memberIds).all().catch(() => ({ results: [] }));
+    const rejQuery = await db.prepare(`SELECT v.agent_id, COUNT(vp.id) as rejected_count FROM visit_photos vp JOIN visits v ON vp.visit_id = v.id WHERE v.tenant_id = ? AND v.agent_id IN (${placeholders}) AND vp.review_status = 'rejected' AND NOT EXISTS (SELECT 1 FROM visit_photos newer WHERE newer.visit_id = vp.visit_id AND newer.tenant_id = vp.tenant_id AND newer.photo_type = vp.photo_type AND newer.review_status = 'pending' AND datetime(newer.created_at) > datetime(vp.created_at)) GROUP BY v.agent_id`).bind(tenantId, ...memberIds).all().catch(() => ({ results: [] }));
     for (const row of (rejQuery.results || [])) {
       rejectedPhotosByAgent.set(row.agent_id, row.rejected_count || 0);
     }
