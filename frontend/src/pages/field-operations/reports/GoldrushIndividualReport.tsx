@@ -96,16 +96,14 @@ const GoldrushIndividualReport: React.FC = () => {
       const res = await apiClient.get(`/field-ops/reports/goldrush-individuals${dateParams}${companyParam}`)
       return (res.data?.data || []) as GoldrushIndividual[]
     },
-    staleTime: 1000 * 60 * 5,
-    refetchOnMount: true,
+    staleTime: 0,
+    gcTime: 0,
   })
 
-  // Force refetch when switching to "all time" (both dates empty)
+  // Invalidate and refetch when date filter changes
   useEffect(() => {
-    if (!startDate && !endDate) {
-      refetch()
-    }
-  }, [startDate, endDate, refetch])
+    queryClient.invalidateQueries({ queryKey: ['goldrush-individuals'] })
+  }, [startDate, endDate, selectedCompany, queryClient])
 
   const handleEditGoldrushId = (ind: GoldrushIndividual) => {
     setEditingId(ind.id)
