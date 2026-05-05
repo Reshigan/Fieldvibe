@@ -41,8 +41,8 @@ interface GoldrushIndividual {
 
 const GoldrushIndividualReport: React.FC = () => {
   const queryClient = useQueryClient()
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  const [startDate, setStartDate] = useState<string | null>(null)
+  const [endDate, setEndDate] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [exporting, setExporting] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -103,7 +103,8 @@ const GoldrushIndividualReport: React.FC = () => {
   // Invalidate and refetch when date filter changes
   useEffect(() => {
     queryClient.invalidateQueries({ queryKey: ['goldrush-individuals'] })
-  }, [startDate, endDate, selectedCompany, queryClient])
+    refetch()
+  }, [startDate, endDate, selectedCompany, queryClient, refetch])
 
   const handleEditGoldrushId = (ind: GoldrushIndividual) => {
     setEditingId(ind.id)

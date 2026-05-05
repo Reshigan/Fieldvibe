@@ -3,10 +3,10 @@ import React from 'react'
 type PresetKey = 'today' | 'wtd' | 'mtd' | 'ytd' | 'alltime' | 'custom'
 
 interface DateRangePresetsProps {
-  startDate: string
-  endDate: string
-  onStartDateChange: (date: string) => void
-  onEndDateChange: (date: string) => void
+  startDate: string | null
+  endDate: string | null
+  onStartDateChange: (date: string | null) => void
+  onEndDateChange: (date: string | null) => void
 }
 
 function getPresetDates(preset: PresetKey): { start: string; end: string } | null {
@@ -14,7 +14,7 @@ function getPresetDates(preset: PresetKey): { start: string; end: string } | nul
   const today = now.toISOString().split('T')[0]
 
   if (preset === 'alltime') {
-    return { start: '2024-10-01', end: today }
+    return null
   }
 
   if (preset === 'today') {
@@ -42,11 +42,10 @@ function getPresetDates(preset: PresetKey): { start: string; end: string } | nul
   return null
 }
 
-function getActivePreset(startDate: string, endDate: string): PresetKey {
-  const today = new Date().toISOString().split('T')[0]
-  
-  if (startDate === '2024-10-01' && endDate === today) return 'alltime'
+function getActivePreset(startDate: string | null, endDate: string | null): PresetKey {
+  if (!startDate && !endDate) return 'alltime'
 
+  const today = new Date().toISOString().split('T')[0]
   const presets: PresetKey[] = ['today', 'wtd', 'mtd', 'ytd']
   for (const preset of presets) {
     const dates = getPresetDates(preset)
@@ -66,9 +65,14 @@ const DateRangePresets: React.FC<DateRangePresetsProps> = ({
   const activePreset = getActivePreset(startDate, endDate)
 
   const handlePreset = (preset: PresetKey) => {
+    if (preset === 'alltime') {
+      onStartDateChange(null)
+      onEndDateChange(null)
+      return
+    }
     if (preset === 'custom') {
-      onStartDateChange('')
-      onEndDateChange('')
+      onStartDateChange(null)
+      onEndDateChange(null)
       return
     }
     const dates = getPresetDates(preset)
@@ -99,15 +103,15 @@ const DateRangePresets: React.FC<DateRangePresetsProps> = ({
         <div className="flex items-center gap-2">
           <input
             type="date"
-            value={startDate}
-            onChange={e => onStartDateChange(e.target.value)}
+            value={startDate || ''}
+            onChange={e => onStartDateChange(e.target.value || null)}
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
           />
           <span className="text-gray-500 text-sm">to</span>
           <input
             type="date"
-            value={endDate}
-            onChange={e => onEndDateChange(e.target.value)}
+            value={endDate || ''}
+            onChange={e => onEndDateChange(e.target.value || null)}
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
           />
         </div>
