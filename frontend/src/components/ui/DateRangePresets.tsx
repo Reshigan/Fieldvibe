@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 
 type PresetKey = 'today' | 'wtd' | 'mtd' | 'ytd' | 'alltime' | 'custom'
 
@@ -13,13 +13,9 @@ function getPresetDates(preset: PresetKey): { start: string; end: string } | nul
   const now = new Date()
   const today = now.toISOString().split('T')[0]
 
-  if (preset === 'alltime') {
-    return null
-  }
+  if (preset === 'alltime') return null
 
-  if (preset === 'today') {
-    return { start: today, end: today }
-  }
+  if (preset === 'today') return { start: today, end: today }
 
   if (preset === 'wtd') {
     const dayOfWeek = now.getDay()
@@ -64,6 +60,17 @@ const DateRangePresets: React.FC<DateRangePresetsProps> = ({
   const [activePreset, setActivePreset] = useState<PresetKey>(() =>
     getActivePreset(startDate, endDate)
   )
+
+  // Sync activePreset if parent changes startDate/endDate externally
+  // (e.g. reset button, URL param changes) — but don't override 'custom'
+  // while the user is actively picking dates
+  useEffect(() => {
+    const derived = getActivePreset(startDate, endDate)
+    // Only sync if it matches a known preset — don't clobber 'custom' mid-selection
+    if (derived !== 'custom') {
+      setActivePreset(derived)
+    }
+  }, [startDate, endDate])
 
   const handlePreset = (preset: PresetKey) => {
     setActivePreset(preset)
