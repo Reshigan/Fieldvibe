@@ -41,8 +41,8 @@ interface GoldrushIndividual {
 
 const GoldrushIndividualReport: React.FC = () => {
   const queryClient = useQueryClient()
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+const [startDate, setStartDate] = useState<string>('')
+const [endDate, setEndDate] = useState<string>('')
   const [search, setSearch] = useState('')
   const [exporting, setExporting] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -84,7 +84,27 @@ const GoldrushIndividualReport: React.FC = () => {
     }
   }, [companies, selectedCompany])
 
-  const companyParam = selectedCompany ? `${startDate || endDate ? '&' : '?'}company_id=${selectedCompany}` : ''
+  const buildQueryUrl = () => {
+    const params = new URLSearchParams()
+    if (startDate) params.append('startDate', startDate)
+    if (endDate) params.append('endDate', endDate)
+    if (selectedCompany) params.append('company_id', selectedCompany)
+    const queryString = params.toString()
+    return `/field-ops/reports/goldrush-individuals${queryString ? '?' + queryString : ''}`
+  }
+
+  const { data: individuals = [], isLoading, isError, refetch } = useQuery({
+    queryKey: ['goldrush-individuals', startDate, endDate, selectedCompany],
+    queryFn: async () => {
+      const url = buildQueryUrl()
+      console.log('[Goldrush] Fetching from:', url)
+      const res = await apiClient.get(url)
+      console.log('[Goldrush] Received', res.data?.data?.length, 'records')
+      return (res.data?.data || []) as GoldrushIndividual[]
+    },
+    staleTime: 60000, // 1 minute cache to reduce API calls
+    gcTime: 5 * 60 * 1000, // Keep data for 5 minutes
+  })
 
   const handleEditGoldrushId = (ind: GoldrushIndividual) => {
     setEditingId(ind.id)
@@ -163,19 +183,6 @@ const GoldrushIndividualReport: React.FC = () => {
     }
   }
 
-  const dateParams = startDate || endDate
-    ? `?${startDate ? `startDate=${startDate}` : ''}${endDate ? `${startDate ? '&' : ''}endDate=${endDate}` : ''}`
-    : ''
-
-  const { data: individuals = [], isLoading, isError, refetch } = useQuery({
-    queryKey: ['goldrush-individuals', startDate, endDate, selectedCompany],
-    queryFn: async () => {
-      const res = await apiClient.get(`/field-ops/reports/goldrush-individuals${dateParams}${companyParam}`)
-      return (res.data?.data || []) as GoldrushIndividual[]
-    },
-    staleTime: 1000 * 60 * 5,
-  })
-
   const filtered = individuals.filter(ind => {
     if (!search) return true
     const s = search.toLowerCase()
@@ -197,7 +204,7 @@ const GoldrushIndividualReport: React.FC = () => {
   const exportToExcel = () => {
     setExporting(true)
     try {
-      if (filtered.length === 0) {
+      if (individuals.length === 0) {
         toast.error('No data to export')
         return
       }
@@ -211,7 +218,7 @@ const GoldrushIndividualReport: React.FC = () => {
         'GPS Latitude', 'GPS Longitude', 'Date Registered'
       ]
 
-      const rows = filtered.map(ind => [
+      const rows = individuals.map(ind => [
         ind.first_name || '',
         ind.last_name || '',
         ind.id_number || '',
@@ -249,7 +256,7 @@ const GoldrushIndividualReport: React.FC = () => {
       a.download = `goldrush-individual-report-${new Date().toISOString().slice(0, 10)}.csv`
       a.click()
       URL.revokeObjectURL(url)
-      toast.success(`Exported ${filtered.length} records`)
+      toast.success(`Exported ${individuals.length} records`)
     } catch {
       toast.error('Export failed')
     } finally {
@@ -298,7 +305,7 @@ const GoldrushIndividualReport: React.FC = () => {
             className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 text-sm font-medium">
             <RefreshCw className="h-4 w-4" /> Refresh
           </button>
-          <button onClick={exportToExcel} disabled={exporting || filtered.length === 0}
+          <button onClick={exportToExcel} disabled={exporting || individuals.length === 0}
             className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm font-medium">
             <Download className="h-4 w-4" /> Export Excel
           </button>

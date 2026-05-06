@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 
 type PresetKey = 'today' | 'wtd' | 'mtd' | 'ytd' | 'alltime' | 'custom'
 
@@ -13,13 +13,9 @@ function getPresetDates(preset: PresetKey): { start: string; end: string } | nul
   const now = new Date()
   const today = now.toISOString().split('T')[0]
 
-  if (preset === 'alltime') {
-    return null
-  }
+  if (preset === 'alltime') return null
 
-  if (preset === 'today') {
-    return { start: today, end: today }
-  }
+  if (preset === 'today') return { start: today, end: today }
 
   if (preset === 'wtd') {
     const dayOfWeek = now.getDay()
@@ -61,19 +57,39 @@ const DateRangePresets: React.FC<DateRangePresetsProps> = ({
   onStartDateChange,
   onEndDateChange,
 }) => {
-  const activePreset = getActivePreset(startDate, endDate)
+  const [activePreset, setActivePreset] = useState<PresetKey>(() =>
+    getActivePreset(startDate, endDate)
+  )
+
+  // Sync activePreset if parent changes startDate/endDate externally
+  // (e.g. reset button, URL param changes) — but don't override 'custom'
+  // while the user is actively picking dates
+  useEffect(() => {
+    const derived = getActivePreset(startDate, endDate)
+    // Only sync if it matches a known preset — don't clobber 'custom' mid-selection
+    if (derived !== 'custom') {
+      setActivePreset(derived)
+    }
+  }, [startDate, endDate])
 
   const handlePreset = (preset: PresetKey) => {
+    setActivePreset(preset)
+
     if (preset === 'alltime') {
       onStartDateChange('')
       onEndDateChange('')
       return
     }
+
     if (preset === 'custom') {
-      onStartDateChange('')
-      onEndDateChange('')
+      const today = new Date().toISOString().split('T')[0]
+      if (!startDate && !endDate) {
+        onStartDateChange(today)
+        onEndDateChange(today)
+      }
       return
     }
+
     const dates = getPresetDates(preset)
     if (dates) {
       onStartDateChange(dates.start)
@@ -102,15 +118,15 @@ const DateRangePresets: React.FC<DateRangePresetsProps> = ({
         <div className="flex items-center gap-2">
           <input
             type="date"
-            value={startDate}
-            onChange={e => onStartDateChange(e.target.value)}
+            value={startDate || ''}
+            onChange={e => onStartDateChange(e.target.value || '')}
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
           />
           <span className="text-gray-500 text-sm">to</span>
           <input
             type="date"
-            value={endDate}
-            onChange={e => onEndDateChange(e.target.value)}
+            value={endDate || ''}
+            onChange={e => onEndDateChange(e.target.value || '')}
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
           />
         </div>
