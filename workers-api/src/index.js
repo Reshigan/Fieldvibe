@@ -9273,8 +9273,8 @@ api.get('/field-ops/performance', authMiddleware, async (c) => {
     } else {
       // Manager sees all teams
       const EXCLUDED_TL_IDS = "'5a47959c-9f93-45d2-a03f-783064817165','49554b57-c6e4-422b-91aa-fb6e5d66c9d9','f0669dd7-9fb1-4595-a94c-f108cfe402b5'";
-      const allTeamLeads = await db.prepare(`SELECT id, first_name, last_name FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1 AND id NOT IN (${EXCLUDED_TL_IDS})`).bind(tenantId).all();
-      const allAgents = await db.prepare(`SELECT id, first_name, last_name, team_lead_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1 AND (team_lead_id IS NULL OR team_lead_id NOT IN (${EXCLUDED_TL_IDS}))`).bind(tenantId).all();
+      const allTeamLeads = await db.prepare(`SELECT id, first_name, last_name FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1 AND id NOT IN (${EXCLUDED_TL_IDS}) AND email != 'luke.templeman@gonxt.tech'`).bind(tenantId).all();
+      const allAgents = await db.prepare(`SELECT id, first_name, last_name, team_lead_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1 AND (team_lead_id IS NULL OR team_lead_id NOT IN (${EXCLUDED_TL_IDS})) AND email != 'luke.templeman@gonxt.tech'`).bind(tenantId).all();
       
       const [allVisits, allConvs, allIndivVisits, allStoreVisits] = await Promise.all([
         db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? AND status = 'completed' GROUP BY agent_id").bind(tenantId, startD, endD).all(),
@@ -9652,8 +9652,8 @@ api.get('/field-ops/performance/export-excel', authMiddleware, async (c) => {
     const EXCLUDED_TL_IDS = "'5a47959c-9f93-45d2-a03f-783064817165','49554b57-c6e4-422b-91aa-fb6e5d66c9d9','f0669dd7-9fb1-4595-a94c-f108cfe402b5'";
     const EXCLUDED_MGR_IDS = "'619a2943-861c-4da5-9c13-6ca7c4736e4e','2dced2a8-ed77-4e7c-8d7b-cfa09cf1b14f'";
     const allManagers = await db.prepare(`SELECT id, first_name, last_name FROM users WHERE tenant_id = ? AND role = 'manager' AND is_active = 1 AND id NOT IN (${EXCLUDED_MGR_IDS})`).bind(tenantId).all();
-    const allTeamLeads = await db.prepare(`SELECT id, first_name, last_name, manager_id FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1 AND id NOT IN (${EXCLUDED_TL_IDS})`).bind(tenantId).all();
-    const allAgents = await db.prepare(`SELECT id, first_name, last_name, team_lead_id, manager_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1 AND (team_lead_id IS NULL OR team_lead_id NOT IN (${EXCLUDED_TL_IDS}))`).bind(tenantId).all();
+    const allTeamLeads = await db.prepare(`SELECT id, first_name, last_name, manager_id FROM users WHERE tenant_id = ? AND role = 'team_lead' AND is_active = 1 AND id NOT IN (${EXCLUDED_TL_IDS}) AND email != 'luke.templeman@gonxt.tech'`).bind(tenantId).all();
+    const allAgents = await db.prepare(`SELECT id, first_name, last_name, team_lead_id, manager_id FROM users WHERE tenant_id = ? AND role IN ('agent', 'field_agent') AND is_active = 1 AND (team_lead_id IS NULL OR team_lead_id NOT IN (${EXCLUDED_TL_IDS})) AND email != 'luke.templeman@gonxt.tech'`).bind(tenantId).all();
     const [allVisits, allIndivV, allStoreV] = await Promise.all([
       db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND visit_date BETWEEN ? AND ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
       db.prepare("SELECT agent_id, COUNT(*) as count FROM visits WHERE tenant_id = ? AND LOWER(visit_type) = 'individual' AND visit_date BETWEEN ? AND ? GROUP BY agent_id").bind(tenantId, startD, endD).all(),
@@ -9874,7 +9874,7 @@ api.get('/field-ops/drill-down/:userId', authMiddleware, async (c) => {
     if (!user) return c.json({ success: false, message: 'User not found' }, 404);
     if (user.role === 'manager') {
       // Manager drill-down: show team leads with their stats
-      const teamLeads = await db.prepare("SELECT id, first_name, last_name, email, role FROM users WHERE manager_id = ? AND tenant_id = ? AND role = 'team_lead' AND is_active = 1").bind(targetUserId, tenantId).all();
+      const teamLeads = await db.prepare("SELECT id, first_name, last_name, email, role FROM users WHERE manager_id = ? AND tenant_id = ? AND role = 'team_lead' AND is_active = 1 AND email != 'luke.templeman@gonxt.tech'").bind(targetUserId, tenantId).all();
       const directAgents = await db.prepare("SELECT id, first_name, last_name, email, role FROM users WHERE manager_id = ? AND tenant_id = ? AND role = 'agent' AND (team_lead_id IS NULL OR team_lead_id = '') AND is_active = 1").bind(targetUserId, tenantId).all();
       const subordinates = [];
       for (const tl of (teamLeads.results || [])) {
@@ -9965,7 +9965,7 @@ api.get('/field-ops/drill-down/:userId/export', authMiddleware, async (c) => {
     
     if (user.role === 'manager') {
       headers = ['Name', 'Role', 'Visits', 'Individual', 'Store', 'Conversions', 'Conversion Rate'];
-      const teamLeads = await db.prepare("SELECT id, first_name, last_name FROM users WHERE manager_id = ? AND tenant_id = ? AND role = 'team_lead' AND is_active = 1").bind(targetUserId, tenantId).all();
+      const teamLeads = await db.prepare("SELECT id, first_name, last_name FROM users WHERE manager_id = ? AND tenant_id = ? AND role = 'team_lead' AND is_active = 1 AND email != 'luke.templeman@gonxt.tech'").bind(targetUserId, tenantId).all();
       const directAgents = await db.prepare("SELECT id, first_name, last_name FROM users WHERE manager_id = ? AND tenant_id = ? AND role = 'agent' AND (team_lead_id IS NULL OR team_lead_id = '') AND is_active = 1").bind(targetUserId, tenantId).all();
       for (const tl of (teamLeads.results || [])) {
         const teamAgentIds = await db.prepare("SELECT id FROM users WHERE team_lead_id = ? AND tenant_id = ? AND is_active = 1").bind(tl.id, tenantId).all();
@@ -16939,6 +16939,7 @@ api.get('/field-ops/reports/agent-performance', authMiddleware, async (c) => {
       FROM visits v
       LEFT JOIN users u ON v.agent_id = u.id
       WHERE v.tenant_id = ?${dateFilter}
+        AND (u.email IS NULL OR u.email != 'luke.templeman@gonxt.tech')
       GROUP BY v.agent_id
       ORDER BY checkin_count DESC
       LIMIT 50
@@ -17117,7 +17118,7 @@ api.get('/field-ops/reports/goldrush-individuals', authMiddleware, async (c) => 
       WHERE v.tenant_id = ? AND v.company_id = ? AND LOWER(v.visit_type) = 'individual'
         AND v.agent_id NOT LIKE 'agent-test-%'
         AND v.agent_id NOT IN ('admin-user-001', 'agent-user-001', 'manager-user-001', 'e6c2898a-6420-4327-8000-e7857021a306')
-        AND (u.id IS NULL OR (u.email NOT LIKE '%@fieldvibe.test' AND u.email NOT LIKE '%@demo.com' AND u.email != 'luke@templeman.co.za'))${dateFilter}
+        AND (u.id IS NULL OR (u.email NOT LIKE '%@fieldvibe.test' AND u.email NOT LIKE '%@demo.com' AND u.email != 'luke@templeman.co.za' AND u.email != 'luke.templeman@gonxt.tech'))${dateFilter}
       ORDER BY v.created_at DESC
     `).bind(...binds).all();
 
@@ -17279,7 +17280,7 @@ api.get('/field-ops/reports/goldrush-stores', authMiddleware, async (c) => {
       WHERE v.tenant_id = ? AND v.company_id = ? AND LOWER(v.visit_type) = 'store'
         AND v.agent_id NOT LIKE 'agent-test-%'
         AND v.agent_id NOT IN ('admin-user-001', 'agent-user-001', 'manager-user-001', 'e6c2898a-6420-4327-8000-e7857021a306')
-        AND (u.id IS NULL OR (u.email NOT LIKE '%@fieldvibe.test' AND u.email NOT LIKE '%@demo.com' AND u.email != 'luke@templeman.co.za'))${dateFilter}
+        AND (u.id IS NULL OR (u.email NOT LIKE '%@fieldvibe.test' AND u.email NOT LIKE '%@demo.com' AND u.email != 'luke@templeman.co.za' AND u.email != 'luke.templeman@gonxt.tech'))${dateFilter}
       ORDER BY v.created_at DESC
     `).bind(...binds).all();
 
